@@ -23,10 +23,14 @@ class LectureApp : Application() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_UPLOAD, "Uploads", NotificationManager.IMPORTANCE_LOW)
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_JOBS, "Summary ready / failed", NotificationManager.IMPORTANCE_DEFAULT)
+        )
     }
 
     companion object {
         const val CHANNEL_RECORDING = "recording"
         const val CHANNEL_UPLOAD = "upload"
+        const val CHANNEL_JOBS = "jobs"
     }
 }

@@ -70,3 +70,12 @@ This repo is public: never commit real recordings (audio extensions are git-igno
 - File ≤ 4 MB, or server says `{"mode":"multipart"}` from `POST /v1/uploads` (box/local API with no Blob store): multipart to the `/v1` endpoint, as before.
 - File > 4 MB and server says `{"mode":"blob"}` (Vercel with a Blob store): PUT bytes to the returned `put_url` with the returned `headers` (direct to Vercel Blob, bypassing the 4.5 MB function limit), then POST JSON `{url,...}` to the same `/v1` endpoint.
 Slides/context streams are spooled to a temp file first so their size is known. If `/v1/uploads` fails or isn't there, it falls back to multipart.
+
+## Recent additions (2026-10-28)
+- Status / Attach screens scroll; long server errors truncated (~280 chars, Show more); Retry buttons always reachable.
+- Open attached slides / context PDFs; prominent "Open study PDF" / "Share / save PDF" card when done.
+- Share / save the local recording (ACTION_SEND / SEND_MULTIPLE); import an existing audio file instead of recording.
+- Course-level subject PDF (course screen), used as context for every lecture unless overridden per lecture.
+- Background job polling (WorkManager, no Firebase) with a local notification when the summary is ready or fails.
+- Notebook-cover style course/lecture cards with state badges.
+- applicationId stays `il.ac.tau.lecturesummarizer`, so installing a new debug APK updates in place and keeps recordings (same debug signing key on the build box).

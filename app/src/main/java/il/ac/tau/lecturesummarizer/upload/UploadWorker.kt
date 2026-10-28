@@ -47,7 +47,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
                 applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it) }
             }
-            lecture.contextPdfUri?.let { s ->
+            (lecture.contextPdfUri ?: course.contextPdfUri)?.let { s ->
                 val uri = Uri.parse(s)
                 applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadCourseContext(remote, displayName(uri), it) }
             }
@@ -61,6 +61,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
             val jobId = repo.lecture(id)?.jobId ?: api.startProcessing(remote)
             repo.updateLecture(id) { it.copy(jobId = jobId, state = LectureState.PROCESSING) }
+            JobPollWorker.enqueue(applicationContext, id)
             Result.success()
         } catch (e: Exception) {
             repo.updateLecture(id) { it.copy(error = e.message) }

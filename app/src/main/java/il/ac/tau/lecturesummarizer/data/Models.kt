@@ -3,7 +3,7 @@ package il.ac.tau.lecturesummarizer.data
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Course(val id: String, val name: String, val remoteId: String? = null)
+data class Course(val id: String, val name: String, val remoteId: String? = null, val contextPdfUri: String? = null)
 
 /** A "next slide/topic" tap during recording. tSec = seconds since recording start (across parts). */
 data class Marker(val tSec: Long, val label: String? = null)
@@ -35,8 +35,8 @@ data class JobStatus(val state: String, val stage: String?, val progress: Int, v
 
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
-fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId)
-fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"))
+fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)
+fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"))
 
 fun Lecture.toJson(): JSONObject = JSONObject()
     .put("id", id).put("courseId", courseId).put("title", title).put("recordedAtMs", recordedAtMs)

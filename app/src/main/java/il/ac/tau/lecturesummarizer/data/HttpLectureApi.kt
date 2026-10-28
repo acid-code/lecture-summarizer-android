@@ -93,16 +93,17 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         val startedAt = java.time.Instant.ofEpochMilli(seg.startedAtMs).toString()
         val duration = seg.durationMs / 1000.0
         val path = "/v1/lectures/$lectureRemoteId/audio/segments"
-        blobUploadOrNull(file, "audio/mp4")?.let { url ->
+        val mime = audioMime(file)
+        blobUploadOrNull(file, mime)?.let { url ->
             postJson(path, JSONObject().put("seq", seg.seq).put("started_at", startedAt)
-                .put("duration", duration).put("mime", "audio/mp4").put("url", url))
+                .put("duration", duration).put("mime", mime).put("url", url))
             return
         }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("seq", seg.seq.toString())
             .addFormDataPart("started_at", startedAt)
             .addFormDataPart("duration", duration.toString())
-            .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
+            .addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaType()))
             .build()
         call(req(path).post(body).build()) {}
     }
@@ -140,4 +141,11 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         /** Above this, use Blob direct upload when the server offers it (Vercel body limit is 4.5 MB). */
         const val BLOB_THRESHOLD = 4L * 1024 * 1024
     }
+}
+
+/** MIME for a local audio file by extension (recorded = .m4a; imported files keep their extension). */
+fun audioMime(f: File): String = when (f.extension.lowercase()) {
+    "mp3" -> "audio/mpeg"; "wav" -> "audio/wav"; "ogg", "oga", "opus" -> "audio/ogg"; "flac" -> "audio/flac"
+    "aac" -> "audio/aac"; "webm" -> "audio/webm"; "amr" -> "audio/amr"; "3gp" -> "audio/3gpp"
+    else -> "audio/mp4"
 }
