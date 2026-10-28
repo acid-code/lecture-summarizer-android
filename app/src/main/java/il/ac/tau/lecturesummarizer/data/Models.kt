@@ -3,7 +3,11 @@ package il.ac.tau.lecturesummarizer.data
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Course(val id: String, val name: String, val remoteId: String? = null, val contextPdfUri: String? = null)
+data class Course(
+    val id: String, val name: String, val remoteId: String? = null, val contextPdfUri: String? = null,
+    /** Notebook cover customisation (null = derived defaults). */
+    val emoji: String? = null, val color: Long? = null, val pattern: String? = null,
+)
 
 /** A "next slide/topic" tap during recording. tSec = seconds since recording start (across parts). */
 data class Marker(val tSec: Long, val label: String? = null)
@@ -39,7 +43,9 @@ data class Transcript(val source: String, val complete: Boolean, val lines: List
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
 fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)
-fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"))
+    .put("emoji", emoji).put("color", color).put("pattern", pattern)
+fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"),
+    o.optStringOrNull("emoji"), if (o.has("color") && !o.isNull("color")) o.getLong("color") else null, o.optStringOrNull("pattern"))
 
 fun Lecture.toJson(): JSONObject = JSONObject()
     .put("id", id).put("courseId", courseId).put("title", title).put("recordedAtMs", recordedAtMs)

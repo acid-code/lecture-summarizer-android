@@ -56,6 +56,8 @@ class RecorderService : Service() {
     private var seq = 0
     private var lectureId: String? = null
     private var ticker: Job? = null
+    private var lastNotif = 0L
+    private var title = ""
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val repo get() = (application as LectureApp).repo
@@ -81,7 +83,7 @@ class RecorderService : Service() {
         startElapsed = SystemClock.elapsedRealtime() - prior
 
         ServiceCompat.startForeground(
-            this, NOTIF_ID, buildNotification(lecture.title),
+            this, NOTIF_ID, buildNotification(lecture.title.also { title = it }, prior),
             if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
         )
         wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -95,6 +97,7 @@ class RecorderService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 _state.value = _state.value.copy(elapsedMs = now - startElapsed, segmentSeq = seq)
                 if (now - segmentStartElapsed >= SEGMENT_MS) rotateSegment()
+                if (now - lastNotif >= 1000) { lastNotif = now; updateNotification(now - startElapsed) }
                 delay(500)
             }
         }
@@ -159,14 +162,30 @@ class RecorderService : Service() {
         super.onDestroy()
     }
 
-    private fun buildNotification(title: String): Notification {
+    private fun updateNotification(elapsedMs: Long) {
+        runCatching {
+            androidx.core.app.NotificationManagerCompat.from(this).notify(NOTIF_ID, buildNotification(title, elapsedMs))
+        }
+    }
+
+    private fun fmt(ms: Long): String { val s = ms / 1000
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%02d:%02d".format(s / 60, s % 60) }
+
+    private fun buildNotification(title: String, elapsedMs: Long = 0): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         fun action(a: String, code: Int) = PendingIntent.getService(this, code,
             Intent(this, RecorderService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, LectureApp.CHANNEL_RECORDING)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Recording: $title")
-            .setContentText("Tap 'Next slide' to add a marker")
+            .setContentText("● ${fmt(elapsedMs)} elapsed · ${_state.value.markerCount} markers · tap 'Next slide' to mark")
+            .setSubText(fmt(elapsedMs))
+            .setWhen(System.currentTimeMillis() - elapsedMs)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
             .setContentIntent(open)
             .addAction(0, "Next slide", action(ACTION_MARKER, 1))

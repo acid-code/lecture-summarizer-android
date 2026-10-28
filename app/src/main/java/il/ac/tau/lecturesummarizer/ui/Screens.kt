@@ -56,22 +56,33 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
-    AppScaffold("Courses",
+    var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    AppScaffold("Notebooks",
         actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
-        fab = { FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Default.Add, "Add course") } }
+        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") }) }
     ) { pad ->
-        if (courses.isEmpty()) Empty(pad, "No courses yet. Tap + to add one (Hebrew names are fine).")
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(courses, key = { it.id }) { c ->
+        if (courses.isEmpty()) Empty(pad, "📚\n\nNo notebooks yet\n\nCreate one per course — pick an icon, a color and a cover style.")
+        else androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp), Modifier.padding(pad),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            items(courses.size, key = { courses[it].id }) { i ->
+                val c = courses[i]
                 val n = all.count { it.courseId == c.id }
-                NotebookCard(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.contextPdfUri != null) " · subject PDF ✓" else ""),
-                    coverColor(c.name)) { onOpen(c.id) }
+                Column {
+                    NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.contextPdfUri != null) " · PDF ✓" else ""),
+                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
+                    TextButton(onClick = { editing = c }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                }
             }
         }
     }
-    if (adding) NameDialog("New course", "Course name", onDismiss = { adding = false }) {
-        app.repo.addCourse(it); adding = false
+    if (adding) NotebookEditor(null, onDismiss = { adding = false }) { name, e, col, pat ->
+        app.repo.addCourse(name, e, col, pat); adding = false
     }
+    editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
+        app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
+    } }
 }
 
 // ---------- Lectures ----------
@@ -93,13 +104,15 @@ fun LecturesScreen(
             app.repo.updateCourse(courseId) { c -> c.copy(contextPdfUri = it.toString()) }
         }
     }
+    var editCover by remember { mutableStateOf(false) }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
-        fab = { FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Default.Add, "New lecture") } }
+        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New lecture") }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            course?.let { c -> item { CourseHeader(c, "${lectures.size} lecture${if (lectures.size == 1) "" else "s"}") { editCover = true } } }
             item {
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Course subject PDF", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Text("Syllabus / glossary / previous summaries. Sent with every lecture in this course as context.",
                             style = MaterialTheme.typography.bodySmall)
@@ -117,12 +130,13 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item { Text("No lectures. Tap + to start a new lecture part.", Modifier.padding(16.dp)) }
+            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “New lecture” to record, or import an audio file.", Modifier.fillMaxWidth().padding(32.dp),
+                textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers",
-                    coverColor(course?.name ?: l.courseId), badge = stateLabel(l.state)) {
+                    course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern)) {
                     when (l.state) {
                         LectureState.DRAFT, LectureState.RECORDING -> onRecord(l.id)
                         LectureState.RECORDED -> onAttach(l.id)
@@ -134,6 +148,9 @@ fun LecturesScreen(
     }
     if (adding) NameDialog("New lecture part", "Title (e.g. Lecture 5 — part 1)", onDismiss = { adding = false }) {
         val l = app.repo.addLecture(courseId, it); adding = false; onRecord(l.id)
+    }
+    if (editCover && course != null) NotebookEditor(course, onDismiss = { editCover = false }) { name, e, col, pat ->
+        app.repo.updateCourse(courseId) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editCover = false
     }
 }
 
@@ -163,7 +180,9 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             val prior = l?.segments?.sumOf { it.durationMs } ?: 0
-            Text(formatElapsed(if (active) rec.elapsedMs else prior), fontSize = 56.sp)
+            Text(formatElapsed(if (active) rec.elapsedMs else prior), fontSize = 60.sp, fontWeight = FontWeight.Light,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text(if (active) "Recording · segment ${rec.segmentSeq + 1} · ${rec.markerCount} markers"
                  else "Stopped · ${l?.segments?.size ?: 0} segments · ${l?.markers?.size ?: 0} markers")
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
@@ -221,7 +240,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
     val courseCtx = app.repo.course(l.courseId)?.contextPdfUri
     AppScaffold("Attach & upload", onBack = onBack) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(l.title, style = MaterialTheme.typography.titleLarge)
+            Text(l.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text("${l.segments.size} audio segments · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }) { Text("Import audio file") }
@@ -229,7 +248,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { Text("Listen") }
             }
             HorizontalDivider()
-            Text("Lecture slides (optional, PDF/PPTX)", style = MaterialTheme.typography.titleSmall)
+            SectionLabel("Lecture slides (optional, PDF/PPTX)")
             Text(l.slidesUri?.let { displayName(ctx, it) } ?: "None")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -239,7 +258,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 }) { Text("Choose slides") }
                 l.slidesUri?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open") } }
             }
-            Text("Context PDF for this lecture (optional)", style = MaterialTheme.typography.titleSmall)
+            SectionLabel("Context PDF for this lecture (optional)")
             Text(l.contextPdfUri?.let { displayName(ctx, it) }
                 ?: courseCtx?.let { "Using course subject PDF: ${displayName(ctx, it)}" } ?: "None (attach a course subject PDF on the course screen)")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -249,9 +268,9 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             HorizontalDivider()
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
             l.error?.let { ErrorText("Last error: $it (will retry)") }
-            Button(enabled = l.segments.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
+            Button(enabled = l.segments.isNotEmpty(), onClick = {
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
-            }) { Text("Upload & summarize") }
+            }, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Upload & summarize", fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -289,10 +308,17 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
     AppScaffold("Status", onBack = onBack) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(l.title, style = MaterialTheme.typography.titleLarge)
-            Text("State: ${stateLabel(l.state)}" + (l.stage?.let { " · stage: $it" } ?: ""))
-            l.jobId?.let { CopyableId("Job id", it) }
-            l.remoteId?.let { CopyableId("Lecture id", it) }
+            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(l.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(onClick = {}, label = { Text(stateLabel(l.state)) })
+                        l.stage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                    l.jobId?.let { CopyableId("Job id", it) }
+                    l.remoteId?.let { CopyableId("Lecture id", it) }
+                }
+            }
             if (l.state == LectureState.PROCESSING) Text("You'll get a notification when it's done — you can leave this screen.",
                 style = MaterialTheme.typography.bodySmall)
             if (l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING) {
@@ -390,19 +416,23 @@ fun stateLabel(s: LectureState) = when (s) {
     LectureState.FAILED -> "Failed"
 }
 
-/** Notebook-cover style card: colored spine + title. */
+/** Lecture row: inherits a lighter version of the course cover (pale pattern + colored spine). */
 @Composable
-fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, onClick: () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(10.dp)) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
-            Box(Modifier.width(18.dp).fillMaxHeight().background(color))
-            Box(Modifier.width(3.dp).fillMaxHeight().background(color.copy(alpha = 0.4f)))
-            Column(Modifier.weight(1f).background(color.copy(alpha = 0.10f)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall)
-                badge?.let {
-                    Text(it, Modifier.clip(RoundedCornerShape(50)).background(color).padding(horizontal = 10.dp, vertical = 2.dp),
-                        color = Color.White, style = MaterialTheme.typography.labelSmall)
+fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, pattern: CoverPattern = CoverPattern.SOLID, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Box(Modifier.height(IntrinsicSize.Min)) {
+            CoverBackground(color, pattern, light = true, modifier = Modifier.matchParentSize())
+            Row {
+                Box(Modifier.width(6.dp).fillMaxHeight().background(color))
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    badge?.let {
+                        Text(it, Modifier.padding(top = 2.dp).clip(RoundedCornerShape(50)).background(color).padding(horizontal = 10.dp, vertical = 3.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }
@@ -484,7 +514,7 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
 @Composable
 private fun Empty(pad: PaddingValues, text: String) {
     Box(Modifier.padding(pad).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(text, textAlign = TextAlign.Center)
+        Text(text, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

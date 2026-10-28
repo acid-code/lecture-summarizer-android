@@ -28,8 +28,8 @@ class Repository(private val context: Context) {
     fun lecture(id: String) = _lectures.value.firstOrNull { it.id == id }
     fun course(id: String) = _courses.value.firstOrNull { it.id == id }
 
-    @Synchronized fun addCourse(name: String): Course {
-        val c = Course(UUID.randomUUID().toString(), name)
+    @Synchronized fun addCourse(name: String, emoji: String? = null, color: Long? = null, pattern: String? = null): Course {
+        val c = Course(UUID.randomUUID().toString(), name, emoji = emoji, color = color, pattern = pattern)
         _courses.value = _courses.value + c; save(); return c
     }
 
