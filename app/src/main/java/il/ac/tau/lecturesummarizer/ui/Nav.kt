@@ -24,9 +24,10 @@ fun AppNav(app: LectureApp) {
         }
         composable("attach/{id}") { e ->
             val id = e.arguments!!.getString("id")!!
-            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } })
+            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onListen = { nav.navigate("listen/$id") }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } })
         }
-        composable("job/{id}") { e -> val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }) }
+        composable("job/{id}") { e -> val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }, onListen = { nav.navigate("listen/$id") }) }
+        composable("listen/{id}") { e -> ListenScreen(app, e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }) }
         composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() }) }
     }
 }

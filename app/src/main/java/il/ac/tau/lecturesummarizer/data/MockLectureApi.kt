@@ -34,6 +34,9 @@ class MockLectureApi : LectureApi {
         jobStarts[jobId] = System.currentTimeMillis(); return JobStatus("running", stages[0], 0, null)
     }
 
+    override suspend fun resummarizeJob(jobId: String): JobStatus = retryJob(jobId)
+    override suspend fun transcript(lectureRemoteId: String): Transcript? = Transcript("mock", true,
+        (0 until 12).map { TranscriptLine(it * 10.0, it * 10.0 + 10, "Mock line ${it + 1}: דיפ לרנינג → deep learning") })
     override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) {
         val doc = PdfDocument()
         val page = doc.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())

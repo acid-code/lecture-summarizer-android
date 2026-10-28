@@ -33,6 +33,9 @@ data class Lecture(
 
 data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?)
 
+data class TranscriptLine(val t0: Double, val t1: Double, val text: String)
+data class Transcript(val source: String, val complete: Boolean, val lines: List<TranscriptLine>)
+
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
 fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)

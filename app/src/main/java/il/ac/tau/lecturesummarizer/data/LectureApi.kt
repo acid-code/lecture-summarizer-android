@@ -18,5 +18,9 @@ interface LectureApi {
     suspend fun jobStatus(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
     suspend fun retryJob(jobId: String): JobStatus
+    /** POST /v1/jobs/{id}/resummarize — re-run summary+PDF only, keeping ASR/repair (no ASR quota). */
+    suspend fun resummarizeJob(jobId: String): JobStatus
+    /** GET /v1/lectures/{id}/transcript — null when the server has no transcript yet (404). */
+    suspend fun transcript(lectureRemoteId: String): Transcript?
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)
 }

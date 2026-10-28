@@ -130,6 +130,23 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
+    override suspend fun resummarizeJob(jobId: String): JobStatus {
+        val o = postJson("/v1/jobs/$jobId/resummarize", JSONObject())
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+    }
+
+    override suspend fun transcript(lectureRemoteId: String): Transcript? = withContext(Dispatchers.IO) {
+        val r = req("/v1/lectures/$lectureRemoteId/transcript").get().build()
+        client.newCall(r).execute().use { resp ->
+            if (resp.code == 404) return@use null
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} GET ${r.url.encodedPath}")
+            val o = JSONObject(resp.body!!.string())
+            val a = o.optJSONArray("segments") ?: JSONArray()
+            Transcript(o.optString("source"), o.optBoolean("complete"), (0 until a.length()).map { a.getJSONObject(it) }
+                .map { TranscriptLine(it.optDouble("t0"), it.optDouble("t1"), it.optString("text")) })
+        }
+    }
+
     override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) =
         call(req("/v1/lectures/$lectureRemoteId/summary.pdf").get().build()) { resp ->
             val tmp = File(dest.parentFile, dest.name + ".part")

@@ -196,7 +196,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -226,6 +226,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }) { Text("Import audio file") }
                 if (l.segments.isNotEmpty()) TextButton(onClick = { shareRecording(ctx, l.segments) }) { Text("Share recording") }
+                if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { Text("Listen") }
             }
             HorizontalDivider()
             Text("Lecture slides (optional, PDF/PPTX)", style = MaterialTheme.typography.titleSmall)
@@ -258,7 +259,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 // ---------- Job status + PDF ----------
 
 @Composable
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -290,6 +291,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(l.title, style = MaterialTheme.typography.titleLarge)
             Text("State: ${stateLabel(l.state)}" + (l.stage?.let { " · stage: $it" } ?: ""))
+            l.jobId?.let { CopyableId("Job id", it) }
+            l.remoteId?.let { CopyableId("Lecture id", it) }
             if (l.state == LectureState.PROCESSING) Text("You'll get a notification when it's done — you can leave this screen.",
                 style = MaterialTheme.typography.bodySmall)
             if (l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING) {
@@ -330,6 +333,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             }
             l.slidesUri?.let { u -> OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { openDoc(ctx, u) }) { Text("Open lecture slides") } }
             val audio = l.segments.count { File(it.path).exists() }
+            if (audio > 0 || l.remoteId != null) Button(modifier = Modifier.fillMaxWidth(), onClick = onListen) {
+                Text("🎧 Listen / Transcript")
+            }
             if (audio > 0) OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { shareRecording(ctx, l.segments) }) {
                 Text("Share / save recording ($audio file${if (audio == 1) "" else "s"})")
             }
@@ -337,7 +343,30 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             if (l.state == LectureState.DONE) TextButton(onClick = {
                 scope.launch { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING) } }
             }) { Text("Re-check / re-download") }
+            val jid = l.jobId
+            if (jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)) TextButton(onClick = {
+                scope.launch {
+                    runCatching { ApiProvider.get(app.settings).resummarizeJob(jid) }
+                        .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                        .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
+                }
+            }) { Text("Re-summarize (keep transcript, no re-ASR)") }
         }
+    }
+}
+
+@Composable
+fun CopyableId(label: String, value: String) {
+    val ctx = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
+            Text("$label: $value", style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+        }
+        TextButton(onClick = {
+            val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
+            Toast.makeText(ctx, "$label copied", Toast.LENGTH_SHORT).show()
+        }) { Text("Copy") }
     }
 }
 
