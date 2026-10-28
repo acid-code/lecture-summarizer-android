@@ -48,9 +48,10 @@ Courses → Lectures (per course) → **Record** (start/stop, elapsed, segment #
   course/lecture IDs, which segments were uploaded, and the job ID, so retries resume.
 
 ## API contract used (PLAN.md §5)
-`POST /v1/courses` · `POST /v1/lectures` · `POST /v1/lectures/{id}/slides` (multipart) · `POST /v1/lectures/{id}/context` (multipart, *proposed*) ·
+`POST /v1/courses` · `POST /v1/lectures` · `POST /v1/lectures/{id}/slides` (multipart) · `POST /v1/lectures/{id}/context` (multipart PDF; stored on the lecture's course, also `POST /v1/courses/{id}/context`) ·
 `POST /v1/lectures/{id}/audio/segments` (multipart: seq, started_at, duration, file) · `POST /v1/lectures/{id}/markers` `[{t_sec,page}]` ·
-`POST /v1/lectures/{id}/process` → `{job_id}` · `GET /v1/jobs/{job_id}` → `{state,stage,progress,error}` · `GET /v1/lectures/{id}/summary.pdf`.
+`POST /v1/lectures/{id}/process` → `{job_id}` · `GET /v1/jobs/{job_id}` → `{state,stage,progress,error}` (each poll advances one server stage) · `GET /v1/lectures/{id}/summary.pdf`.
+Full contract table: lecture-summarizer-api README (`/v1` section). On Vercel the 4.5 MB body limit means large segments need Blob client upload + JSON `{url}` (TODO in this client).
 Hebrew (RTL) content is handled by the backend/PDF; the app uses `supportsRtl` and Unicode everywhere.
 
 ## Privacy
