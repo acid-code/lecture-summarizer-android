@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Lecture Summarizer</string>
+    <string name="recording_channel">Lecture recording</string>
+</resources>

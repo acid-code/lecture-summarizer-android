@@ -1,0 +1,193 @@
+package il.ac.tau.lecturesummarizer.recording
+
+import android.app.Notification
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import il.ac.tau.lecturesummarizer.LectureApp
+import il.ac.tau.lecturesummarizer.MainActivity
+import il.ac.tau.lecturesummarizer.data.LectureState
+import il.ac.tau.lecturesummarizer.data.Marker
+import il.ac.tau.lecturesummarizer.data.Segment
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.io.File
+
+data class RecorderUiState(
+    val lectureId: String? = null,
+    val recording: Boolean = false,
+    val elapsedMs: Long = 0,
+    val segmentSeq: Int = 0,
+    val markerCount: Int = 0,
+)
+
+/**
+ * Foreground service (type=microphone) that records a lecture part (45–50 min) with screen off.
+ *
+ * Safety: audio is rotated into ~10 min AAC/.m4a segment files. Each finished segment is
+ * persisted to the Repository immediately, so a crash / OOM kill loses at most the
+ * current segment instead of the whole lecture.
+ */
+class RecorderService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var recorder: MediaRecorder? = null
+    private var currentFile: File? = null
+    private var segmentStartWall = 0L
+    private var segmentStartElapsed = 0L
+    private var startElapsed = 0L
+    private var seq = 0
+    private var lectureId: String? = null
+    private var ticker: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val repo get() = (application as LectureApp).repo
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_START -> intent.getStringExtra(EXTRA_LECTURE)?.let { start(it) }
+            ACTION_MARKER -> addMarker()
+            ACTION_STOP -> stopAll()
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun start(id: String) {
+        if (recorder != null) return
+        lectureId = id
+        val lecture = repo.lecture(id) ?: return stopSelf()
+        seq = lecture.segments.maxOfOrNull { it.seq + 1 } ?: 0
+        // Resume elapsed across restarts of the same lecture so marker timestamps stay monotonic.
+        val prior = lecture.segments.sumOf { it.durationMs }
+        startElapsed = SystemClock.elapsedRealtime() - prior
+
+        ServiceCompat.startForeground(
+            this, NOTIF_ID, buildNotification(lecture.title),
+            if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        )
+        wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LectureSummarizer:rec")
+            .apply { acquire(4 * 60 * 60 * 1000L) }
+        repo.updateLecture(id) { it.copy(state = LectureState.RECORDING) }
+        startSegment()
+
+        ticker = scope.launch {
+            while (isActive) {
+                val now = SystemClock.elapsedRealtime()
+                _state.value = _state.value.copy(elapsedMs = now - startElapsed, segmentSeq = seq)
+                if (now - segmentStartElapsed >= SEGMENT_MS) rotateSegment()
+                delay(500)
+            }
+        }
+    }
+
+    private fun startSegment() {
+        val id = lectureId ?: return
+        val f = File(repo.recordingsDir(id), "seg_%03d.m4a".format(seq))
+        val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
+        r.setAudioSource(MediaRecorder.AudioSource.MIC)
+        r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+        r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+        r.setAudioChannels(1)
+        r.setAudioSamplingRate(16_000)      // speech: 16 kHz mono is what ASR wants anyway
+        r.setAudioEncodingBitRate(32_000)   // ~14 MB/hour
+        r.setOutputFile(f.absolutePath)
+        r.prepare(); r.start()
+        recorder = r; currentFile = f
+        segmentStartWall = System.currentTimeMillis()
+        segmentStartElapsed = SystemClock.elapsedRealtime()
+        _state.value = RecorderUiState(id, true, SystemClock.elapsedRealtime() - startElapsed, seq,
+            repo.lecture(id)?.markers?.size ?: 0)
+    }
+
+    /** Finalize the current file (moov atom written on stop) and record it in the repo. */
+    private fun finishSegment() {
+        val r = recorder ?: return
+        val f = currentFile
+        runCatching { r.stop() }   // throws if stopped right after start; file then unusable
+        r.release(); recorder = null
+        val id = lectureId ?: return
+        if (f != null && f.length() > 0) {
+            val seg = Segment(seq, f.absolutePath, segmentStartWall, SystemClock.elapsedRealtime() - segmentStartElapsed)
+            repo.updateLecture(id) { it.copy(segments = it.segments + seg) }
+            seq++
+        } else f?.delete()
+    }
+
+    private fun rotateSegment() { finishSegment(); startSegment() }
+
+    private fun addMarker() {
+        val id = lectureId ?: return
+        if (recorder == null) return
+        val t = (SystemClock.elapsedRealtime() - startElapsed) / 1000
+        repo.updateLecture(id) { it.copy(markers = it.markers + Marker(t)) }
+        _state.value = _state.value.copy(markerCount = _state.value.markerCount + 1)
+    }
+
+    private fun stopAll() {
+        ticker?.cancel()
+        finishSegment()
+        lectureId?.let { id -> repo.updateLecture(id) { it.copy(state = LectureState.RECORDED) } }
+        _state.value = _state.value.copy(recording = false)
+        wakeLock?.let { if (it.isHeld) it.release() }
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        if (recorder != null) stopAll()
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    private fun buildNotification(title: String): Notification {
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        fun action(a: String, code: Int) = PendingIntent.getService(this, code,
+            Intent(this, RecorderService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE)
+        return NotificationCompat.Builder(this, LectureApp.CHANNEL_RECORDING)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("Recording: $title")
+            .setContentText("Tap 'Next slide' to add a marker")
+            .setOngoing(true)
+            .setContentIntent(open)
+            .addAction(0, "Next slide", action(ACTION_MARKER, 1))
+            .addAction(0, "Stop", action(ACTION_STOP, 2))
+            .build()
+    }
+
+    companion object {
+        const val ACTION_START = "start"
+        const val ACTION_STOP = "stop"
+        const val ACTION_MARKER = "marker"
+        const val EXTRA_LECTURE = "lecture"
+        private const val NOTIF_ID = 42
+        const val SEGMENT_MS = 10 * 60 * 1000L
+
+        private val _state = MutableStateFlow(RecorderUiState())
+        val state: StateFlow<RecorderUiState> = _state.asStateFlow()
+
+        fun start(ctx: Context, lectureId: String) = ctx.startForegroundService(
+            Intent(ctx, RecorderService::class.java).setAction(ACTION_START).putExtra(EXTRA_LECTURE, lectureId))
+        fun stop(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_STOP))
+        fun marker(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_MARKER))
+    }
+}
