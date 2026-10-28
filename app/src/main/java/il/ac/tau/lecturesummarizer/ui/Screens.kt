@@ -236,7 +236,20 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                 Text("Uploaded segments: $up / ${l.segments.size}")
             }
             l.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (l.state == LectureState.FAILED) Button(onClick = { UploadWorker.enqueue(ctx, lectureId) }) { Text("Retry upload") }
+            if (l.state == LectureState.FAILED) {
+                // Upload finished and a server job exists → the failure is server-side (e.g. Gemini 503):
+                // resume that job via POST /v1/jobs/{id}/retry instead of re-uploading / re-processing.
+                val jobId = l.jobId
+                val uploaded = l.segments.isNotEmpty() && l.segments.all { it.uploaded }
+                if (jobId != null && uploaded) Button(onClick = {
+                    scope.launch {
+                        runCatching { ApiProvider.get(app.settings).retryJob(jobId) }
+                            .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null) } }
+                            .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
+                    }
+                }) { Text("Retry processing") }
+                else Button(onClick = { UploadWorker.enqueue(ctx, lectureId) }) { Text("Retry upload") }
+            }
             l.pdfPath?.let { path ->
                 val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", File(path))
                 Button(modifier = Modifier.fillMaxWidth(), onClick = {

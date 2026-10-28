@@ -30,6 +30,10 @@ class MockLectureApi : LectureApi {
         else JobStatus("running", stages[i], i * 100 / stages.size, null)
     }
 
+    override suspend fun retryJob(jobId: String): JobStatus {
+        jobStarts[jobId] = System.currentTimeMillis(); return JobStatus("running", stages[0], 0, null)
+    }
+
     override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) {
         val doc = PdfDocument()
         val page = doc.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())

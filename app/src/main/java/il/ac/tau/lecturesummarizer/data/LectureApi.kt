@@ -16,5 +16,7 @@ interface LectureApi {
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
     suspend fun startProcessing(lectureRemoteId: String): String
     suspend fun jobStatus(jobId: String): JobStatus
+    /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
+    suspend fun retryJob(jobId: String): JobStatus
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)
 }

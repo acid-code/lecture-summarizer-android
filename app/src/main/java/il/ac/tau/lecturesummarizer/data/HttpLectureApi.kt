@@ -124,6 +124,11 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
+    override suspend fun retryJob(jobId: String): JobStatus {
+        val o = postJson("/v1/jobs/$jobId/retry", JSONObject())
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+    }
+
     override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) =
         call(req("/v1/lectures/$lectureRemoteId/summary.pdf").get().build()) { resp ->
             val tmp = File(dest.parentFile, dest.name + ".part")
