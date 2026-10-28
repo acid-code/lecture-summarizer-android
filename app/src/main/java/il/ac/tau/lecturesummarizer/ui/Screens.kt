@@ -8,6 +8,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -171,7 +173,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
         uri?.let { persist(it); app.repo.updateLecture(lectureId) { x -> x.copy(contextPdfUri = it.toString()) } }
     }
     AppScaffold("Attach & upload", onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(l.title, style = MaterialTheme.typography.titleLarge)
             Text("${l.segments.size} audio segments · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers")
             HorizontalDivider()
@@ -187,7 +189,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             OutlinedButton(onClick = { contextPicker.launch(arrayOf("application/pdf")) }) { Text("Choose context PDF") }
             HorizontalDivider()
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
-            l.error?.let { Text("Last error: $it (will retry)", color = MaterialTheme.colorScheme.error) }
+            l.error?.let { ErrorText("Last error: $it (will retry)") }
             Button(enabled = l.segments.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
             }) { Text("Upload & summarize") }
@@ -227,7 +229,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     }
 
     AppScaffold("Status", onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(l.title, style = MaterialTheme.typography.titleLarge)
             Text("State: ${l.state}" + (l.stage?.let { " · stage: $it" } ?: ""))
             if (l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING) {
@@ -235,7 +237,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                 val up = l.segments.count { it.uploaded }
                 Text("Uploaded segments: $up / ${l.segments.size}")
             }
-            l.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            l.error?.let { ErrorText(it) }
             if (l.state == LectureState.FAILED) {
                 // Upload finished and a server job exists → the failure is server-side (e.g. Gemini 503):
                 // resume that job via POST /v1/jobs/{id}/retry instead of re-uploading / re-processing.
@@ -261,11 +263,27 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                         .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
                 }) { Text("Share PDF") }
             }
+            val audio = l.segments.map { File(it.path) }.filter { it.exists() }
+            if (audio.isNotEmpty()) OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                val uris = ArrayList(audio.map { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) })
+                val send = if (uris.size == 1) Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
+                    else Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                ctx.startActivity(Intent.createChooser(send.setType("audio/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share recording"))
+            }) { Text("Share / save recording (${audio.size} file${if (audio.size == 1) "" else "s"})") }
             if (l.state == LectureState.DONE) TextButton(onClick = {
                 scope.launch { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING) } }
             }) { Text("Re-check / re-download") }
         }
     }
+}
+
+/** Long server errors (e.g. Gemini 429 JSON) are truncated to ~280 chars with a Show more toggle. */
+@Composable
+private fun ErrorText(msg: String, max: Int = 280) {
+    var open by remember(msg) { mutableStateOf(false) }
+    val long = msg.length > max
+    Text(if (long && !open) msg.take(max) + "…" else msg, color = MaterialTheme.colorScheme.error)
+    if (long) TextButton(onClick = { open = !open }) { Text(if (open) "Show less" else "Show more") }
 }
 
 // ---------- Settings ----------
