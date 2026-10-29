@@ -33,7 +33,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             val jobId = l.jobId ?: return Result.success()
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
             if (st != null) {
-                app.repo.updateLecture(id) { it.copy(stage = st.stage, progress = st.progress, error = st.error) }
+                app.repo.updateLecture(id) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
                 if (st.state == "done") {
                     val dest = File(app.repo.pdfDir(), "$id.pdf")
                     runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }

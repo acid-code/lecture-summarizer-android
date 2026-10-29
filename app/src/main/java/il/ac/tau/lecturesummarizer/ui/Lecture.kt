@@ -60,10 +60,10 @@ private fun BtnContent(icon: ImageVector?, text: String) {
     OutlinedButton(onClick, modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
 
 @Composable
-fun SectionCard(title: String, icon: ImageVector, trailing: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+fun SectionCard(title: String, icon: ImageVector, trailing: (@Composable () -> Unit)? = null, onHeaderClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().then(if (onHeaderClick != null) Modifier.clickable(onClick = onHeaderClick) else Modifier), verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -205,7 +205,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         while (true) {
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
             if (st != null) {
-                app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error) }
+                app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
                 if (st.state == "done") {
                     val dest = File(app.repo.pdfDir(), "$lectureId.pdf")
                     runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
@@ -260,7 +260,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state)) })
-                                l.stage?.takeIf { processing }?.let { Text("Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                (l.stageDetail ?: l.stage)?.takeIf { processing }?.let { Text(if (l.stageDetail != null) it else "Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
                         if (l.jobId != null || l.remoteId != null) Column(horizontalAlignment = Alignment.End) {
@@ -278,10 +278,19 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             }
 
             // 2) Materials
-            SectionCard("Materials", Icons.Default.Folder, trailing = { Text("${materials.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }) {
+            val matPrefs = remember { ctx.getSharedPreferences("ui_prefs", android.content.Context.MODE_PRIVATE) }
+            var matOpen by remember(lectureId) { mutableStateOf(matPrefs.getBoolean("materials_open_$lectureId", false)) }
+            SectionCard("Materials", Icons.Default.Folder,
+                onHeaderClick = { matOpen = !matOpen; matPrefs.edit().putBoolean("materials_open_$lectureId", matOpen).apply() },
+                trailing = { Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${materials.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(if (matOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (matOpen) "Collapse" else "Expand", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                } }) {
+              if (matOpen) {
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
                 if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
                 if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
+              }
             }
 
             // 3) Study PDF

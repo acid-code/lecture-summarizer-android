@@ -40,13 +40,15 @@ data class Lecture(
     val state: LectureState = LectureState.DRAFT,
     val stage: String? = null,
     val progress: Int = 0,
+    /** Human progress text from the server (progress_detail.label), e.g. "ASR part 2/3 · window 3/6". */
+    val stageDetail: String? = null,
     val error: String? = null,
     val pdfPath: String? = null,
 )
 
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
-data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?)
+data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?, val detail: String? = null)
 /** Result of POST /v1/jobs/{id}/reprocess. status==null means refused (audioMissing → server no longer has the raw audio). */
 data class ReprocessResult(val status: JobStatus?, val mode: String?, val audioMissing: Boolean, val error: String? = null)
 
@@ -70,7 +72,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     .put("markers", JSONArray(markers.map { JSONObject().put("tSec", it.tSec).put("label", it.label) }))
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("state", state.name)
-    .put("stage", stage).put("progress", progress).put("error", error).put("pdfPath", pdfPath)
+    .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
 
 fun lectureFromJson(o: JSONObject): Lecture {
     val segs = o.optJSONArray("segments") ?: JSONArray()
@@ -88,7 +90,7 @@ fun lectureFromJson(o: JSONObject): Lecture {
         contextPdfUri = o.optStringOrNull("contextPdfUri"),
         remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"),
         state = runCatching { LectureState.valueOf(o.getString("state")) }.getOrDefault(LectureState.DRAFT),
-        stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), error = o.optStringOrNull("error"),
+        stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), stageDetail = o.optStringOrNull("stageDetail"), error = o.optStringOrNull("error"),
         pdfPath = o.optStringOrNull("pdfPath"),
     )
 }

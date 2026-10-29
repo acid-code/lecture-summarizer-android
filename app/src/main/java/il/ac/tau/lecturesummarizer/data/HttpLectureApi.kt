@@ -122,7 +122,8 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
 
     override suspend fun jobStatus(jobId: String): JobStatus = call(req("/v1/jobs/$jobId").get().build()) {
         val o = JSONObject(it.body!!.string())
-        JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+        JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"))
     }
 
     override suspend fun retryJob(jobId: String): JobStatus {
