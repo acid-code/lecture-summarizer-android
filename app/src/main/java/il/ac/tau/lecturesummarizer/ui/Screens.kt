@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
@@ -123,6 +124,8 @@ fun LecturesScreen(
     }
     val download = rememberDownloader()
     var editCover by remember { mutableStateOf(false) }
+    var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
+    toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
         fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New lecture") }) }
     ) { pad ->
@@ -159,7 +162,7 @@ fun LecturesScreen(
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers",
-                    course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern)) {
+                    course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
                     when (l.state) {
                         LectureState.DRAFT -> if (l.allSlides.isNotEmpty()) onAttach(l.id) else onRecord(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
@@ -286,7 +289,7 @@ fun stateLabel(s: LectureState) = when (s) {
 
 /** Lecture row: inherits a lighter version of the course cover (pale pattern + colored spine). */
 @Composable
-fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, pattern: CoverPattern = CoverPattern.SOLID, onClick: () -> Unit) {
+fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -302,6 +305,8 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
                             color = Color.White, style = MaterialTheme.typography.labelSmall)
                     }
                 }
+                onDelete?.let { IconButton(onClick = it, modifier = Modifier.align(Alignment.CenterVertically)) {
+                    Icon(Icons.Default.Delete, "Delete lecture", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
         }
     }
