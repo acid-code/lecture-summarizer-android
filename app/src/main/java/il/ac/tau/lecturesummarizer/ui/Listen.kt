@@ -64,10 +64,9 @@ private class MultiPlayer(private val tl: Timeline) {
             val n = next
             if (index + 1 < tl.files.size) {
                 // Gapless handoff: setNextMediaPlayer already started `next`; just swap references.
-                p.release()
                 index += 1
-                if (n != null) { next = null; mp = n; attach(n); if (!n.isPlaying && wantPlay) n.start(); prepareNext() }
-                else open(index, 0, wantPlay)
+                if (n != null) { next = null; mp = n; p.release(); attach(n); if (!n.isPlaying && wantPlay) n.start(); prepareNext() }
+                else { mp = null; p.release(); open(index, 0, wantPlay) }
             } else { wantPlay = false; pendingSeek = null }
         }
     }
@@ -80,10 +79,14 @@ private class MultiPlayer(private val tl: Timeline) {
         runCatching { cur.setNextMediaPlayer(n) }
     }
 
+    private var lastPos = 0L
+    /** Global timeline position = offset of the current file + MediaPlayer position in that file (ms). */
     fun positionMs(): Long {
-        pendingSeek?.let { return it }
-        val p = mp ?: return tl.offsetsMs.getOrElse(index) { 0 }
-        return tl.offsetsMs.getOrElse(index) { 0 } + runCatching { p.currentPosition.toLong() }.getOrDefault(0)
+        pendingSeek?.let { lastPos = it; return it }
+        val p = mp ?: return lastPos
+        val inFile = runCatching { p.currentPosition.toLong() }.getOrNull() ?: return lastPos
+        lastPos = tl.offsetsMs.getOrElse(index) { 0 } + inFile.coerceIn(0, tl.lengthsMs.getOrElse(index) { inFile })
+        return lastPos
     }
 
     val isPlaying get() = runCatching { mp?.isPlaying == true }.getOrDefault(false) || (wantPlay && pendingSeek != null)
@@ -94,6 +97,7 @@ private class MultiPlayer(private val tl: Timeline) {
         var within = g - tl.offsetsMs[i]
         if (within >= tl.lengthsMs[i] && i + 1 < tl.files.size) { i += 1; within = 0 }  // fell into a gap
         within = within.coerceAtMost(maxOf(0, tl.lengthsMs[i] - 50))
+        lastPos = tl.offsetsMs[i] + within
         if (mp == null || i != index) open(i, within, wantPlay)
         else { pendingSeek = tl.offsetsMs[i] + within; mp!!.seekTo(within, MediaPlayer.SEEK_CLOSEST) }
     }
@@ -154,11 +158,20 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     val lines = transcript?.lines.orEmpty()
     val current = lineAt(lines, shownPos)
     val listState = rememberLazyListState()
-    LaunchedEffect(current, follow) {
-        if (follow && current >= 0) {
-            val visible = listState.layoutInfo.visibleItemsInfo
-            val inMiddle = visible.size > 4 && current in (visible.first().index + 1)..(visible.last().index - 2)
-            if (!inMiddle) listState.animateScrollToItem(maxOf(0, current - 2))
+    // Follow: keep the current line in the upper-middle of the viewport. Never reset to the top; only move when the
+    // current line leaves the comfortable band. A user drag turns Follow off (tap a line or the chip to re-enable).
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { if (it is androidx.compose.foundation.interaction.DragInteraction.Start) follow = false }
+    }
+    LaunchedEffect(current, follow, lines.size) {
+        if (!follow || current < 0 || current >= lines.size) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val vis = info.visibleItemsInfo
+        val item = vis.firstOrNull { it.index == current }
+        val h = info.viewportEndOffset - info.viewportStartOffset
+        val ok = item != null && item.offset >= h / 8 && item.offset + item.size <= h * 3 / 4
+        if (!ok) {
+            listState.scrollToItem(maxOf(0, current - 2))
         }
     }
     fun seek(ms: Long) { player?.seekTo(ms); pos = ms.coerceIn(0, total) }
@@ -209,7 +222,7 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                 if (lines.isNotEmpty()) FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text("Follow") })
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp)) {
-                itemsIndexed(lines) { i, line ->
+                itemsIndexed(lines, key = { i, ln -> "$i@${ln.t0}" }) { i, line ->
                     val active = i == current
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                         .background(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)

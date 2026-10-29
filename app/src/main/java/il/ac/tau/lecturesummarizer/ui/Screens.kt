@@ -26,6 +26,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -306,6 +309,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         }
     }
 
+    val download = rememberDownloader()
     AppScaffold("Status", onBack = onBack) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -315,8 +319,10 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         AssistChip(onClick = {}, label = { Text(stateLabel(l.state)) })
                         l.stage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
-                    l.jobId?.let { CopyableId("Job id", it) }
-                    l.remoteId?.let { CopyableId("Lecture id", it) }
+                    if (l.jobId != null || l.remoteId != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        l.jobId?.let { CopyableId("Job", it, Modifier.weight(1f)) }
+                        l.remoteId?.let { CopyableId("Lecture", it, Modifier.weight(1f)) }
+                    }
                 }
             }
             if (l.state == LectureState.PROCESSING) Text("You'll get a notification when it's done — you can leave this screen.",
@@ -350,14 +356,24 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                             safeStart(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                         }) { Text("Open study PDF") }
-                        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
-                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
-                        }) { Text("Share / save PDF") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+                                ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
+                                    .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
+                            }) { Icon(androidx.compose.material.icons.Icons.Filled.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Share") }
+                            OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+                                download(uri, "${l.title.ifBlank { "lecture" }} - summary.pdf", "application/pdf")
+                            }) { Icon(androidx.compose.material.icons.Icons.Filled.CloudDownload, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Download") }
+                        }
                     }
                 }
             }
-            l.slidesUri?.let { u -> OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { openDoc(ctx, u) }) { Text("Open lecture slides") } }
+            l.slidesUri?.let { u -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(modifier = Modifier.weight(1f), onClick = { openDoc(ctx, u) }) { Text("Open lecture slides") }
+                OutlinedButton(onClick = { val su = Uri.parse(u)
+                    download(su, displayName(ctx, u), ctx.contentResolver.getType(su) ?: "application/octet-stream") }) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.CloudDownload, contentDescription = "Download slides", modifier = Modifier.size(18.dp)) }
+            } }
             val audio = l.segments.count { File(it.path).exists() }
             if (audio > 0 || l.remoteId != null) Button(modifier = Modifier.fillMaxWidth(), onClick = onListen) {
                 Text("🎧 Listen / Transcript")
@@ -382,17 +398,17 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 }
 
 @Composable
-fun CopyableId(label: String, value: String) {
+fun CopyableId(label: String, value: String, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
-            Text("$label: $value", style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-        }
-        TextButton(onClick = {
+    Row(modifier.height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("$label ${value.take(8)}", style = MaterialTheme.typography.labelSmall, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        IconButton(modifier = Modifier.size(28.dp), onClick = {
             val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
             cm.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
-            Toast.makeText(ctx, "$label copied", Toast.LENGTH_SHORT).show()
-        }) { Text("Copy") }
+            Toast.makeText(ctx, "$label id copied", Toast.LENGTH_SHORT).show()
+        }) { Icon(androidx.compose.material.icons.Icons.Filled.ContentCopy, contentDescription = "Copy $label id", modifier = Modifier.size(16.dp)) }
     }
 }
 
@@ -528,4 +544,27 @@ private fun NameDialog(title: String, label: String, onDismiss: () -> Unit, onOk
         confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onOk(text.trim()) }) { Text("OK") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+
+/** SAF "Save as…" (ACTION_CREATE_DOCUMENT): user picks a location, then the source URI's bytes are copied there. */
+private class CreateDoc : androidx.activity.result.contract.ActivityResultContract<Pair<String, String>, Uri?>() {
+    override fun createIntent(context: android.content.Context, input: Pair<String, String>) =
+        Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(input.second).putExtra(Intent.EXTRA_TITLE, input.first)
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? = if (resultCode == android.app.Activity.RESULT_OK) intent?.data else null
+}
+
+@Composable
+fun rememberDownloader(): (Uri, String, String) -> Unit {
+    val ctx = LocalContext.current
+    var src by remember { mutableStateOf<Uri?>(null) }
+    val launcher = rememberLauncherForActivityResult(CreateDoc()) { dest ->
+        val from = src; src = null
+        if (dest == null || from == null) return@rememberLauncherForActivityResult
+        val ok = runCatching {
+            ctx.contentResolver.openInputStream(from)!!.use { i -> ctx.contentResolver.openOutputStream(dest)!!.use { o -> i.copyTo(o) } }
+        }.isSuccess
+        Toast.makeText(ctx, if (ok) "Saved" else "Save failed", Toast.LENGTH_SHORT).show()
+    }
+    return { uri, name, mime -> src = uri; launcher.launch(name to mime) }
 }
