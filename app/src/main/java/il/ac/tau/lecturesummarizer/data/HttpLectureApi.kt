@@ -76,15 +76,15 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         val f = spool(fileName, data)
         try {
             val url = blobUploadOrNull(f, mime)
-            if (url != null) { postJson(path, JSONObject().put("url", url).put("mime", mime)); return }
+            if (url != null) { postJson(path, JSONObject().put("url", url).put("mime", mime).put("name", fileName)); return }
             val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("file", fileName, f.asRequestBody(mime.toMediaType())).build()
             call(req(path).post(body).build()) {}
         } finally { f.delete() }
     }
 
-    override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream) =
-        uploadDoc("/v1/lectures/$lectureRemoteId/slides", fileName, mime, data)
+    override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean) =
+        uploadDoc("/v1/lectures/$lectureRemoteId/slides" + if (replaceAll) "?replace=all" else "", fileName, mime, data)
 
     override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream) =
         uploadDoc("/v1/lectures/$lectureRemoteId/context", fileName, "application/pdf", data)

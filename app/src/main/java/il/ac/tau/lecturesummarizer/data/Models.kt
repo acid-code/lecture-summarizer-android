@@ -25,6 +25,10 @@ data class Lecture(
     val segments: List<Segment> = emptyList(),
     val markers: List<Marker> = emptyList(),
     val slidesUri: String? = null,
+    /** Additional slide decks / PDFs (several materials per lecture). All decks = [allSlides]. */
+    val extraSlides: List<String> = emptyList(),
+    /** Slide URIs the server has accepted (POST /v1/lectures/{id}/slides succeeded). */
+    val uploadedSlides: List<String> = emptyList(),
     val contextPdfUri: String? = null,
     val remoteId: String? = null,
     val jobId: String? = null,
@@ -34,6 +38,8 @@ data class Lecture(
     val error: String? = null,
     val pdfPath: String? = null,
 )
+
+val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
 data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?)
 
@@ -54,7 +60,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
             .put("durationMs", it.durationMs).put("uploaded", it.uploaded)
     }))
     .put("markers", JSONArray(markers.map { JSONObject().put("tSec", it.tSec).put("label", it.label) }))
-    .put("slidesUri", slidesUri).put("contextPdfUri", contextPdfUri)
+    .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("error", error).put("pdfPath", pdfPath)
 
@@ -68,7 +74,10 @@ fun lectureFromJson(o: JSONObject): Lecture {
             Segment(it.getInt("seq"), it.getString("path"), it.getLong("startedAtMs"), it.getLong("durationMs"), it.optBoolean("uploaded"))
         },
         markers = (0 until marks.length()).map { marks.getJSONObject(it) }.map { Marker(it.getLong("tSec"), it.optStringOrNull("label")) },
-        slidesUri = o.optStringOrNull("slidesUri"), contextPdfUri = o.optStringOrNull("contextPdfUri"),
+        slidesUri = o.optStringOrNull("slidesUri"),
+        extraSlides = o.optJSONArray("extraSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+        uploadedSlides = o.optJSONArray("uploadedSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+        contextPdfUri = o.optStringOrNull("contextPdfUri"),
         remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"),
         state = runCatching { LectureState.valueOf(o.getString("state")) }.getOrDefault(LectureState.DRAFT),
         stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), error = o.optStringOrNull("error"),

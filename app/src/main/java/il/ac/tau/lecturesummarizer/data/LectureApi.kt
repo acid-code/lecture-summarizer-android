@@ -10,7 +10,8 @@ import java.io.InputStream
 interface LectureApi {
     suspend fun createCourse(name: String): String
     suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long): String
-    suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream)
+    /** Adds one deck (several per lecture). replaceAll=true clears the server's previous decks first (first deck of a full upload). */
+    suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean = false)
     suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream)
     suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File)
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)

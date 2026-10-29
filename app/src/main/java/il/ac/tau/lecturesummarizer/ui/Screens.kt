@@ -60,11 +60,18 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
-    AppScaffold("Notebooks",
+    AppScaffold("Notebooks", logo = true,
         actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
         fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") }) }
     ) { pad ->
-        if (courses.isEmpty()) Empty(pad, "📚\n\nNo notebooks yet\n\nCreate one per course — pick an icon, a color and a cover style.")
+        if (courses.isEmpty()) Column(Modifier.padding(pad).fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), null, Modifier.size(96.dp))
+            Spacer(Modifier.height(16.dp))
+            Text("Lecture Summarizer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Text("No notebooks yet.\nCreate one per course — pick an icon, a color and a cover style.", textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         else androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp), Modifier.padding(pad),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
@@ -123,12 +130,12 @@ fun LecturesScreen(
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { subjectPicker.launch(arrayOf("application/pdf")) }) {
-                                Text(if (course?.contextPdfUri == null) "Attach PDF" else "Replace")
+                                Text(if (course?.contextPdfUri == null) "Attach PDF" else "Replace PDF")
                             }
-                            course?.contextPdfUri?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open") } }
+                            course?.contextPdfUri?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open PDF") } }
                             if (course?.contextPdfUri != null) TextButton(onClick = {
                                 app.repo.updateCourse(courseId) { it.copy(contextPdfUri = null) }
-                            }) { Text("Remove") }
+                            }) { Text("Remove PDF") }
                         }
                     }
                 }
@@ -201,8 +208,8 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                     Text(if ((l?.segments?.size ?: 0) > 0) "Resume recording" else "Start recording")
                 }
                 if ((l?.segments?.size ?: 0) > 0) OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
-                    Text("Done → attach & upload")
-                } else TextButton(onClick = onDone) { Text("Have an audio file instead? Import it →") }
+                    Text("Next: add materials & upload")
+                } else TextButton(onClick = onDone) { Text("Have an audio file instead? Import audio →") }
             } else {
                 FilledTonalButton(onClick = { RecorderService.marker(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
                     Text("Next slide / topic", fontSize = 22.sp)
@@ -215,187 +222,6 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     }
 }
 
-// ---------- Attach & upload ----------
-
-@Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}) {
-    val ctx = LocalContext.current
-    val all by app.repo.lectures.collectAsStateWithLifecycle()
-    val l = all.firstOrNull { it.id == lectureId } ?: return
-    fun persist(uri: Uri) = runCatching {
-        ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    val slidesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { persist(it); app.repo.updateLecture(lectureId) { x -> x.copy(slidesUri = it.toString()) } }
-    }
-    val contextPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { persist(it); app.repo.updateLecture(lectureId) { x -> x.copy(contextPdfUri = it.toString()) } }
-    }
-    val scope = rememberCoroutineScope()
-    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { importAudio(app, lectureId, uri, ctx) }.onFailure { e ->
-                app.repo.updateLecture(lectureId) { it.copy(error = "Import failed: ${e.message}") }
-            }
-        }
-    }
-    val courseCtx = app.repo.course(l.courseId)?.contextPdfUri
-    AppScaffold("Attach & upload", onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(l.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("${l.segments.size} audio segments · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }) { Text("Import audio file") }
-                if (l.segments.isNotEmpty()) TextButton(onClick = { shareRecording(ctx, l.segments) }) { Text("Share recording") }
-                if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { Text("Listen") }
-            }
-            HorizontalDivider()
-            SectionLabel("Lecture slides (optional, PDF/PPTX)")
-            Text(l.slidesUri?.let { displayName(ctx, it) } ?: "None")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    slidesPicker.launch(arrayOf("application/pdf",
-                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                        "application/vnd.ms-powerpoint"))
-                }) { Text("Choose slides") }
-                l.slidesUri?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open") } }
-            }
-            SectionLabel("Context PDF for this lecture (optional)")
-            Text(l.contextPdfUri?.let { displayName(ctx, it) }
-                ?: courseCtx?.let { "Using course subject PDF: ${displayName(ctx, it)}" } ?: "None (attach a course subject PDF on the course screen)")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { contextPicker.launch(arrayOf("application/pdf")) }) { Text("Override for this lecture") }
-                (l.contextPdfUri ?: courseCtx)?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open") } }
-            }
-            HorizontalDivider()
-            if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
-            l.error?.let { ErrorText("Last error: $it (will retry)") }
-            Button(enabled = l.segments.isNotEmpty(), onClick = {
-                UploadWorker.enqueue(ctx, lectureId); onUploaded()
-            }, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Upload & summarize", fontWeight = FontWeight.SemiBold) }
-        }
-    }
-}
-
-// ---------- Job status + PDF ----------
-
-@Composable
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}) {
-    val ctx = LocalContext.current
-    val all by app.repo.lectures.collectAsStateWithLifecycle()
-    val l = all.firstOrNull { it.id == lectureId } ?: return
-    val scope = rememberCoroutineScope()
-
-    // Poll job status while processing; fetch the PDF when done.
-    LaunchedEffect(l.jobId, l.state) {
-        val jobId = l.jobId ?: return@LaunchedEffect
-        if (l.state != LectureState.PROCESSING) return@LaunchedEffect
-        val api = ApiProvider.get(app.settings)
-        while (true) {
-            val st = runCatching { api.jobStatus(jobId) }.getOrNull()
-            if (st != null) {
-                app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error) }
-                if (st.state == "done") {
-                    val dest = File(app.repo.pdfDir(), "$lectureId.pdf")
-                    runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
-                        .onSuccess { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100) } }
-                        .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = e.message) } }
-                    break
-                }
-                if (st.state == "failed") { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.FAILED) }; break }
-            }
-            delay(if (app.settings.mockMode) 1000 else 5000)
-        }
-    }
-
-    val download = rememberDownloader()
-    AppScaffold("Status", onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(l.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AssistChip(onClick = {}, label = { Text(stateLabel(l.state)) })
-                        l.stage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
-                    if (l.jobId != null || l.remoteId != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                        l.jobId?.let { CopyableId("Job", it, Modifier.weight(1f)) }
-                        l.remoteId?.let { CopyableId("Lecture", it, Modifier.weight(1f)) }
-                    }
-                }
-            }
-            if (l.state == LectureState.PROCESSING) Text("You'll get a notification when it's done — you can leave this screen.",
-                style = MaterialTheme.typography.bodySmall)
-            if (l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING) {
-                LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                val up = l.segments.count { it.uploaded }
-                Text("Uploaded segments: $up / ${l.segments.size}")
-            }
-            l.error?.let { ErrorText(it) }
-            if (l.state == LectureState.FAILED) {
-                // Upload finished and a server job exists → the failure is server-side (e.g. Gemini 503):
-                // resume that job via POST /v1/jobs/{id}/retry instead of re-uploading / re-processing.
-                val jobId = l.jobId
-                val uploaded = l.segments.isNotEmpty() && l.segments.all { it.uploaded }
-                if (jobId != null && uploaded) Button(onClick = {
-                    scope.launch {
-                        runCatching { ApiProvider.get(app.settings).retryJob(jobId) }
-                            .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
-                            .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
-                    }
-                }) { Text("Retry processing") }
-                else Button(onClick = { UploadWorker.enqueue(ctx, lectureId) }) { Text("Retry upload") }
-            }
-            l.pdfPath?.takeIf { File(it).exists() }?.let { path ->
-                val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", File(path))
-                ElevatedCard(Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("📘 Study summary ready", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Button(modifier = Modifier.fillMaxWidth().height(56.dp), onClick = {
-                            safeStart(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                        }) { Text("Open study PDF") }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(modifier = Modifier.weight(1f), onClick = {
-                                ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
-                                    .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
-                            }) { Icon(androidx.compose.material.icons.Icons.Filled.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Share") }
-                            OutlinedButton(modifier = Modifier.weight(1f), onClick = {
-                                download(uri, "${l.title.ifBlank { "lecture" }} - summary.pdf", "application/pdf")
-                            }) { Icon(androidx.compose.material.icons.Icons.Filled.CloudDownload, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Download") }
-                        }
-                    }
-                }
-            }
-            l.slidesUri?.let { u -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(modifier = Modifier.weight(1f), onClick = { openDoc(ctx, u) }) { Text("Open lecture slides") }
-                OutlinedButton(onClick = { val su = Uri.parse(u)
-                    download(su, displayName(ctx, u), ctx.contentResolver.getType(su) ?: "application/octet-stream") }) {
-                    Icon(androidx.compose.material.icons.Icons.Filled.CloudDownload, contentDescription = "Download slides", modifier = Modifier.size(18.dp)) }
-            } }
-            val audio = l.segments.count { File(it.path).exists() }
-            if (audio > 0 || l.remoteId != null) Button(modifier = Modifier.fillMaxWidth(), onClick = onListen) {
-                Text("🎧 Listen / Transcript")
-            }
-            if (audio > 0) OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { shareRecording(ctx, l.segments) }) {
-                Text("Share / save recording ($audio file${if (audio == 1) "" else "s"})")
-            }
-            if (l.state == LectureState.FAILED) TextButton(onClick = { onAttach() }) { Text("Edit attachments / add audio") }
-            if (l.state == LectureState.DONE) TextButton(onClick = {
-                scope.launch { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING) } }
-            }) { Text("Re-check / re-download") }
-            val jid = l.jobId
-            if (jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)) TextButton(onClick = {
-                scope.launch {
-                    runCatching { ApiProvider.get(app.settings).resummarizeJob(jid) }
-                        .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
-                        .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
-                }
-            }) { Text("Re-summarize (keep transcript, no re-ASR)") }
-        }
-    }
-}
 
 @Composable
 fun CopyableId(label: String, value: String, modifier: Modifier = Modifier) {
@@ -414,7 +240,7 @@ fun CopyableId(label: String, value: String, modifier: Modifier = Modifier) {
 
 /** Long server errors (e.g. Gemini 429 JSON) are truncated to ~280 chars with a Show more toggle. */
 @Composable
-private fun ErrorText(msg: String, max: Int = 280) {
+internal fun ErrorText(msg: String, max: Int = 280) {
     var open by remember(msg) { mutableStateOf(false) }
     val long = msg.length > max
     Text(if (long && !open) msg.take(max) + "…" else msg, color = MaterialTheme.colorScheme.error)

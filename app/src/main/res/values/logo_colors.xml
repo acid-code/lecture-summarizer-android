@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="logo_page">#FFFFFFFF</color>
+    <color name="logo_spine">#F2B705</color>
+    <color name="logo_ring">#0F1F4D</color>
+    <color name="logo_wave">#1E3A8A</color>
+    <color name="ic_launcher_background">#1E3A8A</color>
+</resources>

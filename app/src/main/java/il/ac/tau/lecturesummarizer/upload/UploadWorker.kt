@@ -15,6 +15,7 @@ import androidx.work.workDataOf
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.data.ApiProvider
 import il.ac.tau.lecturesummarizer.data.LectureState
+import il.ac.tau.lecturesummarizer.data.allSlides
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -42,10 +43,11 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 repo.updateLecture(id) { it.copy(remoteId = rid) }
             }
 
-            lecture.slidesUri?.let { s ->
+            for ((i, s) in lecture.allSlides.withIndex()) {
                 val uri = Uri.parse(s)
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
-                applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it) }
+                applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
+                repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
             (lecture.contextPdfUri ?: course.contextPdfUri)?.let { s ->
                 val uri = Uri.parse(s)

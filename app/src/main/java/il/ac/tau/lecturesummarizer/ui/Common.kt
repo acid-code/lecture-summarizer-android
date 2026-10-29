@@ -1,6 +1,9 @@
 package il.ac.tau.lecturesummarizer.ui
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,6 +21,8 @@ import androidx.compose.material3.FloatingActionButton
 fun AppScaffold(
     title: String,
     onBack: (() -> Unit)? = null,
+    /** Show the app logo in place of the back arrow (home screen). */
+    logo: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     fab: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
@@ -29,6 +34,9 @@ fun AppScaffold(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
                 navigationIcon = {
                     if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    else if (logo) androidx.compose.foundation.Image(
+                        androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), "Lecture Summarizer logo",
+                        androidx.compose.ui.Modifier.padding(start = 12.dp).size(36.dp))
                 },
                 actions = actions,
             )

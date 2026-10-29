@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original mark: spiral notebook with an audio waveform (lecture recording → study notes). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- notebook page -->
+    <path android:fillColor="@color/logo_page" android:pathData="M36,30h38a4,4 0,0 1,4 4v40a4,4 0,0 1,-4 4h-38a4,4 0,0 1,-4 -4v-40a4,4 0,0 1,4 -4z"/>
+    <!-- spine -->
+    <path android:fillColor="@color/logo_spine" android:pathData="M32,34a4,4 0,0 1,4 -4h4v48h-4a4,4 0,0 1,-4 -4z"/>
+    <!-- spiral rings -->
+    <path android:fillColor="@color/logo_ring" android:pathData="M29,37h8v3h-8z M29,46h8v3h-8z M29,55h8v3h-8z M29,64h8v3h-8z"/>
+    <!-- waveform bars -->
+    <path android:fillColor="@color/logo_wave" android:pathData="M45,51h3v6h-3z M50,46h3v16h-3z M55,40h3v28h-3z M60,47h3v14h-3z M65,43h3v22h-3z M70,50h3v8h-3z"/>
+</vector>
