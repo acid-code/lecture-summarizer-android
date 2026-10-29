@@ -16,7 +16,7 @@ class MockLectureApi : LectureApi {
     override suspend fun createCourse(name: String) = "mock-c-" + UUID.randomUUID()
     override suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long) = "mock-l-" + UUID.randomUUID()
     override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean) { data.close(); delay(300) }
-    override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream) { data.close(); delay(300) }
+    override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String, add: Boolean) { data.close(); delay(300) }
     override suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File) { delay(500) }
     override suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>) {}
     override suspend fun startProcessing(lectureRemoteId: String): String {

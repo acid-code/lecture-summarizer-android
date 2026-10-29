@@ -2,6 +2,8 @@ package il.ac.tau.lecturesummarizer.upload
 
 import android.content.Context
 import android.net.Uri
+import il.ac.tau.lecturesummarizer.data.MAX_COURSE_CONTEXT
+import il.ac.tau.lecturesummarizer.data.allContext
 import android.provider.OpenableColumns
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -49,9 +51,11 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
                 repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
-            (lecture.contextPdfUri ?: course.contextPdfUri)?.let { s ->
+            // Course context: lecture override (single) or all course files (max 3). First replaces, rest are added.
+            (lecture.contextPdfUri?.let { listOf(it) } ?: course.allContext.take(MAX_COURSE_CONTEXT)).forEachIndexed { i, s ->
                 val uri = Uri.parse(s)
-                applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadCourseContext(remote, displayName(uri), it) }
+                val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
+                applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadCourseContext(remote, displayName(uri), it, mime, add = i > 0) }
             }
 
             lecture = repo.lecture(id)!!

@@ -18,6 +18,11 @@ import android.media.MediaMetadataRetriever
 import android.provider.OpenableColumns
 import android.widget.Toast
 import il.ac.tau.lecturesummarizer.data.Segment
+import il.ac.tau.lecturesummarizer.data.MAX_COURSE_CONTEXT
+import il.ac.tau.lecturesummarizer.data.allContext
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Slideshow
 import il.ac.tau.lecturesummarizer.upload.JobPollWorker
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -80,7 +85,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 val c = courses[i]
                 val n = all.count { it.courseId == c.id }
                 Column {
-                    NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.contextPdfUri != null) " · PDF ✓" else ""),
+                    NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"} ✓" else ""),
                         c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
                     TextButton(onClick = { editing = c }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
                 }
@@ -108,12 +113,14 @@ fun LecturesScreen(
     val ctx = LocalContext.current
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val course = courses.firstOrNull { it.id == courseId }
-    val subjectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            runCatching { ctx.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            app.repo.updateCourse(courseId) { c -> c.copy(contextPdfUri = it.toString()) }
+    val subjectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        uris.forEach { runCatching { ctx.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        if (uris.isNotEmpty()) app.repo.updateCourse(courseId) { c ->
+            val all = (c.allContext + uris.map { it.toString() }.filterNot { it in c.allContext }).take(MAX_COURSE_CONTEXT)
+            c.copy(contextPdfUri = all.firstOrNull(), extraContext = all.drop(1))
         }
     }
+    val download = rememberDownloader()
     var editCover by remember { mutableStateOf(false) }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
         fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New lecture") }) }
@@ -123,20 +130,25 @@ fun LecturesScreen(
             item {
                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Course subject PDF", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("Syllabus / glossary / previous summaries. Sent with every lecture in this course as context.",
-                            style = MaterialTheme.typography.bodySmall)
-                        Text(course?.contextPdfUri?.let { displayName(ctx, it) } ?: "None attached",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { subjectPicker.launch(arrayOf("application/pdf")) }) {
-                                Text(if (course?.contextPdfUri == null) "Attach PDF" else "Replace PDF")
-                            }
-                            course?.contextPdfUri?.let { u -> TextButton(onClick = { openDoc(ctx, u) }) { Text("Open PDF") } }
-                            if (course?.contextPdfUri != null) TextButton(onClick = {
-                                app.repo.updateCourse(courseId) { it.copy(contextPdfUri = null) }
-                            }) { Text("Remove PDF") }
+                        val files = course?.allContext.orEmpty()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Course subject materials", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("${files.size}/$MAX_COURSE_CONTEXT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text("Syllabus / glossary / previous summaries (up to $MAX_COURSE_CONTEXT PDFs or PPTX). All are sent with every lecture in this course as context.",
+                            style = MaterialTheme.typography.bodySmall)
+                        MaterialsList(files.map { s ->
+                            val name = displayName(ctx, s); val u = Uri.parse(s)
+                            val mime = runCatching { ctx.contentResolver.getType(u) }.getOrNull() ?: if (name.endsWith(".pdf", true)) "application/pdf" else "application/octet-stream"
+                            Material(s, name, if (mime.contains("pdf")) "PDF" else "Slides", if (mime.contains("pdf")) Icons.Default.PictureAsPdf else Icons.Default.Slideshow, u, mime, true)
+                        }, onSave = { download(it.uri, it.name, it.mime) }, onRemove = { m ->
+                            app.repo.updateCourse(courseId) { c -> val rest = c.allContext - m.key; c.copy(contextPdfUri = rest.firstOrNull(), extraContext = rest.drop(1)) }
+                        })
+                        OutlineAction("Add PDF", Icons.Default.NoteAdd, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) {
+                            subjectPicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
+                        }
+                        if (files.size >= MAX_COURSE_CONTEXT) Text("Maximum $MAX_COURSE_CONTEXT files — remove one to add another.",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

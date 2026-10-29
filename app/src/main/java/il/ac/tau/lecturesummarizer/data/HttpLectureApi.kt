@@ -86,8 +86,8 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
     override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean) =
         uploadDoc("/v1/lectures/$lectureRemoteId/slides" + if (replaceAll) "?replace=all" else "", fileName, mime, data)
 
-    override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream) =
-        uploadDoc("/v1/lectures/$lectureRemoteId/context", fileName, "application/pdf", data)
+    override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String, add: Boolean) =
+        uploadDoc("/v1/lectures/$lectureRemoteId/context" + if (add) "?mode=add" else "", fileName, mime, data)
 
     override suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File) {
         val startedAt = java.time.Instant.ofEpochMilli(seg.startedAtMs).toString()

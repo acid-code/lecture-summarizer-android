@@ -7,7 +7,12 @@ data class Course(
     val id: String, val name: String, val remoteId: String? = null, val contextPdfUri: String? = null,
     /** Notebook cover customisation (null = derived defaults). */
     val emoji: String? = null, val color: Long? = null, val pattern: String? = null,
+    /** Additional course-context files; all = [allContext] (max [MAX_COURSE_CONTEXT]). */
+    val extraContext: List<String> = emptyList(),
 )
+
+const val MAX_COURSE_CONTEXT = 3
+val Course.allContext: List<String> get() = listOfNotNull(contextPdfUri) + extraContext
 
 /** A "next slide/topic" tap during recording. tSec = seconds since recording start (across parts). */
 data class Marker(val tSec: Long, val label: String? = null)
@@ -49,9 +54,10 @@ data class Transcript(val source: String, val complete: Boolean, val lines: List
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
 fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)
-    .put("emoji", emoji).put("color", color).put("pattern", pattern)
+    .put("emoji", emoji).put("color", color).put("pattern", pattern).put("extraContext", JSONArray(extraContext))
 fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"),
-    o.optStringOrNull("emoji"), if (o.has("color") && !o.isNull("color")) o.getLong("color") else null, o.optStringOrNull("pattern"))
+    o.optStringOrNull("emoji"), if (o.has("color") && !o.isNull("color")) o.getLong("color") else null, o.optStringOrNull("pattern"),
+    o.optJSONArray("extraContext")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList())
 
 fun Lecture.toJson(): JSONObject = JSONObject()
     .put("id", id).put("courseId", courseId).put("title", title).put("recordedAtMs", recordedAtMs)
