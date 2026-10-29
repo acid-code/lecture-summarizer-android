@@ -215,7 +215,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 }
             }
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
-            l.error?.let { ErrorText("Last error: $it (will retry)") }
+            l.error?.let { ErrorText(if (it == UploadWorker.INTERRUPTED) it else "Last error: $it (will retry)") }
             PrimaryAction(if (l.segments.isEmpty()) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
                 enabled = l.segments.isNotEmpty() || hasMaterials) {
                 if (l.state == LectureState.DRAFT) app.repo.updateLecture(lectureId) { it.copy(state = LectureState.RECORDED) }
@@ -227,6 +227,8 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 hasMaterials -> "No recording needed — a study summary PDF is written from the slides / PDFs alone. Audio is optional."
                 else -> "Add slides / PDFs, or record / import audio."
             }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (l.segments.size > 1) Text("Upload continues in the background. Force-stopping the app can interrupt a multi-part upload — Retry upload resumes from where it stopped.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -387,7 +389,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                                 .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
                         }
-                    } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) { UploadWorker.enqueue(ctx, lectureId) }
+                    } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
+                        app.repo.updateLecture(lectureId) { it.copy(state = LectureState.UPLOADING, error = null) }
+                        UploadWorker.enqueue(ctx, lectureId, retry = true) }
                 }
                 if (canResummarize) {
                     TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
