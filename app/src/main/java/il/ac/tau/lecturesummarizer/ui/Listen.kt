@@ -218,6 +218,7 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             Spacer(Modifier.weight(1f))
                             Text("−" + mmss(total - shownPos), style = MaterialTheme.typography.labelMedium)
                         }
+                        var speedOpen by remember { mutableStateOf(false) }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                             FilledTonalButton(onClick = { seek(pos - 15_000) }) { Text("↺ 15") }
                             Spacer(Modifier.width(16.dp))
@@ -227,22 +228,19 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             }
                             Spacer(Modifier.width(16.dp))
                             FilledTonalButton(onClick = { seek(pos + 15_000) }) { Text("15 ↻") }
-                        }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Speed", style = MaterialTheme.typography.labelMedium)
-                            listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { sp ->
-                                FilterChip(selected = speed == sp, onClick = { speed = sp; player.setSpeed(sp); prefs.edit().putFloat("listenSpeed", sp).apply() },
-                                    label = { Text(mapOf(0.75f to "0.75×", 1f to "1×", 1.25f to "1.25×", 1.5f to "1.5×", 1.75f to "1.75×", 2f to "2×")[sp]!!) })
+                            Spacer(Modifier.width(8.dp))
+                            // Compact speed button; tap to expand/collapse the speed slider.
+                            OutlinedButton(onClick = { speedOpen = !speedOpen }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                                Text("%sx".format(if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0')))
                             }
                         }
-                        if (tl.files.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val curSeg = tl.offsetsMs.indexOfLast { it <= shownPos }.coerceAtLeast(0)
-                            tl.offsetsMs.forEachIndexed { i, off ->
-                                FilterChip(selected = i == curSeg, onClick = { seek(off) },
-                                    label = { Text("Part ${i + 1} · ${mmss(off)}") })
-                            }
+                        if (speedOpen) Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("0.5x", style = MaterialTheme.typography.labelSmall)
+                            // 0.5x..2x in 0.25 steps (5 intermediate stops)
+                            Slider(value = speed, valueRange = 0.5f..2f, steps = 5, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                onValueChange = { speed = (Math.round(it * 4) / 4f); player.setSpeed(speed) },
+                                onValueChangeFinished = { prefs.edit().putFloat("listenSpeed", speed).apply() })
+                            Text("2x", style = MaterialTheme.typography.labelSmall)
                         }
                         player.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     }
