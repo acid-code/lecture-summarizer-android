@@ -16,3 +16,4 @@ captures/
 *.wav
 recordings/
 .kotlin/
+dist/
