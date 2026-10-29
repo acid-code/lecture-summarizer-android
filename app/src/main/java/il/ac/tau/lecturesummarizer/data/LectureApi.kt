@@ -25,5 +25,7 @@ interface LectureApi {
     suspend fun reprocessJob(jobId: String, fallback: Boolean = false): ReprocessResult
     /** GET /v1/lectures/{id}/transcript — null when the server has no transcript yet (404). */
     suspend fun transcript(lectureRemoteId: String): Transcript?
+    /** DELETE /v1/lectures/{id} — removes the lecture, its jobs and server files (idempotent). */
+    suspend fun deleteLecture(lectureRemoteId: String)
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)
 }

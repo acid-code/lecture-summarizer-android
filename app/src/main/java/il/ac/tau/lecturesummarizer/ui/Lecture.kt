@@ -1,5 +1,6 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import il.ac.tau.lecturesummarizer.data.allContext
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -131,6 +132,33 @@ private fun removeSlide(app: LectureApp, lectureId: String, s: String) = app.rep
     x.copy(slidesUri = rest.firstOrNull(), extraSlides = rest.drop(1), uploadedSlides = x.uploadedSlides - s)
 }
 
+/** Delete a lecture: cancel its workers, delete it on the server (jobs + files), then remove it from the phone. */
+fun deleteLectureEverywhere(app: LectureApp, ctx: android.content.Context, lectureId: String, onDone: () -> Unit) {
+    val l = app.repo.lecture(lectureId) ?: return onDone()
+    val wm = androidx.work.WorkManager.getInstance(ctx)
+    wm.cancelUniqueWork("upload-$lectureId"); wm.cancelUniqueWork("poll-$lectureId")
+    if (il.ac.tau.lecturesummarizer.recording.RecorderService.state.value.let { it.recording && it.lectureId == lectureId })
+        il.ac.tau.lecturesummarizer.recording.RecorderService.stop(ctx)
+    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        val res = l.remoteId?.let { rid -> runCatching { ApiProvider.get(app.settings).deleteLecture(rid) } }
+        app.repo.deleteLecture(lectureId)
+        launch(Dispatchers.Main) {
+            Toast.makeText(ctx, if (res?.isFailure == true) "Deleted on phone — server cleanup failed: ${res.exceptionOrNull()?.message}" else "Lecture deleted", Toast.LENGTH_LONG).show()
+            onDone()
+        }
+    }
+}
+
+@Composable
+fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Delete lecture?") },
+        text = { Text("“$title” will be deleted from this phone and the server: recording, materials, transcript and study PDF. This can't be undone.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
 // ---------- Attach & upload ----------
 
 @Composable
@@ -153,7 +181,10 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
     }
     val download = rememberDownloader()
     val courseCtx = app.repo.course(l.courseId)?.contextPdfUri
-    AppScaffold("Materials", onBack = onBack) { pad ->
+    val hasMaterials = l.allSlides.isNotEmpty() || l.contextPdfUri != null || app.repo.course(l.courseId)?.allContext?.isNotEmpty() == true
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) DeleteLectureDialog(l.title, { confirmDelete = false }) { confirmDelete = false; deleteLectureEverywhere(app, ctx, lectureId, onBack) }
+    AppScaffold("Materials", onBack = onBack, actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Delete lecture") } }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
@@ -185,10 +216,17 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             }
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
             l.error?.let { ErrorText("Last error: $it (will retry)") }
-            PrimaryAction("Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(), enabled = l.segments.isNotEmpty()) {
+            PrimaryAction(if (l.segments.isEmpty()) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
+                enabled = l.segments.isNotEmpty() || hasMaterials) {
+                if (l.state == LectureState.DRAFT) app.repo.updateLecture(lectureId) { it.copy(state = LectureState.RECORDED) }
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
             }
-            if (l.segments.isEmpty()) Text("Record or import audio first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(when {
+                l.segments.isNotEmpty() && hasMaterials -> "Summary uses the recording + slides together."
+                l.segments.isNotEmpty() -> "Summary from the recording. Add slides / PDFs for better terms and formulas."
+                hasMaterials -> "No recording needed — a study summary PDF is written from the slides / PDFs alone. Audio is optional."
+                else -> "Add slides / PDFs, or record / import audio."
+            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -251,7 +289,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     val processing = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
     val materials = materialsOf(ctx, l)
 
-    AppScaffold("Lecture", onBack = onBack) { pad ->
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) DeleteLectureDialog(l.title, { confirmDelete = false }) { confirmDelete = false; deleteLectureEverywhere(app, ctx, lectureId, onBack) }
+    AppScaffold("Lecture", onBack = onBack, actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Delete lecture") } }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // 1) Notebook header + status
@@ -281,7 +321,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     }
                     if (processing) {
                         LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text("Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size} · you'll get a notification when it's done.",
+                        Text((if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
@@ -336,7 +376,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
             // 5) Secondary actions
             val jid = l.jobId
-            val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.isNotEmpty() && l.segments.all { it.uploaded }
+            val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.all { it.uploaded } && l.remoteId != null
             val canResummarize = jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
             if (l.state == LectureState.FAILED || canResummarize) SectionCard("Fix or redo", Icons.Default.Build) {
                 if (l.state == LectureState.FAILED) {
@@ -350,7 +390,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) { UploadWorker.enqueue(ctx, lectureId) }
                 }
                 if (canResummarize) {
-                    TonalAction(if (reprocessing) "Reprocessing…" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
+                    TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
                         reprocessing = true
                         scope.launch(Dispatchers.IO) {
                             val api = ApiProvider.get(app.settings)

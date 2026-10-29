@@ -1,5 +1,6 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import il.ac.tau.lecturesummarizer.data.allSlides
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -152,7 +153,7 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “New lecture” to record, or import an audio file.", Modifier.fillMaxWidth().padding(32.dp),
+            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “New lecture” to record, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
                 textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
@@ -160,7 +161,8 @@ fun LecturesScreen(
                         "${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers",
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern)) {
                     when (l.state) {
-                        LectureState.DRAFT, LectureState.RECORDING -> onRecord(l.id)
+                        LectureState.DRAFT -> if (l.allSlides.isNotEmpty()) onAttach(l.id) else onRecord(l.id)
+                        LectureState.RECORDING -> onRecord(l.id)
                         LectureState.RECORDED -> onAttach(l.id)  // Materials screen offers "Resume recording"
                         else -> onJob(l.id)
                     }
@@ -223,7 +225,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                 }
                 if ((l?.segments?.size ?: 0) > 0) OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
                     Text("Next: add materials & upload")
-                } else TextButton(onClick = onDone) { Text("Have an audio file instead? Import audio →") }
+                } else TextButton(onClick = onDone) { Text("No recording? Add slides / PDFs or import audio →") }
             } else if (paused) {
                 Button(onClick = { RecorderService.resume(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
                     Text("▶ Resume recording", fontSize = 22.sp)

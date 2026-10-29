@@ -19,6 +19,7 @@ class MockLectureApi : LectureApi {
     override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String, add: Boolean) { data.close(); delay(300) }
     override suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File) { delay(500) }
     override suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>) {}
+    override suspend fun deleteLecture(lectureRemoteId: String) { delay(200) }
     override suspend fun startProcessing(lectureRemoteId: String): String {
         val id = "mock-j-$lectureRemoteId"; jobStarts[id] = System.currentTimeMillis(); return id
     }

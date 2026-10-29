@@ -48,6 +48,7 @@ class Repository(private val context: Context) {
 
     @Synchronized fun deleteLecture(id: String) {
         recordingsDir(id).deleteRecursively()
+        File(pdfDir(), "$id.pdf").delete()
         _lectures.value = _lectures.value.filterNot { it.id == id }; save()
     }
 

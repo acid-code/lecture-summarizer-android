@@ -120,6 +120,11 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
             JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false))
         ).getString("job_id")
 
+    override suspend fun deleteLecture(lectureRemoteId: String) = withContext(Dispatchers.IO) {
+        val r = req("/v1/lectures/$lectureRemoteId").delete().build()
+        client.newCall(r).execute().use { resp -> if (!resp.isSuccessful && resp.code != 404) throw IOException("HTTP ${resp.code} DELETE ${r.url.encodedPath}") }
+    }
+
     override suspend fun jobStatus(jobId: String): JobStatus = call(req("/v1/jobs/$jobId").get().build()) {
         val o = JSONObject(it.body!!.string())
         JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
