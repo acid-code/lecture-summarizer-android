@@ -263,14 +263,20 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state)) })
-                                (l.stageDetail ?: l.stage)?.takeIf { processing }?.let { Text(if (l.stageDetail != null) it else "Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            }
                         }
                         if (l.jobId != null || l.remoteId != null) Column(horizontalAlignment = Alignment.End) {
                             l.jobId?.let { CopyableId("Job", it) }
                             l.remoteId?.let { CopyableId("Lecture", it) }
+                        }
+                    }
+                    // Status row spans the full card width: compact chip + detail filling the remaining space.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
+                            modifier = Modifier.height(28.dp))
+                        (l.stageDetail ?: l.stage)?.takeIf { processing }?.let {
+                            Text(if (l.stageDetail != null) it else "Stage: $it", modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                     if (processing) {
