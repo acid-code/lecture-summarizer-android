@@ -353,16 +353,25 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else {
                     val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf)
+                    val pdfName = summaryPdfName(app.repo.course(l.courseId)?.name, l.title)
                     PrimaryAction("Open study PDF", Icons.AutoMirrored.Filled.OpenInNew, Modifier.fillMaxWidth()) {
                         safeStart(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TonalAction("Share PDF", Icons.Default.Share, Modifier.weight(1f)) {
+                            // Share a copy with a readable name (course + lecture) instead of "<id>.pdf".
+                            val named = runCatching {
+                                val dir = File(ctx.filesDir, "shared/pdf").apply { deleteRecursively(); mkdirs() }
+                                File(dir, pdfName).also { pdf.copyTo(it, overwrite = true) }
+                            }.getOrNull()
+                            val shareUri = named?.let { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) } ?: uri
                             ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
-                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
+                                .putExtra(Intent.EXTRA_STREAM, shareUri).putExtra(Intent.EXTRA_TITLE, pdfName)
+                                .putExtra(Intent.EXTRA_SUBJECT, pdfName.removeSuffix(".pdf"))
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share PDF"))
                         }
                         OutlineAction("Save PDF", Icons.Default.Download, Modifier.weight(1f)) {
-                            download(uri, "${l.title.ifBlank { "lecture" }} - summary.pdf", "application/pdf")
+                            download(uri, pdfName, "application/pdf")
                         }
                     }
                 }
@@ -437,4 +446,11 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             Spacer(Modifier.height(8.dp))
         }
     }
+}
+
+/** "<Course> - <Lecture> - summary.pdf", filesystem-safe. Used by both Share and Save. */
+internal fun summaryPdfName(course: String?, title: String?): String {
+    fun clean(x: String?) = x.orEmpty().replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim()
+    val parts = listOf(clean(course), clean(title)).filter { it.isNotEmpty() }.distinct()
+    return (parts.ifEmpty { listOf("lecture") } + "summary").joinToString(" - ").take(150) + ".pdf"
 }
