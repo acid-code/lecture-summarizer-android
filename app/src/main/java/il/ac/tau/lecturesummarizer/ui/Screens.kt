@@ -161,7 +161,7 @@ fun LecturesScreen(
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern)) {
                     when (l.state) {
                         LectureState.DRAFT, LectureState.RECORDING -> onRecord(l.id)
-                        LectureState.RECORDED -> onAttach(l.id)
+                        LectureState.RECORDED -> onAttach(l.id)  // Materials screen offers "Resume recording"
                         else -> onJob(l.id)
                     }
                 }
@@ -185,6 +185,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     val lecture by app.repo.lectures.collectAsStateWithLifecycle()
     val l = lecture.firstOrNull { it.id == lectureId }
     val active = rec.recording && rec.lectureId == lectureId
+    val paused = active && rec.paused
     val otherActive = rec.recording && rec.lectureId != lectureId
 
     val perms = buildList {
@@ -204,8 +205,9 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             val prior = l?.segments?.sumOf { it.durationMs } ?: 0
             Text(formatElapsed(if (active) rec.elapsedMs else prior), fontSize = 60.sp, fontWeight = FontWeight.Light,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-            Text(if (active) "Recording · segment ${rec.segmentSeq + 1} · ${rec.markerCount} markers"
+                color = if (active && !paused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            Text(if (paused) "⏸ Paused · ${l?.segments?.size ?: 0} segments saved · break time isn't recorded"
+                 else if (active) "Recording · segment ${rec.segmentSeq + 1} · ${rec.markerCount} markers"
                  else "Stopped · ${l?.segments?.size ?: 0} segments · ${l?.markers?.size ?: 0} markers")
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
@@ -222,7 +224,17 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                 if ((l?.segments?.size ?: 0) > 0) OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
                     Text("Next: add materials & upload")
                 } else TextButton(onClick = onDone) { Text("Have an audio file instead? Import audio →") }
+            } else if (paused) {
+                Button(onClick = { RecorderService.resume(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                    Text("▶ Resume recording", fontSize = 22.sp)
+                }
+                OutlinedButton(onClick = { RecorderService.stop(ctx) }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                    Text("Stop (end lecture → ready to upload)")
+                }
             } else {
+                Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
+                    Text("⏸ Pause (break)", fontSize = 20.sp)
+                }
                 FilledTonalButton(onClick = { RecorderService.marker(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
                     Text("Next slide / topic", fontSize = 22.sp)
                 }

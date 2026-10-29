@@ -134,7 +134,7 @@ private fun removeSlide(app: LectureApp, lectureId: String, s: String) = app.rep
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -159,6 +159,11 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text("${l.segments.size} audio part${if (l.segments.size == 1) "" else "s"} · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers · ${l.allSlides.size} slide file${if (l.allSlides.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if ((l.state == LectureState.RECORDED || l.state == LectureState.RECORDING) && l.segments.any { File(it.path).exists() }) {
+                Button(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("▶ Resume recording (after a break)") }
+                Text("Stopped by mistake during a break? Resume adds new segments to this same lecture.",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             SectionCard("Files for this lecture", Icons.Default.Folder) {
                 MaterialsList(materialsOf(ctx, l), onSave = { download(it.uri, it.name, it.mime) },
