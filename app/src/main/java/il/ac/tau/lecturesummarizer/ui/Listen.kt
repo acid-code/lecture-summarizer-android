@@ -39,6 +39,13 @@ private class MultiPlayer(private val tl: Timeline) {
     /** User intent (play/pause). Actual MediaPlayer state follows it. */
     var wantPlay = false; private set
     var error: String? = null; private set
+    var speed = 1f; private set
+    private fun applySpeed(p: MediaPlayer?) {
+        // setPlaybackParams on a paused player starts it, so only touch a playing one (start() keeps the params).
+        if (p == null) return
+        runCatching { if (p.isPlaying) p.playbackParams = p.playbackParams.setSpeed(speed) }
+    }
+    fun setSpeed(s: Float) { speed = s; applySpeed(mp) }
     /** While a seek is in flight report the target so the highlight doesn't flicker back. */
     private var pendingSeek: Long? = null
 
@@ -54,7 +61,7 @@ private class MultiPlayer(private val tl: Timeline) {
         mp = p
         attach(p)
         if (posInFileMs > 0) { pendingSeek = tl.offsetsMs[i] + posInFileMs; p.seekTo(posInFileMs, MediaPlayer.SEEK_CLOSEST) }
-        if (play) p.start()
+        if (play) { p.start(); applySpeed(p) }
         prepareNext()
     }
 
@@ -65,7 +72,7 @@ private class MultiPlayer(private val tl: Timeline) {
             if (index + 1 < tl.files.size) {
                 // Gapless handoff: setNextMediaPlayer already started `next`; just swap references.
                 index += 1
-                if (n != null) { next = null; mp = n; p.release(); attach(n); if (!n.isPlaying && wantPlay) n.start(); prepareNext() }
+                if (n != null) { next = null; mp = n; p.release(); attach(n); if (!n.isPlaying && wantPlay) n.start(); applySpeed(n); prepareNext() }
                 else { mp = null; p.release(); open(index, 0, wantPlay) }
             } else { wantPlay = false; pendingSeek = null }
         }
@@ -102,7 +109,7 @@ private class MultiPlayer(private val tl: Timeline) {
         else { pendingSeek = tl.offsetsMs[i] + within; mp!!.seekTo(within, MediaPlayer.SEEK_CLOSEST) }
     }
 
-    fun play() { wantPlay = true; if (mp == null) open(index, 0, true) else if (mp?.isPlaying != true) mp?.start() }
+    fun play() { wantPlay = true; if (mp == null) open(index, 0, true) else if (mp?.isPlaying != true) { mp?.start(); applySpeed(mp) } }
     fun pause() { wantPlay = false; runCatching { mp?.pause() } }
     fun toggle() = if (wantPlay) pause() else play()
 
@@ -134,6 +141,10 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     }
     val player = remember(tl) { if (tl.files.isEmpty()) null else MultiPlayer(tl) }
     DisposableEffect(player) { onDispose { player?.release() } }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE) }
+    var speed by remember { mutableFloatStateOf(prefs.getFloat("listenSpeed", 1f)) }
+    LaunchedEffect(player) { player?.setSpeed(speed) }
 
     var transcript by remember { mutableStateOf<Transcript?>(null) }
     var tMsg by remember { mutableStateOf("Loading transcript…") }
@@ -155,7 +166,22 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     val total = maxOf(1L, tl.totalMs)
     val shownPos = dragging?.let { (it * total).toLong() } ?: pos
 
-    val lines = transcript?.lines.orEmpty()
+    // Re-time ASR sentences against the local audio (server timestamps drift inside each ASR clip; see SyncAlign).
+    var aligned by remember { mutableStateOf<List<TranscriptLine>?>(null) }
+    LaunchedEffect(transcript, tl) {
+        val raw = transcript?.lines ?: return@LaunchedEffect
+        if (tl.files.isEmpty() || raw.size < 2) return@LaunchedEffect
+        aligned = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching {
+                val voiced = SyncAlign.voicedFromDb(SyncAlign.envelope(tl.files, tl.offsetsMs, tl.totalMs))
+                val segs = l.segments.sortedBy { it.seq }
+                var off = 0.0; val offs = mutableListOf<Double>(); val lens = mutableListOf<Double>()
+                for (sg in segs) { offs += off; lens += sg.durationMs / 1000.0; off += sg.durationMs / 1000.0 }
+                SyncAlign.realign(raw, voiced, SyncAlign.anchors(offs, lens))
+            }.getOrNull()
+        }
+    }
+    val lines = aligned ?: transcript?.lines.orEmpty()
     val current = lineAt(lines, shownPos)
     val listState = rememberLazyListState()
     // Follow: keep the current line in the upper-middle of the viewport. Never reset to the top; only move when the
@@ -201,6 +227,14 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             }
                             Spacer(Modifier.width(16.dp))
                             FilledTonalButton(onClick = { seek(pos + 15_000) }) { Text("15 ↻") }
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Speed", style = MaterialTheme.typography.labelMedium)
+                            listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { sp ->
+                                FilterChip(selected = speed == sp, onClick = { speed = sp; player.setSpeed(sp); prefs.edit().putFloat("listenSpeed", sp).apply() },
+                                    label = { Text(mapOf(0.75f to "0.75×", 1f to "1×", 1.25f to "1.25×", 1.5f to "1.5×", 1.75f to "1.75×", 2f to "2×")[sp]!!) })
+                            }
                         }
                         if (tl.files.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
