@@ -47,6 +47,8 @@ data class Lecture(
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
 data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?)
+/** Result of POST /v1/jobs/{id}/reprocess. status==null means refused (audioMissing → server no longer has the raw audio). */
+data class ReprocessResult(val status: JobStatus?, val mode: String?, val audioMissing: Boolean, val error: String? = null)
 
 data class TranscriptLine(val t0: Double, val t1: Double, val text: String)
 data class Transcript(val source: String, val complete: Boolean, val lines: List<TranscriptLine>)

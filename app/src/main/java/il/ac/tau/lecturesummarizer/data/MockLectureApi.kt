@@ -35,6 +35,7 @@ class MockLectureApi : LectureApi {
     }
 
     override suspend fun resummarizeJob(jobId: String): JobStatus = retryJob(jobId)
+    override suspend fun reprocessJob(jobId: String, fallback: Boolean) = ReprocessResult(retryJob(jobId), "full", false)
     override suspend fun transcript(lectureRemoteId: String): Transcript? = Transcript("mock", true,
         (0 until 12).map { TranscriptLine(it * 10.0, it * 10.0 + 10, "Mock line ${it + 1}: דיפ לרנינג → deep learning") })
     override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) {

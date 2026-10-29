@@ -21,6 +21,8 @@ interface LectureApi {
     suspend fun retryJob(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/resummarize — re-run summary+PDF only, keeping ASR/repair (no ASR quota). */
     suspend fun resummarizeJob(jobId: String): JobStatus
+    /** POST /v1/jobs/{id}/reprocess — full redo incl. ASR if server audio exists; fallback=true re-summarizes when audio is gone. */
+    suspend fun reprocessJob(jobId: String, fallback: Boolean = false): ReprocessResult
     /** GET /v1/lectures/{id}/transcript — null when the server has no transcript yet (404). */
     suspend fun transcript(lectureRemoteId: String): Transcript?
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)

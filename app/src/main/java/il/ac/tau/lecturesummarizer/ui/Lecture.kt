@@ -50,7 +50,7 @@ private val SLIDE_MIMES = arrayOf("application/pdf",
 @Composable
 private fun BtnContent(icon: ImageVector?, text: String) {
     icon?.let { Icon(it, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
-    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
 }
 @Composable fun PrimaryAction(text: String, icon: ImageVector?, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
     Button(onClick, modifier.heightIn(min = 52.dp), enabled = enabled) { BtnContent(icon, text) }
@@ -105,7 +105,7 @@ fun MaterialsList(items: List<Material>, onSave: (Material) -> Unit, onRemove: (
             Row(Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(m.icon, null, tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(m.name, style = MaterialTheme.typography.bodyLarge)
                     Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = { onSave(m) }) { Icon(Icons.Default.Download, "Save ${m.name}") }
@@ -222,6 +222,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     val download = rememberDownloader()
     // "Upload slides" after the fact: add decks to the lecture and send them right away (then Re-summarize uses them).
     var uploading by remember { mutableStateOf(false) }
+    var reprocessing by remember { mutableStateOf(false) }
     val lateSlides = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
@@ -253,10 +254,19 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     course?.let { Text("${it.coverEmoji()}  ${it.name}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
-                    Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state)) })
-                        l.stage?.takeIf { processing }?.let { Text("Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    // Title + state on the left, compact ids stacked on the right (no extra row).
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state)) })
+                                l.stage?.takeIf { processing }?.let { Text("Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            }
+                        }
+                        if (l.jobId != null || l.remoteId != null) Column(horizontalAlignment = Alignment.End) {
+                            l.jobId?.let { CopyableId("Job", it) }
+                            l.remoteId?.let { CopyableId("Lecture", it) }
+                        }
                     }
                     if (processing) {
                         LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
@@ -264,20 +274,14 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
-                    if (l.jobId != null || l.remoteId != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                        l.jobId?.let { CopyableId("Job", it, Modifier.weight(1f)) }
-                        l.remoteId?.let { CopyableId("Lecture", it, Modifier.weight(1f)) }
-                    }
                 }
             }
 
             // 2) Materials
             SectionCard("Materials", Icons.Default.Folder, trailing = { Text("${materials.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }) {
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.weight(1f), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
-                    if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.weight(1f)) { shareRecording(ctx, l.segments) }
-                }
+                if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
+                if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
             }
 
             // 3) Study PDF
@@ -326,6 +330,31 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) { UploadWorker.enqueue(ctx, lectureId) }
                 }
                 if (canResummarize) {
+                    TonalAction(if (reprocessing) "Reprocessing…" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
+                        reprocessing = true
+                        scope.launch(Dispatchers.IO) {
+                            val api = ApiProvider.get(app.settings)
+                            val msg = runCatching {
+                                var r = api.reprocessJob(jid!!)
+                                val local = l.segments.sortedBy { it.seq }.filter { File(it.path).exists() }
+                                if (r.status == null && r.audioMissing && l.remoteId != null && local.isNotEmpty() && local.size == l.segments.size) {
+                                    // Server deleted the raw audio after the last run, but the phone still has it: re-upload, then full redo.
+                                    local.forEach { api.uploadSegment(l.remoteId!!, it, File(it.path)) }
+                                    r = api.reprocessJob(jid)
+                                }
+                                if (r.status == null && r.audioMissing) r = api.reprocessJob(jid, fallback = true)
+                                val st = r.status ?: error(r.error ?: "server refused")
+                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }
+                                JobPollWorker.enqueue(ctx, lectureId)
+                                if (r.mode == "full") "Reprocessing: new transcription + summary"
+                                else "Audio is no longer on the server or phone — re-summarizing from the existing transcript instead"
+                            }.getOrElse { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Reprocess failed: ${e.message}") }; "Reprocess failed: ${e.message}" }
+                            reprocessing = false
+                            launch(Dispatchers.Main) { Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show() }
+                        }
+                    }
+                    Text("Reprocess redoes everything — transcription (ASR), term repair, summary and PDF — from the uploaded audio and materials. If the audio is gone it falls back to Re-summarize.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlineAction("Re-summarize", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) {
                         scope.launch {
                             runCatching { ApiProvider.get(app.settings).resummarizeJob(jid!!) }

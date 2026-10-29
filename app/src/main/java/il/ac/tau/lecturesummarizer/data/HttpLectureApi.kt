@@ -135,6 +135,19 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
+    override suspend fun reprocessJob(jobId: String, fallback: Boolean): ReprocessResult = withContext(Dispatchers.IO) {
+        val r = req("/v1/jobs/$jobId/reprocess" + if (fallback) "?fallback=1" else "").post("{}".toRequestBody(json)).build()
+        client.newCall(r).execute().use { resp ->
+            val s = resp.body?.string().orEmpty()
+            val o = runCatching { JSONObject(s) }.getOrElse { JSONObject() }
+            if (resp.code == 404) throw IOException("HTTP 404 — reprocess not supported or job not found")
+            if (resp.code == 409) return@use ReprocessResult(null, null, o.optBoolean("audio_missing"), o.optStringOrNull("error"))
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} POST ${r.url.encodedPath}")
+            ReprocessResult(JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), null),
+                o.optStringOrNull("mode"), o.optBoolean("audio_missing"))
+        }
+    }
+
     override suspend fun transcript(lectureRemoteId: String): Transcript? = withContext(Dispatchers.IO) {
         val r = req("/v1/lectures/$lectureRemoteId/transcript").get().build()
         client.newCall(r).execute().use { resp ->
