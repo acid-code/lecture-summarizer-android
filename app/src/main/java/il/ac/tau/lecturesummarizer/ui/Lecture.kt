@@ -159,7 +159,9 @@ internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
         text = { Text("${uris.size} file(s) were added to Materials. Re-summarize now to get a new Study PDF that includes them?\n\nלסכם מחדש עם החומרים החדשים?") },
         confirmButton = { Button(onClick = {
             MaterialsUpdates.clear(l.id)
-            scope.launch(Dispatchers.IO) {
+            // Not rememberCoroutineScope: clearing pending removes this dialog from composition and cancels that scope
+            // mid-request ("StandaloneCoroutine was cancelled"). Run detached like the other lecture actions.
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
                 val api = ApiProvider.get(app.settings)
                 val res = runCatching {
                     val cur = app.repo.lecture(l.id)!!
@@ -168,8 +170,8 @@ internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
                         ctx.contentResolver.openInputStream(u)?.use { api.uploadSlides(cur.remoteId!!, displayName(ctx, s), ctx.contentResolver.getType(u) ?: "application/pdf", it) }
                         app.repo.updateLecture(l.id) { x -> x.copy(uploadedSlides = (if (x.uploadedSlides.isEmpty()) x.allSlides - uris.toSet() else x.uploadedSlides) + s) }
                     }
-                    il.ac.tau.lecturesummarizer.upload.JobKick.kick(l.id)
                     val st = api.resummarizeJob(cur.jobId!!)
+                    il.ac.tau.lecturesummarizer.upload.JobKick.kick(l.id)
                     app.repo.updateLecture(l.id) { it.copy(state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
                     JobPollWorker.enqueue(ctx, l.id)
                 }
