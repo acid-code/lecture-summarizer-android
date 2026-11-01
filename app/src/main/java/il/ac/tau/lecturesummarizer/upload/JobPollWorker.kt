@@ -34,6 +34,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             if (l.state != LectureState.PROCESSING && !(live && l.state in LIVE_STATES)) return Result.success()
             val jobId = l.jobId ?: return Result.success()
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
+            if (st != null && !live && JobKick.staleDone(id, st.state)) { delay(3000); continue }
             if (st != null) {
                 app.repo.updateLecture(id) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
                 if (live) {

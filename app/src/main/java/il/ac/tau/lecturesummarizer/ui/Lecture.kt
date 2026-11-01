@@ -168,8 +168,9 @@ internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
                         ctx.contentResolver.openInputStream(u)?.use { api.uploadSlides(cur.remoteId!!, displayName(ctx, s), ctx.contentResolver.getType(u) ?: "application/pdf", it) }
                         app.repo.updateLecture(l.id) { x -> x.copy(uploadedSlides = (if (x.uploadedSlides.isEmpty()) x.allSlides - uris.toSet() else x.uploadedSlides) + s) }
                     }
+                    il.ac.tau.lecturesummarizer.upload.JobKick.kick(l.id)
                     val st = api.resummarizeJob(cur.jobId!!)
-                    app.repo.updateLecture(l.id) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }
+                    app.repo.updateLecture(l.id) { it.copy(state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
                     JobPollWorker.enqueue(ctx, l.id)
                 }
                 launch(Dispatchers.Main) { Toast.makeText(ctx, res.fold({ "Re-summarizing with the new materials…" }, { "Re-summarize failed: ${it.message}" }), Toast.LENGTH_LONG).show() }
@@ -303,6 +304,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         val api = ApiProvider.get(app.settings)
         while (true) {
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
+            if (st != null && il.ac.tau.lecturesummarizer.upload.JobKick.staleDone(lectureId, st.state)) { delay(2000); continue }
             if (st != null) {
                 app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
                 if (st.state == "done") {
@@ -468,8 +470,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).
                     if (canRetryJob) OutlineAction("Retry job", Icons.Default.Refresh, Modifier.fillMaxWidth()) {
                         scope.launch {
-                            runCatching { ApiProvider.get(app.settings).retryJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                            runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).retryJob(jid!!) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
                         }
                     } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
@@ -482,7 +484,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         scope.launch(Dispatchers.IO) {
                             val api = ApiProvider.get(app.settings)
                             val msg = runCatching {
-                                var r = api.reprocessJob(jid!!)
+                                il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); var r = api.reprocessJob(jid!!)
                                 val local = l.segments.sortedBy { it.seq }.filter { File(it.path).exists() }
                                 if (r.status == null && r.audioMissing && l.remoteId != null && local.isNotEmpty() && local.size == l.segments.size) {
                                     // Server deleted the raw audio after the last run, but the phone still has it: re-upload, then full redo.
@@ -491,7 +493,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                                 }
                                 if (r.status == null && r.audioMissing) r = api.reprocessJob(jid, fallback = true)
                                 val st = r.status ?: error(r.error ?: "server refused")
-                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }
+                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
                                 JobPollWorker.enqueue(ctx, lectureId)
                                 if (r.mode == "full") "Reprocessing: new transcription + summary"
                                 else "Audio is no longer on the server or phone — re-summarizing from the existing transcript instead"
@@ -504,8 +506,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlineAction("Re-summarize", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) {
                         scope.launch {
-                            runCatching { ApiProvider.get(app.settings).resummarizeJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                            runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).resummarizeJob(jid!!) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
                         }
                     }

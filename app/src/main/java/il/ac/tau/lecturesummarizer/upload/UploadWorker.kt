@@ -89,7 +89,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobPollWorker.enqueue(applicationContext, id)
                 return Result.success()
             }
-            val jobId = if (cur.jobId == null || cur.liveJob || (pending.isNotEmpty() && hadFinished)) api.startProcessing(remote) else cur.jobId
+            val jobId = if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote) } else cur.jobId
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()
