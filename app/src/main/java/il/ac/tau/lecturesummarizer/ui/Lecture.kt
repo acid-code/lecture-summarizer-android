@@ -121,7 +121,7 @@ private fun persist(ctx: android.content.Context, uri: Uri) = runCatching {
     ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 }
 
-private fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) = app.repo.updateLecture(lectureId) { x ->
+internal fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) = app.repo.updateLecture(lectureId) { x ->
     val new = uris.map { it.toString() }.filterNot { it in x.allSlides }
     if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))
     else x.copy(extraSlides = x.extraSlides + new)
@@ -162,7 +162,7 @@ fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> U
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -203,6 +203,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     OutlineAction("Add slides / PDFs", Icons.Default.NoteAdd, Modifier.weight(1f)) { slidesPicker.launch(SLIDE_MIMES) }
                     OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.weight(1f)) { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }
                 }
+                PrimaryAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, "Listen to recording") }
             }
             SectionCard("Course context PDF", Icons.Default.MenuBook) {
