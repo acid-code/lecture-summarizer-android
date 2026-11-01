@@ -16,6 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -256,6 +260,8 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp)) {
                 itemsIndexed(lines, key = { i, ln -> "$i@${ln.t0}" }) { i, line ->
                     val active = i == current
+                    val rtl = isMostlyHebrew(line.text)
+                    CompositionLocalProvider(LocalLayoutDirection provides if (rtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                         .background(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
                         .clickable(enabled = player != null) {
@@ -265,12 +271,29 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                         .padding(horizontal = 12.dp, vertical = 10.dp)) {
                         Text(mmss((line.t0 * 1000).toLong()), style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(56.dp).padding(top = 3.dp))
-                        Text(line.text, style = MaterialTheme.typography.bodyLarge.copy(fontSize = if (active) 18.sp else 16.sp),
+                        Text(if (rtl) isolateLatinRuns(line.text) else line.text,
+                            textAlign = TextAlign.Start,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = if (active) 18.sp else 16.sp,
+                                textDirection = if (rtl) TextDirection.Rtl else TextDirection.Ltr),
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                             color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface.copy(alpha = if (current >= 0 && i < current) 0.55f else 0.9f))
+                    }
                     }
                 }
             }
         }
     }
 }
+
+/** True when Hebrew letters make up at least ~30% of the letters (Hebrew lectures with English terms). */
+internal fun isMostlyHebrew(s: String): Boolean {
+    var heb = 0; var lat = 0
+    for (c in s) { if (c in '\u0590'..'\u05FF') heb++ else if (c in 'A'..'Z' || c in 'a'..'z') lat++ }
+    return heb > 0 && heb * 10 >= (heb + lat) * 3
+}
+
+private val latinRun = Regex("[A-Za-z0-9][A-Za-z0-9 .,'’_/:+#=()\\-]*[A-Za-z0-9)]|[A-Za-z]")
+
+/** Wrap each Latin/English run in LRI…PDI (U+2066/U+2069) so it renders LTR without reordering the Hebrew around it. */
+internal fun isolateLatinRuns(s: String): String =
+    latinRun.replace(s) { m -> if (m.value.any { it.isLetter() }) "\u2066${m.value}\u2069" else m.value }
