@@ -228,7 +228,7 @@ fun LecturesScreen(
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
-                        "${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers" +
+                        "${formatElapsed(l.segments.sumOf { it.durationMs })}" +
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
                     when (l.state) {
@@ -315,8 +315,8 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 color = if (active && !paused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text(if (paused) "⏸ Paused · ${l?.segments?.size ?: 0} segments saved · break time isn't recorded"
-                 else if (active) "Recording · segment ${rec.segmentSeq + 1} · ${rec.markerCount} markers"
-                 else "Stopped · ${l?.segments?.size ?: 0} segments · ${l?.markers?.size ?: 0} markers")
+                 else if (active) "Recording · segment ${rec.segmentSeq + 1}"
+                 else "Stopped · ${l?.segments?.size ?: 0} segments")
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             l?.let { cur -> TextButton(onClick = { moving = true }) { Text("מחברת: ${courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"} · שינוי") } }
@@ -353,9 +353,6 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             } else {
                 Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
                     Text("⏸ Pause (break)", fontSize = 20.sp)
-                }
-                FilledTonalButton(onClick = { RecorderService.marker(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
-                    Text("Next slide / topic", fontSize = 22.sp)
                 }
                 Button(onClick = { RecorderService.stop(ctx) },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),

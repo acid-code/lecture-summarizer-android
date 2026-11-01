@@ -275,7 +275,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text("${l.segments.size} audio part${if (l.segments.size == 1) "" else "s"} · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers · ${l.allSlides.size} slide file${if (l.allSlides.size == 1) "" else "s"}",
+                Text("${l.segments.size} audio part${if (l.segments.size == 1) "" else "s"} · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.allSlides.size} slide file${if (l.allSlides.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if ((l.state == LectureState.RECORDED || l.state == LectureState.RECORDING) && l.segments.any { File(it.path).exists() }) {
