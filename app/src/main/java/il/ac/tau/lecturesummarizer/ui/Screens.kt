@@ -74,7 +74,12 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
     fun startFor(c: TauClass) {
         val course = app.repo.findOrCreateCourse(c.courseName, c.courseNumber)
-        val title = listOfNotNull(c.kind.he.ifEmpty { null }, java.text.SimpleDateFormat("d.M HH:mm", java.util.Locale.getDefault()).format(Date()), c.room).joinToString(" · ")
+        val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
+        val title = when (c.kind) {
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.LECTURE -> "Lecture - $date"
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.RECITATION -> "Recitation - $date"
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> date
+        }
         val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
     }
     fun resolve() {
