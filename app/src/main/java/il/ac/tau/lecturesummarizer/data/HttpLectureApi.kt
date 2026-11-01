@@ -59,7 +59,13 @@ class HttpLectureApi(
     private suspend fun <T> call(r: Request, f: (Response) -> T): T = withContext(Dispatchers.IO) {
         ensureClaimed()
         client.newCall(r).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${r.method} ${r.url.encodedPath}")
+            if (!resp.isSuccessful) {
+                val msg = runCatching { resp.body?.string().orEmpty() }.getOrDefault("").let { b ->
+                    runCatching { JSONObject(b).let { it.optString("error").ifBlank { it.optString("message") } } }.getOrNull()
+                        ?.takeIf { it.isNotBlank() } ?: b.take(200)
+                }
+                throw HttpStatusException(resp.code, "HTTP ${resp.code} ${r.method} ${r.url.encodedPath}" + if (msg.isNotBlank()) " — $msg" else "")
+            }
             f(resp)
         }
     }
@@ -171,7 +177,9 @@ class HttpLectureApi(
     }
 
     override suspend fun resummarizeJob(jobId: String): JobStatus {
-        val o = postJson("/v1/jobs/$jobId/resummarize", JSONObject())
+        // 409 = server thinks the job is mid-flight (e.g. stuck in summary with a stale "Done"); retry once with force.
+        val o = try { postJson("/v1/jobs/$jobId/resummarize", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/resummarize?force=1", JSONObject()) else throw e }
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
@@ -221,3 +229,6 @@ fun audioMime(f: File): String = when (f.extension.lowercase()) {
     "aac" -> "audio/aac"; "webm" -> "audio/webm"; "amr" -> "audio/amr"; "3gp" -> "audio/3gpp"
     else -> "audio/mp4"
 }
+
+/** Non-2xx HTTP response; [message] includes the server's error body when present. */
+class HttpStatusException(val code: Int, message: String) : IOException(message)

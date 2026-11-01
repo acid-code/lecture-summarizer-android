@@ -255,7 +255,15 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                     transcript?.let { if (!it.complete) Text("Partial transcript (ASR still running)", style = MaterialTheme.typography.bodySmall) }
                     if (tMsg.isNotEmpty()) Text(tMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (lines.isNotEmpty()) FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text("Follow") })
+                if (lines.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Transcript", transcriptText(l.title, lines)))
+                        android.widget.Toast.makeText(ctx, "Transcript copied (${lines.size} lines)", android.widget.Toast.LENGTH_SHORT).show()
+                    }) { Text("Copy all") }
+                    TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }) { Text(".txt") }
+                    FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text("Follow") })
+                }
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp)) {
                 itemsIndexed(lines, key = { i, ln -> "$i@${ln.t0}" }) { i, line ->
@@ -286,6 +294,27 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
 }
 
 /** True when Hebrew letters make up at least ~30% of the letters (Hebrew lectures with English terms). */
+/** Plain UTF-8 transcript, all lines in order, "[mm:ss] text" per line. */
+internal fun transcriptText(title: String, lines: List<TranscriptLine>): String = buildString {
+    append(title).append("\n\n")
+    lines.forEach { append('[').append(mmss((it.t0 * 1000).toLong())).append("] ").append(it.text.trim()).append('\n') }
+}
+
+/** Writes the transcript to files/shared/ and opens the share sheet (Save to Files/Drive, send, etc.). */
+internal fun shareTranscriptTxt(ctx: android.content.Context, title: String, lines: List<TranscriptLine>) {
+    runCatching {
+        val dir = java.io.File(ctx.filesDir, "shared").apply { mkdirs() }
+        val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80).ifBlank { "lecture" }
+        val f = java.io.File(dir, "$safe - transcript.txt")
+        f.writeText("\uFEFF" + transcriptText(title, lines), Charsets.UTF_8)
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "$title — transcript")
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        ctx.startActivity(android.content.Intent.createChooser(send, "Save / share transcript").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.onFailure { android.widget.Toast.makeText(ctx, "Couldn't export: ${it.message}", android.widget.Toast.LENGTH_LONG).show() }
+}
+
 internal fun isMostlyHebrew(s: String): Boolean {
     var heb = 0; var lat = 0
     for (c in s) { if (c in '\u0590'..'\u05FF') heb++ else if (c in 'A'..'Z' || c in 'a'..'z') lat++ }
