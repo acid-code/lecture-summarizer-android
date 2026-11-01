@@ -239,7 +239,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 // ---------- Lecture (status + materials + study PDF + listen) ----------
 
 @Composable
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -289,6 +289,12 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             launch(Dispatchers.Main) {
                 Toast.makeText(ctx, res.fold({ "Uploaded — tap Re-summarize to include them" }, { "Upload failed: ${it.message}" }), Toast.LENGTH_LONG).show()
             }
+        }
+    }
+    val jobAudioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        scope.launch(Dispatchers.IO) {
+            uris.forEach { uri -> runCatching { importAudio(app, lectureId, uri, ctx) }.onFailure { e ->
+                app.repo.updateLecture(lectureId) { it.copy(error = "Import failed: ${e.message}") } } }
         }
     }
     val processing = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
@@ -346,6 +352,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
                 if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
                 if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
+                OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = !processing) { onRecordAnother() }
+                OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.fillMaxWidth(), enabled = !processing) { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) }
+                OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
               }
             }
 
