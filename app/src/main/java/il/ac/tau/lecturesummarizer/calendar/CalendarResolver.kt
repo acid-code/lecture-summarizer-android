@@ -31,7 +31,14 @@ object CalendarResolver {
     fun currentClasses(ctx: Context, calendarIds: Set<Long> = emptySet(), nowMs: Long = System.currentTimeMillis()): List<TauClass> {
         if (!hasPermission(ctx)) return emptyList()
         return runCatching {
-            TauEventParser.candidates(query(ctx, nowMs - 4 * 3600_000L, nowMs + 15 * 60_000L, calendarIds), nowMs, preferTau = calendarIds.isEmpty())
+            val events = query(ctx, nowMs - 4 * 3600_000L, nowMs + 15 * 60_000L, calendarIds)
+            // Prefer TAU-scheme matches; if none, fall back to any timed event now, named from its cleaned title.
+            val found = TauEventParser.candidates(events, nowMs, preferTau = calendarIds.isEmpty())
+                .ifEmpty { TauEventParser.candidates(events, nowMs, preferTau = false) }
+            found.map {
+                if (it.kind == ClassKind.UNKNOWN && it.courseNumber == null && !it.fromTauCalendar)
+                    it.copy(courseName = TauEventParser.cleanTitle(it.courseName), offScheme = true) else it
+            }
         }.getOrDefault(emptyList())
     }
 

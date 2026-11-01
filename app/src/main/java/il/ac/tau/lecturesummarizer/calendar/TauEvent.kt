@@ -11,6 +11,8 @@ data class CalEvent(
 data class TauClass(
     val courseName: String, val kind: ClassKind, val courseNumber: String?, val lecturer: String?,
     val room: String?, val beginMs: Long, val endMs: Long, val fromTauCalendar: Boolean,
+    /** True when the event didn't match the TAU (שיעור)/(תרגיל)/מספר קורס scheme — name is the cleaned event title. */
+    val offScheme: Boolean = false,
 )
 
 object TauEventParser {
@@ -35,6 +37,19 @@ object TauEventParser {
         val name = if (m != null) t.substring(0, m.range.first).trim() else t
         return TauClass(name, kind, num, lecturerRe.find(desc)?.groupValues?.get(1)?.trim(),
             e.location?.trim()?.ifEmpty { null }, e.beginMs, e.endMs, tau)
+    }
+
+    /** Strip common calendar noise from a free-form event title to get a course-ish name. */
+    fun cleanTitle(raw: String): String {
+        var t = raw
+        t = t.replace(Regex("""https?://\S+"""), " ")
+        t = t.replace(Regex("""[\[(（【][^\])）】]*[\])）】]"""), " ")              // (Zoom), [online], (שיעור 3)…
+        t = t.replace(Regex("""(?i)\b(zoom|teams|meet|online|meeting|webinar|lecture|recitation|class)\b"""), " ")
+        t = t.replace(Regex("""(?<!\S)(הרצאה|שיעור|תרגול|תירגול|תרגיל|זום|מקוון)(?!\S)"""), " ")
+        t = t.replace(Regex("""[\p{So}\p{Cn}]"""), " ")                              // emoji
+        t = t.replace(Regex("""\s*[-–—|:·•,]+\s*$|^\s*[-–—|:·•,]+\s*"""), " ")
+        t = t.replace(Regex("""\s+"""), " ").trim().trim('-', '–', '—', '|', ':', '·', ',').trim()
+        return t.ifEmpty { raw.trim() }
     }
 
     fun isTauAccount(a: String?) = a?.trim()?.lowercase()?.endsWith("@mail.tau.ac.il") == true

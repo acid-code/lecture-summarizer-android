@@ -74,15 +74,26 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
     val ctx = LocalContext.current
     var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
-    fun startFor(c: TauClass) {
-        val course = app.repo.findOrCreateCourse(c.courseName, c.courseNumber)
+    var pendingNew by remember { mutableStateOf<Pair<il.ac.tau.lecturesummarizer.data.Course, TauClass>?>(null) }
+    fun startIn(course: il.ac.tau.lecturesummarizer.data.Course, c: TauClass) {
         val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
         val title = when (c.kind) {
             il.ac.tau.lecturesummarizer.calendar.ClassKind.LECTURE -> "Lecture - $date"
             il.ac.tau.lecturesummarizer.calendar.ClassKind.RECITATION -> "Recitation - $date"
-            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> date
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> if (c.offScheme) "Lecture - $date" else date
         }
         val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
+    }
+    fun startFor(c: TauClass) {
+        picks = emptyList()
+        if (c.offScheme) {
+            val before = app.repo.courses.value.map { it.id }.toSet()
+            val course = app.repo.findOrCreateCourse(c.courseName, null)
+            // Newly created from a free-form event title: let the user rename it before recording.
+            if (course.id !in before) { pendingNew = course to c; return }
+            startIn(course, c); return
+        }
+        startIn(app.repo.findOrCreateCourse(c.courseName, c.courseNumber), c)
     }
     fun resolve() {
         val found = CalendarResolver.currentClasses(ctx, app.settings.calendarIds)
@@ -132,6 +143,12 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         text = { Column { picks.forEach { c -> TextButton(onClick = { startFor(c) }, modifier = Modifier.fillMaxWidth()) {
             Text(listOfNotNull(c.courseName, c.kind.he.ifEmpty { null }, c.room).joinToString(" · ")) } } } },
         confirmButton = {}, dismissButton = { TextButton(onClick = { picks = emptyList() }) { Text("ביטול") } })
+    pendingNew?.let { (course, cls) -> NotebookEditor(course, onDismiss = {
+        pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
+    }) { name, e, col, pat ->
+        app.repo.updateCourse(course.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }
+        pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
+    } }
     editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
         app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
     } }
