@@ -39,6 +39,8 @@ data class Lecture(
     val contextPdfUri: String? = null,
     val remoteId: String? = null,
     val jobId: String? = null,
+    /** [jobId] is a live server job (ASR while recording); the final "Upload & process" finalizes it. */
+    val liveJob: Boolean = false,
     val state: LectureState = LectureState.DRAFT,
     val stage: String? = null,
     val progress: Int = 0,
@@ -74,7 +76,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     }))
     .put("markers", JSONArray(markers.map { JSONObject().put("tSec", it.tSec).put("label", it.label) }))
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
-    .put("remoteId", remoteId).put("jobId", jobId).put("state", state.name)
+    .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
 
 fun lectureFromJson(o: JSONObject): Lecture {
@@ -91,7 +93,7 @@ fun lectureFromJson(o: JSONObject): Lecture {
         extraSlides = o.optJSONArray("extraSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         uploadedSlides = o.optJSONArray("uploadedSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         contextPdfUri = o.optStringOrNull("contextPdfUri"),
-        remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"),
+        remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"), liveJob = o.optBoolean("liveJob"),
         state = runCatching { LectureState.valueOf(o.getString("state")) }.getOrDefault(LectureState.DRAFT),
         stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), stageDetail = o.optStringOrNull("stageDetail"), error = o.optStringOrNull("error"),
         pdfPath = o.optStringOrNull("pdfPath"),

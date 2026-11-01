@@ -115,9 +115,9 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         postJson("/v1/lectures/$lectureRemoteId/markers", arr)
     }
 
-    override suspend fun startProcessing(lectureRemoteId: String) =
+    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean) =
         postJson("/v1/lectures/$lectureRemoteId/process",
-            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false))
+            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live))
         ).getString("job_id")
 
     override suspend fun deleteLecture(lectureRemoteId: String) = withContext(Dispatchers.IO) {

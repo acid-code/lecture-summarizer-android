@@ -16,6 +16,7 @@ import androidx.core.app.ServiceCompat
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.MainActivity
 import il.ac.tau.lecturesummarizer.data.LectureState
+import il.ac.tau.lecturesummarizer.upload.UploadWorker
 import il.ac.tau.lecturesummarizer.data.Marker
 import il.ac.tau.lecturesummarizer.data.Segment
 import kotlinx.coroutines.CoroutineScope
@@ -144,7 +145,10 @@ class RecorderService : Service() {
         } else f?.delete()
     }
 
-    private fun rotateSegment() { finishSegment(); startSegment() }
+    private fun rotateSegment() { finishSegment(); startSegment(); uploadLive() }
+
+    /** Mid-lecture: upload the finished part(s) now so the server transcribes while we keep recording. */
+    private fun uploadLive() { lectureId?.let { UploadWorker.enqueue(this, it, live = true) } }
 
     private fun addMarker() {
         val id = lectureId ?: return
@@ -157,7 +161,7 @@ class RecorderService : Service() {
     /** Break: finalize the current segment (moov written) and release the mic; break time isn't counted. */
     private fun pause() {
         if (paused || recorder == null) return
-        finishSegment()
+        finishSegment(); uploadLive()
         paused = true
         _state.value = _state.value.copy(recording = true, paused = true,
             elapsedMs = lectureId?.let { repo.lecture(it) }?.segments?.sumOf { it.durationMs } ?: _state.value.elapsedMs)

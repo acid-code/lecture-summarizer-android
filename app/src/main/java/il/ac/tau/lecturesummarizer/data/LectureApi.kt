@@ -15,7 +15,8 @@ interface LectureApi {
     suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String = "application/pdf", add: Boolean = false)
     suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File)
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
-    suspend fun startProcessing(lectureRemoteId: String): String
+    /** [live]: transcribe parts as they upload (server waits for more audio); a later call without it finalizes. */
+    suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false): String
     suspend fun jobStatus(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
     suspend fun retryJob(jobId: String): JobStatus
