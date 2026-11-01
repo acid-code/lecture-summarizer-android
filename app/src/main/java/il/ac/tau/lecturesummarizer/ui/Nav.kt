@@ -25,12 +25,12 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>) {
         }
         composable("record/{id}") { e ->
             val id = e.arguments!!.getString("id")!!
-            RecordScreen(app, id, onBack = { nav.popBackStack() }, onDone = { nav.navigate("attach/$id") { popUpTo("record/$id") { inclusive = true } } })
+            RecordScreen(app, id, onBack = { nav.popBackStack() }, onDone = { nav.navigate("attach/$id") { popUpTo("record/$id") { inclusive = true } } }, onMoodle = { nav.navigate("moodle/$id") })
         }
         composable("recordAnother/{id}") { e ->
             val id = e.arguments!!.getString("id")!!
             // "Record another" from Materials: start at once, return to Materials (Moodle button) on stop.
-            RecordScreen(app, id, onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }, autoResume = true)
+            RecordScreen(app, id, onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }, autoResume = true, onMoodle = { nav.navigate("moodle/$id") })
         }
         composable("attach/{id}") { e ->
             val id = e.arguments!!.getString("id")!!

@@ -21,6 +21,8 @@ import android.widget.Toast
 import il.ac.tau.lecturesummarizer.data.Segment
 import il.ac.tau.lecturesummarizer.data.MAX_COURSE_CONTEXT
 import il.ac.tau.lecturesummarizer.data.allContext
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Slideshow
@@ -218,8 +220,14 @@ fun LecturesScreen(
 // ---------- Record ----------
 
 @Composable
-fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false) {
+fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
+    // Attach materials while recording (same as "Upload slides"/Moodle on Materials; sent with the final upload).
+    val livePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
+        Toast.makeText(ctx, "Attached ${uris.size} file(s) to Materials", Toast.LENGTH_SHORT).show()
+    }
     val rec by RecorderService.state.collectAsStateWithLifecycle()
     val lecture by app.repo.lectures.collectAsStateWithLifecycle()
     val l = lecture.firstOrNull { it.id == lectureId }
@@ -280,6 +288,16 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             l?.let { cur -> TextButton(onClick = { moving = true }) { Text("מחברת: ${courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"} · שינוי") } }
+            if (l != null && !otherActive) {
+                val n = l.allSlides.size
+                Text("Materials · חומרים: $n file(s)", style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { livePicker.launch(SLIDE_MIMES) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text("Files (PDF/PPTX)") }
+                    OutlinedButton(onClick = onMoodle, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.School, null); Spacer(Modifier.width(6.dp)); Text("Moodle") }
+                }
+            }
             if (otherActive) Text("Another lecture is recording. Stop it first.", color = MaterialTheme.colorScheme.error)
             if (denied) Text("Microphone permission is required.", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))

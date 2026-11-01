@@ -45,7 +45,7 @@ import java.io.File
  *   Outlined = adds/changes/fixes          (“Upload slides”, “Import audio”, “Save PDF”, “Retry job”, “Re-summarize”)
  *   Text     = low-emphasis / navigation   (“Edit materials”, “Re-download PDF”)
  */
-private val SLIDE_MIMES = arrayOf("application/pdf",
+internal val SLIDE_MIMES = arrayOf("application/pdf",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.ms-powerpoint")
 
 @Composable
@@ -117,14 +117,65 @@ fun MaterialsList(items: List<Material>, onSave: (Material) -> Unit, onRemove: (
     if (items.isNotEmpty()) Text("Tap a file to open it.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private fun persist(ctx: android.content.Context, uri: Uri) = runCatching {
+internal fun persist(ctx: android.content.Context, uri: Uri) = runCatching {
     ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 }
 
-internal fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) = app.repo.updateLecture(lectureId) { x ->
-    val new = uris.map { it.toString() }.filterNot { it in x.allSlides }
-    if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))
-    else x.copy(extraSlides = x.extraSlides + new)
+internal fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) {
+    app.repo.updateLecture(lectureId) { x ->
+        val new = uris.map { it.toString() }.filterNot { it in x.allSlides }
+        if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))
+        else x.copy(extraSlides = x.extraSlides + new)
+    }
+    // Manual Materials update → offer to re-summarize (only matters once a summary job exists).
+    MaterialsUpdates.mark(lectureId, uris.map { it.toString() })
+}
+
+/** Manually attached materials not yet folded into a summary, per lecture (in-memory; drives the "Re-summarize?" offer). */
+object MaterialsUpdates {
+    val pending = kotlinx.coroutines.flow.MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    fun mark(id: String, uris: List<String>) { if (uris.isNotEmpty()) pending.value = pending.value + (id to ((pending.value[id] ?: emptyList()) + uris).distinct()) }
+    fun clear(id: String) { pending.value = pending.value - id }
+}
+
+/** "Materials updated — re-summarize?" Shown once per batch of manual attaches when a finished/failed summary job exists and nothing is processing. */
+@Composable
+internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pend by MaterialsUpdates.pending.collectAsStateWithLifecycle()
+    val uris = pend[l.id].orEmpty()
+    val busy = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
+    val hasJob = l.jobId != null && l.remoteId != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
+    LaunchedEffect(uris, busy, hasJob) {
+        if (uris.isEmpty()) return@LaunchedEffect
+        if (busy) { MaterialsUpdates.clear(l.id); Toast.makeText(ctx, "Materials updated — already processing; use Re-summarize later if needed", Toast.LENGTH_LONG).show() }
+        else if (!hasJob) MaterialsUpdates.clear(l.id)  // no summary yet → new files go in with the regular upload
+    }
+    if (uris.isEmpty() || busy || !hasJob) return
+    AlertDialog(onDismissRequest = { MaterialsUpdates.clear(l.id) },
+        icon = { Icon(Icons.Default.AutoAwesome, null) },
+        title = { Text("Materials updated · החומרים עודכנו") },
+        text = { Text("${uris.size} file(s) were added to Materials. Re-summarize now to get a new Study PDF that includes them?\n\nלסכם מחדש עם החומרים החדשים?") },
+        confirmButton = { Button(onClick = {
+            MaterialsUpdates.clear(l.id)
+            scope.launch(Dispatchers.IO) {
+                val api = ApiProvider.get(app.settings)
+                val res = runCatching {
+                    val cur = app.repo.lecture(l.id)!!
+                    uris.filter { it in cur.allSlides && it !in cur.uploadedSlides }.forEach { s ->
+                        val u = Uri.parse(s)
+                        ctx.contentResolver.openInputStream(u)?.use { api.uploadSlides(cur.remoteId!!, displayName(ctx, s), ctx.contentResolver.getType(u) ?: "application/pdf", it) }
+                        app.repo.updateLecture(l.id) { x -> x.copy(uploadedSlides = (if (x.uploadedSlides.isEmpty()) x.allSlides - uris.toSet() else x.uploadedSlides) + s) }
+                    }
+                    val st = api.resummarizeJob(cur.jobId!!)
+                    app.repo.updateLecture(l.id) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }
+                    JobPollWorker.enqueue(ctx, l.id)
+                }
+                launch(Dispatchers.Main) { Toast.makeText(ctx, res.fold({ "Re-summarizing with the new materials…" }, { "Re-summarize failed: ${it.message}" }), Toast.LENGTH_LONG).show() }
+            }
+        }) { Text("Yes, re-summarize") } },
+        dismissButton = { TextButton(onClick = { MaterialsUpdates.clear(l.id) }) { Text("Not now") } })
 }
 
 private fun removeSlide(app: LectureApp, lectureId: String, s: String) = app.repo.updateLecture(lectureId) { x ->
@@ -287,7 +338,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             }
             uploading = false
             launch(Dispatchers.Main) {
-                Toast.makeText(ctx, res.fold({ "Uploaded — tap Re-summarize to include them" }, { "Upload failed: ${it.message}" }), Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, res.fold({ "Uploaded to Materials" }, { "Upload failed: ${it.message}" }), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -298,6 +349,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         }
     }
     val processing = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
+    ResummarizeOffer(app, l)
     val materials = materialsOf(ctx, l)
 
     var confirmDelete by remember { mutableStateOf(false) }
