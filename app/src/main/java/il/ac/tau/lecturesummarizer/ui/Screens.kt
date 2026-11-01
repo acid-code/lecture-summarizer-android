@@ -234,6 +234,15 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res[Manifest.permission.RECORD_AUDIO] == true) RecorderService.start(ctx, lectureId) else denied = true
     }
+    // Auto-start once for a brand-new empty lecture (mic / calendar-arm flow).
+    var autoStarted by androidx.compose.runtime.saveable.rememberSaveable(lectureId) { mutableStateOf(false) }
+    val isEmpty = l != null && l.segments.isEmpty()
+    LaunchedEffect(lectureId, isEmpty) {
+        if (autoStarted || !isEmpty || rec.recording) return@LaunchedEffect
+        autoStarted = true
+        val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
+    }
 
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     var moving by remember { mutableStateOf(false) }
