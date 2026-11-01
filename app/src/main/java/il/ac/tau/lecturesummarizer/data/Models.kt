@@ -9,6 +9,8 @@ data class Course(
     val emoji: String? = null, val color: Long? = null, val pattern: String? = null,
     /** Additional course-context files; all = [allContext] (max [MAX_COURSE_CONTEXT]). */
     val extraContext: List<String> = emptyList(),
+    /** TAU course number from the calendar event description (local only). */
+    val courseNumber: String? = null,
 )
 
 const val MAX_COURSE_CONTEXT = 3
@@ -58,10 +60,11 @@ data class Transcript(val source: String, val complete: Boolean, val lines: List
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
 fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)
-    .put("emoji", emoji).put("color", color).put("pattern", pattern).put("extraContext", JSONArray(extraContext))
+    .put("emoji", emoji).put("color", color).put("pattern", pattern).put("extraContext", JSONArray(extraContext)).put("courseNumber", courseNumber)
 fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"),
     o.optStringOrNull("emoji"), if (o.has("color") && !o.isNull("color")) o.getLong("color") else null, o.optStringOrNull("pattern"),
-    o.optJSONArray("extraContext")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList())
+    o.optJSONArray("extraContext")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+    o.optStringOrNull("courseNumber"))
 
 fun Lecture.toJson(): JSONObject = JSONObject()
     .put("id", id).put("courseId", courseId).put("title", title).put("recordedAtMs", recordedAtMs)

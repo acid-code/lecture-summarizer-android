@@ -38,6 +38,23 @@ class Repository(private val context: Context) {
         _lectures.value = _lectures.value + l; save(); return l
     }
 
+    /** Match a calendar class to an existing notebook by course number, then normalized name; create if missing. */
+    @Synchronized fun findOrCreateCourse(name: String, courseNumber: String?): Course {
+        val norm = il.ac.tau.lecturesummarizer.calendar.TauEventParser::normalize
+        val hit = _courses.value.firstOrNull { courseNumber != null && it.courseNumber == courseNumber }
+            ?: _courses.value.firstOrNull { norm(it.name) == norm(name) }
+            ?: _courses.value.firstOrNull { norm(it.name).contains(norm(name)) || norm(name).contains(norm(it.name)) && norm(it.name).length >= 4 }
+        if (hit != null) {
+            if (hit.courseNumber == null && courseNumber != null) updateCourse(hit.id) { it.copy(courseNumber = courseNumber) }
+            return course(hit.id)!!
+        }
+        val c = Course(UUID.randomUUID().toString(), name, courseNumber = courseNumber)
+        _courses.value = _courses.value + c; save(); return c
+    }
+
+    /** Reassign a lecture to another notebook (wrong calendar guess). Remote copy keeps its old course until re-upload. */
+    @Synchronized fun moveLecture(lectureId: String, courseId: String) = updateLecture(lectureId) { it.copy(courseId = courseId) }
+
     @Synchronized fun updateCourse(id: String, f: (Course) -> Course) {
         _courses.value = _courses.value.map { if (it.id == id) f(it) else it }; save()
     }

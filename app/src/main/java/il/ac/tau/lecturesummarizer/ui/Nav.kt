@@ -15,7 +15,8 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>) {
     LaunchedEffect(shared.value) { if (shared.value.isNotEmpty()) nav.navigate("share") { launchSingleTop = true } }
     NavHost(nav, startDestination = "courses") {
         composable("courses") {
-            CoursesScreen(app, onOpen = { nav.navigate("lectures/$it") }, onSettings = { nav.navigate("settings") })
+            CoursesScreen(app, onOpen = { nav.navigate("lectures/$it") }, onSettings = { nav.navigate("settings") },
+                onRecordLecture = { nav.navigate("record/$it") })
         }
         composable("lectures/{courseId}") { e ->
             LecturesScreen(app, e.arguments!!.getString("courseId")!!, onBack = { nav.popBackStack() },

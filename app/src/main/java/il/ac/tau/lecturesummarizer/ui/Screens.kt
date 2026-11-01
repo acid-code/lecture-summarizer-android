@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Share
@@ -52,6 +53,8 @@ import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.data.ApiProvider
 import il.ac.tau.lecturesummarizer.data.LectureState
 import il.ac.tau.lecturesummarizer.recording.RecorderService
+import il.ac.tau.lecturesummarizer.calendar.CalendarResolver
+import il.ac.tau.lecturesummarizer.calendar.TauClass
 import il.ac.tau.lecturesummarizer.upload.UploadWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,13 +65,34 @@ import java.util.Date
 // ---------- Courses ----------
 
 @Composable
-fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> Unit, onRecordLecture: (String) -> Unit = {}) {
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    val ctx = LocalContext.current
+    var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
+    fun startFor(c: TauClass) {
+        val course = app.repo.findOrCreateCourse(c.courseName, c.courseNumber)
+        val title = listOfNotNull(c.kind.he.ifEmpty { null }, java.text.SimpleDateFormat("d.M HH:mm", java.util.Locale.getDefault()).format(Date()), c.room).joinToString(" · ")
+        val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
+    }
+    fun resolve() {
+        val found = CalendarResolver.currentClasses(ctx)
+        when (found.size) {
+            0 -> android.widget.Toast.makeText(ctx, if (CalendarResolver.hasPermission(ctx)) "לא נמצא שיעור ביומן כרגע — בחר מחברת ידנית" else "אין גישה ליומן — בחר מחברת ידנית", android.widget.Toast.LENGTH_LONG).show()
+            1 -> startFor(found[0])
+            else -> picks = found
+        }
+    }
+    val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resolve() }
     AppScaffold("Notebooks", logo = true,
-        actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
+        actions = {
+            IconButton(onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) }) {
+                Icon(Icons.Default.Mic, "הקלט את השיעור הנוכחי מהיומן")
+            }
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+        },
         fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") }) }
     ) { pad ->
         if (courses.isEmpty()) Column(Modifier.padding(pad).fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -97,6 +121,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     if (adding) NotebookEditor(null, onDismiss = { adding = false }) { name, e, col, pat ->
         app.repo.addCourse(name, e, col, pat); adding = false
     }
+    if (picks.isNotEmpty()) AlertDialog(onDismissRequest = { picks = emptyList() }, title = { Text("איזה שיעור מקליטים?") },
+        text = { Column { picks.forEach { c -> TextButton(onClick = { startFor(c) }, modifier = Modifier.fillMaxWidth()) {
+            Text(listOfNotNull(c.courseName, c.kind.he.ifEmpty { null }, c.room).joinToString(" · ")) } } } },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { picks = emptyList() }) { Text("ביטול") } })
     editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
         app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
     } }
@@ -202,6 +230,12 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
         if (res[Manifest.permission.RECORD_AUDIO] == true) RecorderService.start(ctx, lectureId) else denied = true
     }
 
+    val courses by app.repo.courses.collectAsStateWithLifecycle()
+    var moving by remember { mutableStateOf(false) }
+    if (moving && l != null) AlertDialog(onDismissRequest = { moving = false }, title = { Text("העבר למחברת") },
+        text = { Column { courses.forEach { c -> TextButton(onClick = { app.repo.moveLecture(l.id, c.id); moving = false }, modifier = Modifier.fillMaxWidth()) {
+            Text((if (c.id == l.courseId) "✓ " else "") + c.name) } } } },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { moving = false }) { Text("ביטול") } })
     AppScaffold(l?.title ?: "Record", onBack = onBack) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().padding(24.dp),
@@ -216,6 +250,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                  else "Stopped · ${l?.segments?.size ?: 0} segments · ${l?.markers?.size ?: 0} markers")
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            l?.let { cur -> TextButton(onClick = { moving = true }) { Text("מחברת: ${courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"} · שינוי") } }
             if (otherActive) Text("Another lecture is recording. Stop it first.", color = MaterialTheme.colorScheme.error)
             if (denied) Text("Microphone permission is required.", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
