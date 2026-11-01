@@ -217,7 +217,7 @@ fun LecturesScreen(
 // ---------- Record ----------
 
 @Composable
-fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit) {
+fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false) {
     val ctx = LocalContext.current
     val rec by RecorderService.state.collectAsStateWithLifecycle()
     val lecture by app.repo.lectures.collectAsStateWithLifecycle()
@@ -242,6 +242,20 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
         autoStarted = true
         val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
         if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
+    }
+
+    // "Record another": start a new segment right away, and when it stops go back to Materials (Moodle attach).
+    var anotherStarted by androidx.compose.runtime.saveable.rememberSaveable(lectureId) { mutableStateOf(false) }
+    LaunchedEffect(autoResume, l != null) {
+        if (!autoResume || anotherStarted || l == null || rec.recording) return@LaunchedEffect
+        anotherStarted = true; autoStarted = true
+        val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
+    }
+    var wasActive by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        if (active) wasActive = true
+        else if (autoResume && wasActive) { wasActive = false; onDone() }
     }
 
     val courses by app.repo.courses.collectAsStateWithLifecycle()
