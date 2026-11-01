@@ -379,7 +379,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
                             modifier = Modifier.height(28.dp))
                         (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${l.segments.size}" else (l.stageDetail ?: l.stage))
-                            ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && it.trim().lowercase().let { t -> t == "done" || t.startsWith("done ") || t.startsWith("✓") }) }?.let {
+                            ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it)) }?.let {
                             Text(if (l.stageDetail != null || l.state == LectureState.UPLOADING) it else "Stage: $it", modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -425,7 +425,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             // 3) Study PDF
             val pdf = l.pdfPath?.let(::File)?.takeIf { it.exists() }
             SectionCard("Study PDF", Icons.Default.AutoStories) {
-                if (pdf == null) Text(if (processing) "Being written… " + (l.stageDetail?.let { "($it) " } ?: "") + "it appears here when ready." else if (l.state == LectureState.FAILED) "Not created — see the error above, then Retry job." else "Not ready yet.",
+                if (pdf == null) Text(if (processing) "Being written… " + (l.stageDetail?.takeUnless { il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.let { "($it) " } ?: "") + "it appears here when ready." else if (l.state == LectureState.FAILED) "Not created — see the error above, then Retry job." else "Not ready yet.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else {
                     val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf)
@@ -471,7 +471,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     if (canRetryJob) OutlineAction("Retry job", Icons.Default.Refresh, Modifier.fillMaxWidth()) {
                         scope.launch {
                             runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).retryJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
                         }
                     } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
@@ -493,7 +493,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                                 }
                                 if (r.status == null && r.audioMissing) r = api.reprocessJob(jid, fallback = true)
                                 val st = r.status ?: error(r.error ?: "server refused")
-                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
+                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
                                 JobPollWorker.enqueue(ctx, lectureId)
                                 if (r.mode == "full") "Reprocessing: new transcription + summary"
                                 else "Audio is no longer on the server or phone — re-summarizing from the existing transcript instead"
@@ -507,7 +507,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     OutlineAction("Re-summarize", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) {
                         scope.launch {
                             runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).resummarizeJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
                         }
                     }
