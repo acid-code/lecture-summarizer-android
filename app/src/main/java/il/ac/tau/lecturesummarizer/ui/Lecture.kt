@@ -201,6 +201,41 @@ fun deleteLectureEverywhere(app: LectureApp, ctx: android.content.Context, lectu
     }
 }
 
+/** Delete a notebook: stop its workers/recording, delete each lecture + the course on the server, then remove locally. */
+fun deleteCourseEverywhere(app: LectureApp, ctx: android.content.Context, courseId: String, onDone: () -> Unit = {}) {
+    val c = app.repo.course(courseId) ?: return onDone()
+    val ls = app.repo.lectures.value.filter { it.courseId == courseId }
+    val wm = androidx.work.WorkManager.getInstance(ctx)
+    ls.forEach { l ->
+        wm.cancelUniqueWork("upload-${l.id}"); wm.cancelUniqueWork("poll-${l.id}")
+        if (il.ac.tau.lecturesummarizer.recording.RecorderService.state.value.let { it.recording && it.lectureId == l.id })
+            il.ac.tau.lecturesummarizer.recording.RecorderService.stop(ctx)
+    }
+    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        val api = runCatching { ApiProvider.get(app.settings) }.getOrNull()
+        var failed: Throwable? = null
+        if (api != null) {
+            ls.forEach { l -> l.remoteId?.let { rid -> runCatching { api.deleteLecture(rid) }.onFailure { failed = it } } }
+            c.remoteId?.let { rid -> runCatching { api.deleteCourse(rid) }.onFailure { failed = it } }
+        }
+        app.repo.deleteCourse(courseId)
+        launch(Dispatchers.Main) {
+            Toast.makeText(ctx, if (failed != null) "Notebook deleted on phone — server cleanup failed: ${failed?.message}" else "Notebook “${c.name}” deleted", Toast.LENGTH_LONG).show()
+            onDone()
+        }
+    }
+}
+
+@Composable
+fun DeleteCourseDialog(name: String, lectureCount: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Delete notebook?") },
+        text = { Text("“$name” and its $lectureCount lecture${if (lectureCount == 1) "" else "s"} will be deleted from this phone and the server: recordings, materials, course files, transcripts and study PDFs. This can't be undone.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete notebook", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
 @Composable
 fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,

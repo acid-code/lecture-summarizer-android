@@ -28,5 +28,7 @@ interface LectureApi {
     suspend fun transcript(lectureRemoteId: String): Transcript?
     /** DELETE /v1/lectures/{id} — removes the lecture, its jobs and server files (idempotent). */
     suspend fun deleteLecture(lectureRemoteId: String)
+    /** DELETE /v1/courses/{id} — removes the course, its lectures and course files (idempotent; 404/405 = older server, ignored). */
+    suspend fun deleteCourse(courseRemoteId: String)
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)
 }

@@ -72,6 +72,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    var deleting by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
     val ctx = LocalContext.current
     var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
     var pendingNew by remember { mutableStateOf<Pair<il.ac.tau.lecturesummarizer.data.Course, TauClass>?>(null) }
@@ -141,7 +142,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 Column {
                     NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"} ✓" else ""),
                         c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
-                    TextButton(onClick = { editing = c }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                    Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { editing = c }) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                        IconButton(onClick = { deleting = c }) { Icon(Icons.Default.Delete, "Delete notebook", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                 }
             }
         }
@@ -159,6 +163,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         app.repo.updateCourse(course.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }
         pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
     } }
+    deleting?.let { c -> DeleteCourseDialog(c.name, all.count { it.courseId == c.id }, { deleting = null }) { deleting = null; deleteCourseEverywhere(app, ctx, c.id) } }
     editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
         app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
     } }

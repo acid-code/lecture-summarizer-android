@@ -69,6 +69,13 @@ class Repository(private val context: Context) {
         _lectures.value = _lectures.value.filterNot { it.id == id }; save()
     }
 
+    /** Remove a notebook and all its lectures (recordings + PDFs) from the phone. */
+    @Synchronized fun deleteCourse(id: String) {
+        _lectures.value.filter { it.courseId == id }.forEach { recordingsDir(it.id).deleteRecursively(); File(pdfDir(), "${it.id}.pdf").delete() }
+        _lectures.value = _lectures.value.filterNot { it.courseId == id }
+        _courses.value = _courses.value.filterNot { it.id == id }; save()
+    }
+
     @Synchronized private fun load() {
         if (!file.exists()) return
         runCatching {
