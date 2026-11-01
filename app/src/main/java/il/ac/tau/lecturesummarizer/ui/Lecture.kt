@@ -376,8 +376,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
                             modifier = Modifier.height(28.dp))
-                        (l.stageDetail ?: l.stage)?.takeIf { processing || l.liveJob }?.let {
-                            Text(if (l.stageDetail != null) it else "Stage: $it", modifier = Modifier.weight(1f),
+                        (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${l.segments.size}" else (l.stageDetail ?: l.stage))
+                            ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && it.trim().lowercase().let { t -> t == "done" || t.startsWith("done ") || t.startsWith("✓") }) }?.let {
+                            Text(if (l.stageDetail != null || l.state == LectureState.UPLOADING) it else "Stage: $it", modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
@@ -388,6 +389,15 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
+                    // New local audio (e.g. "Record another") not yet sent: offer upload right away (state is a live flow).
+                    val newSegs = l.segments.count { !it.uploaded && File(it.path).exists() }
+                    val recNow = il.ac.tau.lecturesummarizer.recording.RecorderService.state.collectAsStateWithLifecycle().value.let { it.recording && it.lectureId == lectureId }
+                    if (!processing && !recNow && newSegs > 0) {
+                        PrimaryAction("Upload & summarize ($newSegs new part${if (newSegs == 1) "" else "s"})", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
+                            app.repo.updateLecture(lectureId) { it.copy(error = null) }
+                            UploadWorker.enqueue(ctx, lectureId)
+                        }
+                    }
                 }
             }
 

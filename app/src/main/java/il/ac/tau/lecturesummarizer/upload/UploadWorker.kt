@@ -45,7 +45,8 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
         return try {
             var lecture = repo.lecture(id) ?: return Result.failure()
-            if (!live) repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null) }
+            val hadFinished = lecture.state == LectureState.DONE || lecture.state == LectureState.FAILED || lecture.state == LectureState.RECORDED
+            if (!live) repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stage = null, stageDetail = null, progress = 0) }
             val course = repo.course(lecture.courseId) ?: return Result.failure()
 
             val courseRemote = course.remoteId ?: api.createCourse(course.name).also { rid ->
@@ -88,7 +89,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobPollWorker.enqueue(applicationContext, id)
                 return Result.success()
             }
-            val jobId = if (cur.jobId == null || cur.liveJob) api.startProcessing(remote) else cur.jobId
+            val jobId = if (cur.jobId == null || cur.liveJob || (pending.isNotEmpty() && hadFinished)) api.startProcessing(remote) else cur.jobId
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()

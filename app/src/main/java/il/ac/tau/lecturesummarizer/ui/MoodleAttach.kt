@@ -103,6 +103,13 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
     val scope = rememberCoroutineScope()
     val sel = remember { mutableStateListOf<Long>() }
     var busy by remember { mutableStateOf(false) }
+    // Show the actual Moodle file name (e.g. "Lecture3_genetics.pdf"), not the activity/section title.
+    val fileNames = remember(s) { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
+    LaunchedEffect(s) {
+        s.sections.flatMap { it.files }.forEach { f ->
+            launch(kotlinx.coroutines.Dispatchers.IO) { client.fileName(f)?.let { fileNames[f.cmid] = it } }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp)) {
             item { Text(s.course.fullname, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
@@ -114,9 +121,13 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     Row(Modifier.fillMaxWidth().clickable { if (f.cmid in sel) sel.remove(f.cmid) else sel.add(f.cmid) }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(f.cmid in sel, { if (it) sel.add(f.cmid) else sel.remove(f.cmid) })
-                        Text(f.name, Modifier.weight(1f))
+                        val fn = fileNames[f.cmid] ?: store.cached(f.cmid)?.name?.substringAfter('_')
+                        Column(Modifier.weight(1f)) {
+                            Text(fn ?: f.name)
+                            if (fn == null) Text("Loading file name…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         if (used || cached) AssistChip({}, { Text(if (used) "Used · cached" else "Cached") })
-                        else if (MoodleMatch.suggested(f.name, dayMonth)) AssistChip({}, { Text("Suggested") })
+                        else if (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth)) AssistChip({}, { Text("Suggested") })
                     }
                 }
             }

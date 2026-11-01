@@ -121,6 +121,29 @@ class MoodleClient(private val base: String) {
         }
     }
 
+    /** Real file name of a mod/resource (follows redirects to pluginfile.php without downloading the body). Null if unknown. */
+    fun fileName(f: MoodleFile): String? = runCatching {
+        var u = "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
+        repeat(8) {
+            if (u.contains("/pluginfile.php/")) return@runCatching java.net.URLDecoder.decode(u.substringBefore('?').substringAfterLast('/'), "UTF-8")
+            var next: String? = null
+            http.newCall(req(u).head().build()).execute().use { r ->
+                if (r.isRedirect) next = r.request.url.resolve(r.header("Location") ?: return@runCatching null).toString()
+                else if (r.isSuccessful) {
+                    r.header("Content-Disposition")?.let { cd -> Regex("""filename\*?=(?:UTF-8'')?"?([^";]+)""").find(cd)?.groupValues?.get(1)?.let { return@runCatching java.net.URLDecoder.decode(it, "UTF-8") } }
+                    if (r.header("Content-Type").orEmpty().startsWith("text/html")) {
+                        http.newCall(req(u).build()).execute().use { g ->
+                            next = Regex("""href="([^"]+/pluginfile\.php/[^"]+)"""").find(g.body?.string().orEmpty())?.groupValues?.get(1)?.let(::unescape)
+                        }
+                    } else return@runCatching r.request.url.pathSegments.lastOrNull()?.takeIf { '.' in it }
+                }
+            }
+            u = next ?: return@runCatching null
+            if (isLoginUrl(u)) return@runCatching null
+        }
+        null
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
     /** Download a mod/resource into [dir]. Returns the file, or throws if it is not PDF/PPTX. */
     fun download(f: MoodleFile, dir: File): File {
         var u = "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"

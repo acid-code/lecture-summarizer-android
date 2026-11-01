@@ -77,10 +77,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     var pendingNew by remember { mutableStateOf<Pair<il.ac.tau.lecturesummarizer.data.Course, TauClass>?>(null) }
     fun startIn(course: il.ac.tau.lecturesummarizer.data.Course, c: TauClass) {
         val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
-        val title = when (c.kind) {
+        val title = if (c.offScheme) "Event - $date" else when (c.kind) {
             il.ac.tau.lecturesummarizer.calendar.ClassKind.LECTURE -> "Lecture - $date"
             il.ac.tau.lecturesummarizer.calendar.ClassKind.RECITATION -> "Recitation - $date"
-            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> if (c.offScheme) "Lecture - $date" else date
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> date
         }
         val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
     }
