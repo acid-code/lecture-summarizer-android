@@ -106,12 +106,22 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resolve() }
     AppScaffold("Notebooks", logo = true,
         actions = {
-            IconButton(onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) }) {
-                Icon(Icons.Default.Mic, "הקלט את השיעור הנוכחי מהיומן")
-            }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
         },
-        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") }) }
+        fab = {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExtendedFloatingActionButton(onClick = { adding = true },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") })
+                ExtendedFloatingActionButton(
+                    onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) },
+                    modifier = Modifier.height(72.dp),
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    icon = { Icon(Icons.Default.Mic, "הקלט את השיעור הנוכחי מהיומן", Modifier.size(32.dp)) },
+                    text = { Text("Record lecture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) })
+            }
+        }
     ) { pad ->
         if (courses.isEmpty()) Column(Modifier.padding(pad).fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), null, Modifier.size(96.dp))
@@ -123,7 +133,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         }
         else androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp), Modifier.padding(pad),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 176.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             items(courses.size, key = { courses[it].id }) { i ->
                 val c = courses[i]
