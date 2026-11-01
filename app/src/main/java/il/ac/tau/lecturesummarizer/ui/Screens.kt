@@ -483,6 +483,11 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
         Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(url, { url = it }, label = { Text("API BASE_URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(token, { token = it }, label = { Text("API token (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Device ID: ${app.settings.deviceId.take(8)}…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(app.settings.deviceId)) }) { Text("Copy") }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(mock, { mock = it }); Spacer(Modifier.width(12.dp)); Text("Mock mode (offline, fake processing)")
             }

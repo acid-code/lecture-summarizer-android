@@ -1,6 +1,7 @@
 package il.ac.tau.lecturesummarizer.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -16,7 +17,12 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
-class HttpLectureApi(private val baseUrl: String, private val token: String) : LectureApi {
+class HttpLectureApi(
+    private val baseUrl: String,
+    private val token: String,
+    private val deviceId: String = "",
+    private val claimIds: () -> List<String> = { emptyList() },
+) : LectureApi {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.MINUTES)   // segments are tens of MB
@@ -26,9 +32,32 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
 
     private fun req(path: String) = Request.Builder().url("$baseUrl$path").apply {
         if (token.isNotBlank()) header("Authorization", "Bearer $token")
+        if (deviceId.isNotBlank()) header("X-Device-Id", deviceId)
+    }
+
+    /**
+     * Per-device migration: before the first API call of this process (per server+device), claim the legacy
+     * (unowned) server courses whose remote ids this phone already stores. Only sets ownership server-side;
+     * ids never change. Older servers (404) are ignored; network errors retry on the next call.
+     */
+    private suspend fun ensureClaimed() {
+        val key = "$baseUrl|$deviceId"
+        if (deviceId.isBlank() || key in claimedKeys) return
+        claimMutex.withLock {
+            if (key in claimedKeys) return
+            val ids = runCatching { claimIds() }.getOrDefault(emptyList()).distinct()
+            val body = JSONObject().put("claim_course_ids", JSONArray(ids)).toString().toRequestBody(json)
+            withContext(Dispatchers.IO) {
+                client.newCall(req("/v1/devices/claim").post(body).build()).execute().use { resp ->
+                    if (resp.isSuccessful || resp.code == 404 || resp.code == 405) claimedKeys += key
+                    else throw IOException("HTTP ${resp.code} POST /v1/devices/claim")
+                }
+            }
+        }
     }
 
     private suspend fun <T> call(r: Request, f: (Response) -> T): T = withContext(Dispatchers.IO) {
+        ensureClaimed()
         client.newCall(r).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${r.method} ${r.url.encodedPath}")
             f(resp)
@@ -181,6 +210,8 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
     companion object {
         /** Above this, use Blob direct upload when the server offers it (Vercel body limit is 4.5 MB). */
         const val BLOB_THRESHOLD = 4L * 1024 * 1024
+        private val claimMutex = kotlinx.coroutines.sync.Mutex()
+        private val claimedKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     }
 }
 
