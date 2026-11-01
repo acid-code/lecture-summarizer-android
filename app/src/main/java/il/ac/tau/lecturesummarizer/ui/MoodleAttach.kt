@@ -5,7 +5,13 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -110,44 +116,104 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
             launch(kotlinx.coroutines.Dispatchers.IO) { client.fileName(f)?.let { fileNames[f.cmid] = it } }
         }
     }
+    val total = s.sections.sumOf { it.files.size }
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp)) {
-            item { Text(s.course.fullname, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-            if (s.sections.isEmpty()) item { Text("No files in this course.", Modifier.padding(top = 12.dp)) }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("🎓", fontSize = 28.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(s.course.fullname, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("$total files · ${s.sections.size} sections · בחר קבצים לצירוף", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        }
+                    }
+                }
+            }
+            if (s.sections.isEmpty()) item { Text("📭  No files in this course.", Modifier.padding(top = 12.dp)) }
             s.sections.forEach { sec ->
-                item { Text(sec.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+                item(key = "h:" + sec.title + sec.files.firstOrNull()?.cmid) {
+                    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("📂", fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(sec.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val n = sec.files.count { it.cmid in sel }
+                        Text(if (n > 0) "$n/${sec.files.size}" else "${sec.files.size}", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 items(sec.files, key = { it.cmid }) { f ->
                     val used = store.isUsed(f.cmid); val cached = store.cached(f.cmid) != null
-                    Row(Modifier.fillMaxWidth().clickable { if (f.cmid in sel) sel.remove(f.cmid) else sel.add(f.cmid) }.padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(f.cmid in sel, { if (it) sel.add(f.cmid) else sel.remove(f.cmid) })
-                        val fn = fileNames[f.cmid] ?: store.cached(f.cmid)?.name?.substringAfter('_')
-                        Column(Modifier.weight(1f)) {
-                            Text(fn ?: f.name)
-                            if (fn == null) Text("Loading file name…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val fn = fileNames[f.cmid] ?: store.cached(f.cmid)?.name?.substringAfter('_')
+                    val type = MoodleFileType.of(fn ?: f.name, f.module)
+                    val selected = f.cmid in sel
+                    val suggested = !used && !cached && (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth))
+                    val toggle = { if (selected) sel.remove(f.cmid) else sel.add(f.cmid); Unit }
+                    Surface(onClick = toggle, shape = RoundedCornerShape(16.dp),
+                        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(type.color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                                Text(type.emoji, fontSize = 24.sp)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(fn ?: f.name, style = MaterialTheme.typography.bodyLarge, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    FileBadge(type.label, type.color.copy(alpha = 0.15f), type.color)
+                                    if (used) FileBadge("✓ Used", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                                    if (cached) FileBadge("💾 Cached", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (suggested) FileBadge("⭐ Suggested", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                                if (fn == null) Text("Loading file name…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Checkbox(selected, { if (it) sel.add(f.cmid) else sel.remove(f.cmid) })
                         }
-                        if (used || cached) AssistChip({}, { Text(if (used) "Used · cached" else "Cached") })
-                        else if (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth)) AssistChip({}, { Text("Suggested") })
                     }
                 }
             }
         }
-        Button(enabled = sel.isNotEmpty() && !busy, modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp), onClick = {
-            busy = true
-            scope.launch {
-                val all = s.sections.flatMap { it.files }.filter { it.cmid in sel }
-                val res = withContext(Dispatchers.IO) {
-                    all.map { f -> runCatching {
-                        store.cached(f.cmid) ?: client.download(f, store.cacheDir).also { store.putCached(f.cmid, it) }
-                    }.onSuccess { store.markUsed(f.cmid) } }
+        Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (sel.isNotEmpty()) {
+                    TextButton(onClick = { sel.clear() }, enabled = !busy) { Text("Clear · נקה") }
+                    Spacer(Modifier.width(8.dp))
                 }
-                busy = false
-                res.mapNotNull { it.exceptionOrNull() }.firstOrNull()?.let { Toast.makeText(ctx, it.message ?: "Download failed", Toast.LENGTH_LONG).show() }
-                val ok = res.mapNotNull { it.getOrNull() }
-                if (ok.isNotEmpty()) onAttach(ok)
+                Button(enabled = sel.isNotEmpty() && !busy, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp), onClick = {
+                    busy = true
+                    scope.launch {
+                        val all = s.sections.flatMap { it.files }.filter { it.cmid in sel }
+                        val res = withContext(Dispatchers.IO) {
+                            all.map { f -> runCatching {
+                                store.cached(f.cmid) ?: client.download(f, store.cacheDir).also { store.putCached(f.cmid, it) }
+                            }.onSuccess { store.markUsed(f.cmid) } }
+                        }
+                        busy = false
+                        res.mapNotNull { it.exceptionOrNull() }.firstOrNull()?.let { Toast.makeText(ctx, it.message ?: "Download failed", Toast.LENGTH_LONG).show() }
+                        val ok = res.mapNotNull { it.getOrNull() }
+                        if (ok.isNotEmpty()) onAttach(ok)
+                    }
+                }) {
+                    if (busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text("Downloading…") }
+                    else Text(if (sel.isEmpty()) "Select files · בחר קבצים" else "📎 Attach ${sel.size} · צרף")
+                }
             }
-        }) { Text(if (busy) "Downloading…" else "Attach ${sel.size} · צרף") }
+        }
     }
+}
+
+@Composable
+private fun FileBadge(text: String, bg: androidx.compose.ui.graphics.Color, fg: androidx.compose.ui.graphics.Color) {
+    Text(text, Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(horizontal = 8.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.labelSmall, color = fg, fontWeight = FontWeight.Medium, maxLines = 1)
 }
 
 @SuppressLint("SetJavaScriptEnabled")
