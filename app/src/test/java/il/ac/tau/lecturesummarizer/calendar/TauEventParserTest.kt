@@ -33,4 +33,9 @@ class TauEventParserTest {
         val c = TauEventParser.candidates(listOf(ev("ארוחת צהריים", t0, t0 + h, "me@gmail.com"), ev("גנטיקה כללית (שיעור)", t0, t0 + h)), t0 + 10 * 60_000)
         assertEquals(listOf("גנטיקה כללית"), c.map { it.courseName })
     }
+    @Test fun specificCalendarsNoTauFilter() {
+        val e = CalEvent("Biology 101", null, "Room 3", t0, t0 + h, "me@gmail.com")
+        assertTrue(TauEventParser.candidates(listOf(e), t0 + 60_000).isEmpty())
+        assertEquals(listOf("Biology 101"), TauEventParser.candidates(listOf(e, ev("גנטיקה כללית (שיעור)", t0, t0 + h)), t0 + 60_000, preferTau = false).map { it.courseName }.sorted().take(1))
+    }
 }

@@ -78,7 +78,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
     }
     fun resolve() {
-        val found = CalendarResolver.currentClasses(ctx)
+        val found = CalendarResolver.currentClasses(ctx, app.settings.calendarIds)
         when (found.size) {
             0 -> android.widget.Toast.makeText(ctx, if (CalendarResolver.hasPermission(ctx)) "לא נמצא שיעור ביומן כרגע — בחר מחברת ידנית" else "אין גישה ליומן — בחר מחברת ידנית", android.widget.Toast.LENGTH_LONG).show()
             1 -> startFor(found[0])
@@ -404,17 +404,42 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
     AppScaffold("Settings", onBack = {
         app.settings.baseUrl = url; app.settings.apiToken = token; app.settings.mockMode = mock; onBack()
     }) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(url, { url = it }, label = { Text("API BASE_URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(token, { token = it }, label = { Text("API token (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(mock, { mock = it }); Spacer(Modifier.width(12.dp)); Text("Mock mode (offline, fake processing)")
             }
+            CalendarSourceSection(app)
             Text("Privacy: recordings stay in app-private storage until you upload them to YOUR API above. " +
                 "The app talks to no other server and never calls an AI model directly.",
                 style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+@Composable
+private fun CalendarSourceSection(app: LectureApp) {
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(CalendarResolver.hasPermission(ctx)) }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    var sel by remember { mutableStateOf(app.settings.calendarIds) }
+    fun set(v: Set<Long>) { sel = v; app.settings.calendarIds = v }
+    HorizontalDivider()
+    Text("יומן לזיהוי שיעור (כפתור המיקרופון)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    if (!granted) { OutlinedButton(onClick = { perm.launch(Manifest.permission.READ_CALENDAR) }) { Text("אפשר גישה ליומן") }; return }
+    val cals = remember(granted) { CalendarResolver.listCalendars(ctx) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(sel.isEmpty(), { set(emptySet()) })
+        Text("אוטומטי (עדיפות ל-@mail.tau.ac.il, אחרת כל היומנים)")
+    }
+    cals.forEach { c ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(c.id in sel, { on -> set(if (on) sel + c.id else sel - c.id) })
+            Column { Text(c.name); Text(c.account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+    if (cals.isEmpty()) Text("לא נמצאו יומנים במכשיר", style = MaterialTheme.typography.bodySmall)
 }
 
 // ---------- helpers ----------

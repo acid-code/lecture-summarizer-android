@@ -18,7 +18,7 @@ object TauEventParser {
     private val courseNo = Regex("""מספר\s*קורס\s*[:：]?\s*([0-9][0-9\-]{4,})""")
     private val lecturerRe = Regex("""(?:מרצה|מתרגל(?:ת)?)\s*[:：]\s*([^\n\r]+)""")
 
-    fun parse(e: CalEvent): TauClass? {
+    fun parse(e: CalEvent, requireClassHint: Boolean = true): TauClass? {
         val t = e.title.trim()
         if (t.isEmpty() || e.allDay) return null
         val m = kindSuffix.find(t)
@@ -31,7 +31,7 @@ object TauEventParser {
         val num = courseNo.find(desc)?.groupValues?.get(1)?.replace("-", "")
         val tau = isTauAccount(e.calendarAccount)
         // Without a kind marker / course number / TAU calendar, it's probably not a class.
-        if (kind == ClassKind.UNKNOWN && num == null && !tau) return null
+        if (requireClassHint && kind == ClassKind.UNKNOWN && num == null && !tau) return null
         val name = if (m != null) t.substring(0, m.range.first).trim() else t
         return TauClass(name, kind, num, lecturerRe.find(desc)?.groupValues?.get(1)?.trim(),
             e.location?.trim()?.ifEmpty { null }, e.beginMs, e.endMs, tau)
@@ -44,8 +44,8 @@ object TauEventParser {
      * Fallback only if nothing overlaps: events starting within [earlyMs].
      * Ranked: TAU calendar first, explicit kind first, latest start first.
      */
-    fun candidates(events: List<CalEvent>, nowMs: Long, earlyMs: Long = 10 * 60_000L): List<TauClass> {
-        val parsed = events.mapNotNull { parse(it) }
+    fun candidates(events: List<CalEvent>, nowMs: Long, earlyMs: Long = 10 * 60_000L, preferTau: Boolean = true): List<TauClass> {
+        val parsed = events.mapNotNull { parse(it, requireClassHint = preferTau) }.map { if (preferTau) it else it.copy(fromTauCalendar = false) }
         val overlap = parsed.filter { it.beginMs <= nowMs && nowMs < it.endMs }
         val pool = overlap.ifEmpty { parsed.filter { it.beginMs > nowMs && it.beginMs - nowMs <= earlyMs } }
         val ranked = pool.distinctBy { Triple(it.courseName, it.kind, it.beginMs) }

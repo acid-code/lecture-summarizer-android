@@ -19,4 +19,9 @@ class Settings(context: Context) {
     var mockMode: Boolean
         get() = prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK)
         set(v) = prefs.edit().putBoolean("mock", v).apply()
+
+    /** Calendar-arm source calendars (CalendarContract IDs). Empty = Auto (prefer @mail.tau.ac.il, else any). */
+    var calendarIds: Set<Long>
+        get() = prefs.getStringSet("calendarIds", emptySet())!!.mapNotNull { it.toLongOrNull() }.toSet()
+        set(v) = prefs.edit().putStringSet("calendarIds", v.map { it.toString() }.toSet()).apply()
 }

@@ -12,13 +12,30 @@ object CalendarResolver {
     fun hasPermission(ctx: Context) =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
-    fun currentClasses(ctx: Context, nowMs: Long = System.currentTimeMillis()): List<TauClass> {
+    data class DeviceCalendar(val id: Long, val name: String, val account: String)
+
+    fun listCalendars(ctx: Context): List<DeviceCalendar> {
         if (!hasPermission(ctx)) return emptyList()
-        return runCatching { TauEventParser.candidates(query(ctx, nowMs - 4 * 3600_000L, nowMs + 15 * 60_000L), nowMs) }
-            .getOrDefault(emptyList())
+        return runCatching {
+            val out = mutableListOf<DeviceCalendar>()
+            ctx.contentResolver.query(CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, CalendarContract.Calendars.ACCOUNT_NAME),
+                null, null, CalendarContract.Calendars.ACCOUNT_NAME + " ASC")?.use { c ->
+                while (c.moveToNext()) out += DeviceCalendar(c.getLong(0), c.getString(1) ?: "", c.getString(2) ?: "")
+            }
+            out
+        }.getOrDefault(emptyList())
     }
 
-    private fun query(ctx: Context, from: Long, to: Long): List<CalEvent> {
+    /** [calendarIds] empty = Auto (prefer TAU accounts); otherwise only those calendars, no TAU filter. */
+    fun currentClasses(ctx: Context, calendarIds: Set<Long> = emptySet(), nowMs: Long = System.currentTimeMillis()): List<TauClass> {
+        if (!hasPermission(ctx)) return emptyList()
+        return runCatching {
+            TauEventParser.candidates(query(ctx, nowMs - 4 * 3600_000L, nowMs + 15 * 60_000L, calendarIds), nowMs, preferTau = calendarIds.isEmpty())
+        }.getOrDefault(emptyList())
+    }
+
+    private fun query(ctx: Context, from: Long, to: Long, ids: Set<Long>): List<CalEvent> {
         val b = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(b, from); ContentUris.appendId(b, to)
         val proj = arrayOf(
@@ -27,7 +44,8 @@ object CalendarResolver {
             CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
         )
         val out = mutableListOf<CalEvent>()
-        ctx.contentResolver.query(b.build(), proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
+        val sel = if (ids.isEmpty()) null else "${CalendarContract.Instances.CALENDAR_ID} IN (${ids.joinToString(",")})"
+        ctx.contentResolver.query(b.build(), proj, sel, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
             while (c.moveToNext()) {
                 val owner = c.getString(5); val display = c.getString(7)
                 val account = if (TauEventParser.isTauAccount(owner)) owner else display ?: owner
