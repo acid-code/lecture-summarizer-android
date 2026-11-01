@@ -66,7 +66,9 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val open = PendingIntent.getActivity(ctx, id.hashCode(),
-            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            Intent(ctx, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_LECTURE).putExtra(MainActivity.EXTRA_LECTURE_ID, id)
+                .setData(android.net.Uri.parse("lecturesummarizer://lecture/$id"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
