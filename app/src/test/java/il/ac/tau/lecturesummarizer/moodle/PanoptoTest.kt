@@ -57,4 +57,10 @@ class PanoptoTest {
         assertEquals("he", Panopto.languageOf(Panopto.parseSrt(res("panopto-sample.srt"))))
         assertEquals("en", Panopto.languageOf(listOf(CaptionSegment(0.0, 1.0, "hello world"))))
     }
+
+    @org.junit.Test fun loginRedirectDetection() {
+        org.junit.Assert.assertTrue(Panopto.isLoginRedirect("https://tau.cloud.panopto.eu/Panopto/Pages/Auth/Login.aspx?Auth=SessionView"))
+        org.junit.Assert.assertFalse(Panopto.isLoginRedirect("/Panopto/Pages/Viewer.aspx?id=x"))
+        org.junit.Assert.assertFalse(Panopto.isLoginRedirect(null))
+    }
 }

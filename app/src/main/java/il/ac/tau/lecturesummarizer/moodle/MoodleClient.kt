@@ -12,6 +12,8 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 class MoodleAuthRequired : Exception("Moodle login required")
+enum class CaptionStatus { CHECKING, HAS, NONE, AUTH, UNKNOWN }
+
 class PanoptoAuthRequired(val viewerUrl: String? = null) : Exception("Panopto sign-in required")
 
 data class MoodleCourse(val id: Long, val fullname: String, val shortname: String, val idnumber: String)
@@ -158,13 +160,50 @@ class MoodleClient(private val base: String) {
                 val txt = r.body?.string().orEmpty()
                 if ("-->" !in txt) {
                     if (txt.contains("<html", true)) throw PanoptoAuthRequired(rec.viewerUrl)
-                    error("No captions for this recording (not generated yet or archived)")
+                    // Panopto answers 200 + empty body when NOT signed in (same as truly missing captions).
+                    // Disambiguate: Viewer.aspx 302s to Auth/Login without a Panopto session.
+                    if (!panoptoSignedIn(rec)) throw PanoptoAuthRequired(rec.viewerUrl)
+                    error(Panopto.NO_CAPTIONS)
                 }
                 return txt
             }
         }
         error("Too many redirects")
     }
+
+    @Volatile private var signedInCache: Boolean? = null
+
+    /**
+     * Cheap caption-availability probe: GETs GenerateSRT but reads at most 4 KB, then cancels the stream.
+     * Panopto returns 200 + empty body both for "no captions" and "not signed in", so an empty answer is
+     * disambiguated once (cached) via the viewer's sign-in redirect.
+     */
+    fun captionStatus(rec: PanoptoRecording): CaptionStatus = runCatching {
+        http.newCall(req(Panopto.captionsUrl(rec.deliveryId)).build()).execute().use { r ->
+            if (r.isRedirect) return@runCatching if (Panopto.isLoginRedirect(r.header("Location"))) CaptionStatus.AUTH else CaptionStatus.UNKNOWN
+            if (r.code == 401 || r.code == 403) return@runCatching CaptionStatus.AUTH
+            if (!r.isSuccessful) return@runCatching CaptionStatus.UNKNOWN
+            val head = r.body?.source()?.let { src -> src.request(4096); src.buffer.snapshot().utf8() }.orEmpty()
+            when {
+                "-->" in head -> CaptionStatus.HAS
+                head.contains("<html", true) -> CaptionStatus.AUTH
+                head.isBlank() -> {
+                    val ok = signedInCache ?: panoptoSignedIn(rec).also { signedInCache = it }
+                    if (ok) CaptionStatus.NONE else CaptionStatus.AUTH
+                }
+                else -> CaptionStatus.UNKNOWN
+            }
+        }
+    }.getOrDefault(CaptionStatus.UNKNOWN)
+
+    fun resetPanoptoSession() { signedInCache = null }
+
+    /** True if the Panopto viewer for [rec] opens without redirecting to Panopto sign-in. */
+    fun panoptoSignedIn(rec: PanoptoRecording): Boolean = runCatching {
+        http.newCall(req("${Panopto.HOST}/Panopto/Pages/Viewer.aspx?id=${rec.deliveryId}").build()).execute().use { r ->
+            !(r.isRedirect && Panopto.isLoginRedirect(r.header("Location"))) && r.code != 401 && r.code != 403
+        }
+    }.getOrDefault(true)
 
     /** Real file name of a mod/resource (follows redirects to pluginfile.php without downloading the body). Null if unknown. */
     fun fileName(f: MoodleFile): String? = runCatching {

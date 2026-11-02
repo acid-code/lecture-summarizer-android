@@ -12,6 +12,11 @@ object Panopto {
     const val BLOCK_TITLE = "הקלטות הקורס בשרת הוידאו Panopto"
     private val GUID = """[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"""
 
+    const val NO_CAPTIONS = "Panopto has no captions for this recording yet. Record the lecture instead, or choose another recording."
+
+    fun isLoginRedirect(location: String?): Boolean =
+        location != null && (location.contains("/Auth/", true) || location.contains("Login", true))
+
     fun captionsUrl(deliveryId: String, language: Int = 0) =
         "$HOST/Panopto/Pages/Transcription/GenerateSRT.ashx?id=$deliveryId&language=$language"
 

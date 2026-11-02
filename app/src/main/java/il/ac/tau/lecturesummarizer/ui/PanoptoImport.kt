@@ -21,6 +21,11 @@ import il.ac.tau.lecturesummarizer.moodle.*
 import il.ac.tau.lecturesummarizer.upload.JobKick
 import il.ac.tau.lecturesummarizer.upload.JobPollWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -51,6 +56,8 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     var state by remember { mutableStateOf<PState>(PState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+    val capStatus = remember { mutableStateMapOf<String, CaptionStatus>() }
+    var onlyWithCaptions by remember { mutableStateOf(false) }
 
     fun fail(e: Throwable): PState = when (e) {
         is MoodleAuthRequired -> PState.Login
@@ -92,6 +99,22 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 null
             }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
         } ?: run { Toast.makeText(ctx, "Imported captions · התחיל סיכום", Toast.LENGTH_SHORT).show(); onStarted(); return }
+    }
+
+    // Probe caption availability in the background (list shows immediately; ≤6 parallel, 15 s each).
+    val recsKey = (state as? PState.Recordings)?.recs
+    LaunchedEffect(recsKey) {
+        val recs = recsKey ?: return@LaunchedEffect
+        client.resetPanoptoSession()
+        val sem = Semaphore(6)
+        recs.forEach { r -> if (capStatus[r.deliveryId] != CaptionStatus.HAS) capStatus[r.deliveryId] = CaptionStatus.CHECKING }
+        recs.forEach { r ->
+            launch(Dispatchers.IO) {
+                sem.withPermit {
+                    capStatus[r.deliveryId] = withTimeoutOrNull(15_000) { client.captionStatus(r) } ?: CaptionStatus.UNKNOWN
+                }
+            }
+        }
     }
 
     LaunchedEffect(reload) {
@@ -146,12 +169,38 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             TextButton(onClick = onBack) { Text("Back") }
                         }
                     }
-                    items(s.recs, key = { it.deliveryId }) { r ->
-                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth().clickable { scope.launch { import(s.course, r) } }) {
+                    if (s.recs.isNotEmpty()) item {
+                        val none = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.NONE }
+                        val has = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.HAS }
+                        if (s.recs.any { capStatus[it.deliveryId] == CaptionStatus.AUTH }) Column {
+                            Text("Sign in to Panopto to check captions · התחבר ל-Panopto כדי לבדוק כתוביות", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { scope.launch { import(s.course, s.recs.first { capStatus[it.deliveryId] == CaptionStatus.AUTH }) } }) { Text("Sign in to Panopto") }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(checked = onlyWithCaptions, onCheckedChange = { onlyWithCaptions = it })
+                            Spacer(Modifier.width(8.dp))
+                            Text("רק עם כתוביות · only with captions ($has ✓ / $none ✗)", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    items(s.recs.filter { !onlyWithCaptions || capStatus[it.deliveryId] != CaptionStatus.NONE }, key = { it.deliveryId }) { r ->
+                        val cs = capStatus[r.deliveryId] ?: CaptionStatus.CHECKING
+                        val disabled = cs == CaptionStatus.NONE
+                        Surface(shape = MaterialTheme.shapes.medium,
+                            color = if (disabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth().clickable(enabled = !disabled) { scope.launch { import(s.course, r) } }) {
                             Column(Modifier.padding(12.dp)) {
-                                Text("🎬 " + r.title)
-                                Text(MoodleMatch.kindFromTitle(r.title).he, style = MaterialTheme.typography.bodySmall)
+                                Text("🎬 " + r.title, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(MoodleMatch.kindFromTitle(r.title).he, style = MaterialTheme.typography.bodySmall, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                    val (label, color) = when (cs) {
+                                        CaptionStatus.HAS -> "✓ יש כתוביות" to Color(0xFF2E7D32)
+                                        CaptionStatus.NONE -> "✗ אין כתוביות · no captions" to Color(0xFFD32F2F)
+                                        CaptionStatus.AUTH -> "🔒 sign in to check" to MaterialTheme.colorScheme.onSurfaceVariant
+                                        CaptionStatus.CHECKING -> "בודק כתוביות…" to MaterialTheme.colorScheme.onSurfaceVariant
+                                        CaptionStatus.UNKNOWN -> "? couldn't check" to MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                    Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+                                }
                             }
                         }
                     }

@@ -298,6 +298,8 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     }
                     st != null && st.startsWith("error:") -> {
                         ErrorText(st.removePrefix("error:"))
+                        if (st.removePrefix("error:") == il.ac.tau.lecturesummarizer.moodle.Panopto.NO_CAPTIONS)
+                            OutlineAction("🎙 Record instead · הקלט במקום", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecord() }
                         OutlineAction("Retry captions", Icons.Default.Refresh, Modifier.fillMaxWidth()) { PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId) }
                     }
                     else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
