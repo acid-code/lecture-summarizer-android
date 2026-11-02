@@ -61,6 +61,9 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     val scope = rememberCoroutineScope()
     val capStatus = remember { mutableStateMapOf<String, CaptionStatus>() }
     var onlyWithCaptions by remember { mutableStateOf(false) }
+    // No-captions rows: does DeliveryInfo expose a stream we can pull audio from? (true = selectable audio fallback)
+    val audioOk = remember { mutableStateMapOf<String, Boolean?>() }
+    var confirmAudio by remember { mutableStateOf<Pair<MoodleCourse, PanoptoRecording>?>(null) }
 
     fun fail(e: Throwable): PState = when (e) {
         is MoodleAuthRequired -> PState.Login
@@ -106,6 +109,41 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 null
             }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
         } ?: run { Toast.makeText(ctx, "Imported captions · התחיל סיכום", Toast.LENGTH_SHORT).show(); onStarted(); return }
+    }
+
+    fun importAudio(course: MoodleCourse, rec: PanoptoRecording, wifiOnly: Boolean) {
+        store.setLectureSource(lectureId, course.id, rec.title)
+        app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title,
+            panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, panoptoAudio = true,
+            segments = emptyList(), error = null) }
+        il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly)
+        Toast.makeText(ctx, if (wifiOnly && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx)) "Audio download waits for Wi‑Fi · ממתין ל-Wi‑Fi" else "Downloading audio · מוריד אודיו", Toast.LENGTH_SHORT).show()
+        onStarted()
+    }
+
+    confirmAudio?.let { (c, r) ->
+        val cell = remember { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx) }
+        AlertDialog(onDismissRequest = { confirmAudio = null },
+            title = { Text("No captions — use audio? · אין כתוביות") },
+            text = { Text("The phone downloads the lowest-quality video (~300 MB per hour of lecture), keeps only the audio (~15 MB/hour) and sends it for transcription + summary." +
+                (if (cell) "\n\n⚠️ You're on mobile data. Wait for Wi‑Fi, or use mobile data anyway." else "") +
+                "\n\nהטלפון יוריד את הווידאו באיכות הנמוכה, ישמור רק את השמע וישלח לתמלול.") },
+            confirmButton = { TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = true) }) { Text(if (cell) "On Wi‑Fi · ב-Wi‑Fi" else "Download audio · הורד") } },
+            dismissButton = { Row {
+                if (cell) TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = false) }) { Text("Use mobile data") }
+                TextButton(onClick = { confirmAudio = null }) { Text("Cancel") }
+            } })
+    }
+
+    // No-captions rows → probe DeliveryInfo for a usable stream (≤4 parallel).
+    val noCapKey = (state as? PState.Recordings)?.recs?.filter { capStatus[it.deliveryId] == CaptionStatus.NONE || capStatus[it.deliveryId] == CaptionStatus.UNKNOWN }?.map { it.deliveryId }
+    LaunchedEffect(noCapKey) {
+        val recs = (state as? PState.Recordings)?.recs ?: return@LaunchedEffect
+        val sem = Semaphore(4)
+        recs.filter { it.deliveryId in (noCapKey ?: emptyList()) && it.deliveryId !in audioOk }.forEach { r ->
+            audioOk[r.deliveryId] = client.cachedAudioAvailable(r.deliveryId)
+            if (audioOk[r.deliveryId] == null) launch(Dispatchers.IO) { sem.withPermit { audioOk[r.deliveryId] = withTimeoutOrNull(20_000) { client.audioAvailable(r) } ?: false } }
+        }
     }
 
     // Probe caption availability in the background (list shows immediately; ≤6 parallel, 15 s each).
@@ -227,22 +265,30 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Switch(checked = onlyWithCaptions, onCheckedChange = { onlyWithCaptions = it })
                             Spacer(Modifier.width(8.dp))
-                            Text("רק עם כתוביות · only with captions ($has ✓ / $none ✗)", style = MaterialTheme.typography.bodySmall)
+                            Text("רק עם כתוביות · only with captions ($has ✓ / $none ✗, ${s.recs.count { audioOk[it.deliveryId] == true && capStatus[it.deliveryId] == CaptionStatus.NONE }} 🔊)", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     items(s.recs.filter { !onlyWithCaptions || capStatus[it.deliveryId] != CaptionStatus.NONE }, key = { it.deliveryId }) { r ->
                         val cs = capStatus[r.deliveryId] ?: CaptionStatus.CHECKING
-                        val disabled = cs == CaptionStatus.NONE
+                        val noCaps = cs == CaptionStatus.NONE
+                        val audio = audioOk[r.deliveryId]
+                        // Grey only when there are no captions AND no usable stream; audio-only rows stay selectable.
+                        val disabled = noCaps && audio == false
+                        val audioPath = noCaps && audio == true
                         Surface(shape = MaterialTheme.shapes.medium,
                             color = if (disabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth().clickable(enabled = !disabled) { scope.launch { import(s.course, r) } }) {
+                            modifier = Modifier.fillMaxWidth().clickable(enabled = !disabled && !(noCaps && audio == null)) { if (audioPath || (cs == CaptionStatus.UNKNOWN && audio == true)) confirmAudio = s.course to r else scope.launch { import(s.course, r) } }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text("🎬 " + r.title, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(MoodleMatch.kindFromTitle(r.title).he, style = MaterialTheme.typography.bodySmall, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                     val (label, color) = when (cs) {
                                         CaptionStatus.HAS -> "✓ יש כתוביות" to Color(0xFF2E7D32)
-                                        CaptionStatus.NONE -> "✗ אין כתוביות · no captions" to Color(0xFFD32F2F)
+                                        CaptionStatus.NONE -> when (audio) {
+                                            true -> "🔊 audio · אין כתוביות" to Color(0xFF1565C0)
+                                            null -> "✗ אין כתוביות · checking audio…" to MaterialTheme.colorScheme.onSurfaceVariant
+                                            else -> "✗ אין כתוביות ואין שמע · no captions, no stream" to Color(0xFFD32F2F)
+                                        }
                                         CaptionStatus.AUTH -> "🔒 sign in to check" to MaterialTheme.colorScheme.onSurfaceVariant
                                         CaptionStatus.CHECKING -> "בודק כתוביות…" to MaterialTheme.colorScheme.onSurfaceVariant
                                         CaptionStatus.UNKNOWN -> "? couldn't check" to MaterialTheme.colorScheme.onSurfaceVariant

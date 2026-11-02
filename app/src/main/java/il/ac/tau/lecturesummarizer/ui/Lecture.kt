@@ -256,7 +256,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
     val srtReady = l.panoptoSrtPath?.let { File(it).exists() } == true
-    LaunchedEffect(l.panoptoId, srtReady) { if (l.fromPanopto && !srtReady && PanoptoFetch.status[lectureId] == null) PanoptoFetch.start(app, lectureId) }
+    LaunchedEffect(l.panoptoId, srtReady) { if (l.fromPanopto && !l.panoptoAudio && !srtReady && PanoptoFetch.status[lectureId] == null) PanoptoFetch.start(app, lectureId) }
     val slidesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
     }
@@ -290,7 +290,19 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             if (l.fromPanopto) SectionCard("Panopto recording", Icons.Default.OndemandVideo) {
                 Text("🎬 " + (l.panoptoTitle ?: "Recording"), style = MaterialTheme.typography.bodyMedium)
                 val st = PanoptoFetch.status[lectureId]
+                val ast = il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.status[lectureId]
                 when {
+                    l.panoptoAudio && l.segments.isNotEmpty() -> Text("🔊 No captions — audio extracted on this phone (${formatElapsed(l.displayDurationMs)}), sent for transcription.", style = MaterialTheme.typography.bodySmall)
+                    l.panoptoAudio && ast != null && ast.startsWith("error:") -> {
+                        ErrorText(ast.removePrefix("error:"))
+                        if (ast.contains("sign-in")) OutlineAction("Sign in to Panopto", Icons.Default.Login, Modifier.fillMaxWidth()) { onPanoptoLogin() }
+                        OutlineAction("Retry audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = false) }
+                    }
+                    l.panoptoAudio -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("🔊 No captions — downloading audio (Wi‑Fi preferred)… ${l.stageDetail ?: ""}", style = MaterialTheme.typography.bodySmall)
+                        LinearProgressIndicator(progress = { (ast?.toIntOrNull() ?: l.progress) / 100f }, modifier = Modifier.fillMaxWidth())
+                        if (ast == null) OutlineAction("Start audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = false) }
+                    }
                     srtReady -> Text("✓ Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
                     st == PanoptoFetch.AUTH -> {
                         Text("Panopto needs you to sign in once.", style = MaterialTheme.typography.bodySmall)
@@ -340,6 +352,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
             }
             Text(when {
+                l.panoptoAudio && l.segments.isEmpty() -> "Downloading Panopto audio…"
                 l.fromPanopto && l.segments.isEmpty() && !srtReady -> "Waiting for Panopto captions…"
                 l.fromPanopto && l.segments.isEmpty() -> if (hasMaterials) "Summary uses the Panopto captions + slides together." else "Summary from the Panopto captions. Add slides (file or Moodle) for better terms and formulas."
                 l.segments.isNotEmpty() && hasMaterials -> "Summary uses the recording + slides together."

@@ -228,6 +228,47 @@ class MoodleClient(private val base: String) {
         }
     }.getOrDefault(CaptionStatus.UNKNOWN)
 
+    private val audioCache = TtlCache<String, Boolean>(30 * 60_000L)
+    fun cachedAudioAvailable(deliveryId: String): Boolean? = audioCache.get(deliveryId)
+
+    /**
+     * POST DeliveryInfo.aspx with the Panopto session cookies (same as GenerateSRT). Fresh signed stream URLs each call.
+     * Throws [PanoptoAuthRequired] when Panopto wants a sign-in.
+     */
+    fun deliveryInfo(rec: PanoptoRecording): DeliveryInfo {
+        val body = PanoptoMedia.deliveryInfoForm(rec.deliveryId).toRequestBody("application/x-www-form-urlencoded".toMediaType())
+        http.newCall(req(PanoptoMedia.DELIVERY_INFO).post(body).build()).execute().use { r ->
+            if (r.isRedirect || r.code == 401 || r.code == 403) throw PanoptoAuthRequired(rec.viewerUrl)
+            if (!r.isSuccessful) error("Panopto DeliveryInfo HTTP ${r.code}")
+            val txt = r.body?.string().orEmpty()
+            if (!txt.trimStart().startsWith("{")) throw PanoptoAuthRequired(rec.viewerUrl)
+            return try { PanoptoMedia.parseDeliveryInfo(txt) } catch (e: IllegalStateException) {
+                if (!panoptoSignedIn(rec)) throw PanoptoAuthRequired(rec.viewerUrl) else throw e
+            }
+        }
+    }
+
+    /** Has a downloadable stream (HLS or podcast) → selectable for the audio fallback. Null = couldn't tell. */
+    fun audioAvailable(rec: PanoptoRecording): Boolean? = audioCache.get(rec.deliveryId) ?: runCatching { deliveryInfo(rec).hasAudio }
+        .getOrNull()?.also { audioCache.put(rec.deliveryId, it) }
+
+    /** GET a CDN/Panopto URL following redirects (cookies per hop), optional byte range; returns the open body stream to [use]. */
+    fun <T> openMedia(url: String, range: LongRange? = null, use: (java.io.InputStream) -> T): T {
+        var u = url
+        repeat(8) {
+            val b = req(u); range?.let { b.header("Range", "bytes=${it.first}-${it.last}") }
+            http.newCall(b.build()).execute().use { r ->
+                if (r.isRedirect) { u = r.request.url.resolve(r.header("Location") ?: error("Bad redirect")).toString(); return@use }
+                if (r.code == 401 || r.code == 403) error("Panopto stream HTTP ${r.code} (link expired?)")
+                if (!r.isSuccessful) error("Panopto stream HTTP ${r.code}")
+                return use(r.body!!.byteStream())
+            }
+        }
+        error("Too many redirects")
+    }
+
+    fun mediaText(url: String): String = openMedia(url) { it.readBytes().toString(Charsets.UTF_8) }
+
     fun resetPanoptoSession() { signedInCache = null }
 
     /** True if the Panopto viewer for [rec] opens without redirecting to Panopto sign-in. */

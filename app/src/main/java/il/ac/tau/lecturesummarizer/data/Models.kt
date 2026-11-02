@@ -55,6 +55,8 @@ data class Lecture(
     val panoptoSrtPath: String? = null,
     /** Recording length for Panopto imports (last caption end), since they have no audio segments. */
     val panoptoDurationMs: Long = 0,
+    /** No-captions Panopto import: audio pulled on the phone (PanoptoAudioWorker) → normal ASR instead of captions. */
+    val panoptoAudio: Boolean = false,
 ) {
     val fromPanopto get() = panoptoId != null
     /** Duration shown in list/detail: recorded audio, else Panopto recording length. */
@@ -89,7 +91,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
-    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath).put("panoptoDurationMs", panoptoDurationMs)
+    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath).put("panoptoDurationMs", panoptoDurationMs).put("panoptoAudio", panoptoAudio)
 
 fun lectureFromJson(o: JSONObject): Lecture {
     val segs = o.optJSONArray("segments") ?: JSONArray()
@@ -111,6 +113,7 @@ fun lectureFromJson(o: JSONObject): Lecture {
         pdfPath = o.optStringOrNull("pdfPath"),
         panoptoId = o.optStringOrNull("panoptoId"), panoptoTitle = o.optStringOrNull("panoptoTitle"),
         panoptoUrl = o.optStringOrNull("panoptoUrl"), panoptoSrtPath = o.optStringOrNull("panoptoSrtPath"),
+        panoptoAudio = o.optBoolean("panoptoAudio"),
         panoptoDurationMs = o.optLong("panoptoDurationMs").takeIf { it > 0 } ?: srtDurationMs(o.optStringOrNull("panoptoSrtPath")),
     )
 }
