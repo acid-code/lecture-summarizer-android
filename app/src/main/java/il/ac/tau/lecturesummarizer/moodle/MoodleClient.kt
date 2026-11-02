@@ -12,6 +12,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 class MoodleAuthRequired : Exception("Moodle login required")
+class PanoptoAuthRequired(val viewerUrl: String? = null) : Exception("Panopto sign-in required")
 
 data class MoodleCourse(val id: Long, val fullname: String, val shortname: String, val idnumber: String)
 data class MoodleFile(val cmid: Long, val name: String, val url: String, val module: String)
@@ -121,6 +122,38 @@ class MoodleClient(private val base: String) {
         }
     }
 
+    /** Recordings listed in the course page's Panopto side block ("הקלטות הקורס בשרת הוידאו Panopto"). */
+    fun panoptoRecordings(courseId: Long): List<PanoptoRecording> {
+        val (_, html) = getText("$base/course/view.php?id=$courseId")
+        return Panopto.extractRecordings(html)
+    }
+
+    /**
+     * SRT captions for a Panopto delivery via GenerateSRT.ashx, using CookieManager cookies for the Panopto host.
+     * Throws [PanoptoAuthRequired] when Panopto redirects to its sign-in (open the viewer once in the WebView).
+     */
+    fun downloadCaptions(rec: PanoptoRecording, language: Int = 0): String {
+        var u = Panopto.captionsUrl(rec.deliveryId, language)
+        repeat(8) {
+            http.newCall(req(u).build()).execute().use { r ->
+                if (r.isRedirect) {
+                    u = r.request.url.resolve(r.header("Location") ?: throw PanoptoAuthRequired(rec.viewerUrl)).toString()
+                    if (u.contains("/Auth/", true) || u.contains("Login", true) || isLoginUrl(u)) throw PanoptoAuthRequired(rec.viewerUrl)
+                    return@use
+                }
+                if (r.code == 401 || r.code == 403) throw PanoptoAuthRequired(rec.viewerUrl)
+                if (!r.isSuccessful) error("Captions HTTP ${r.code}")
+                val txt = r.body?.string().orEmpty()
+                if ("-->" !in txt) {
+                    if (txt.contains("<html", true)) throw PanoptoAuthRequired(rec.viewerUrl)
+                    error("No captions for this recording (not generated yet or archived)")
+                }
+                return txt
+            }
+        }
+        error("Too many redirects")
+    }
+
     /** Real file name of a mod/resource (follows redirects to pluginfile.php without downloading the body). Null if unknown. */
     fun fileName(f: MoodleFile): String? = runCatching {
         var u = "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
@@ -193,6 +226,11 @@ class MoodleStore(private val ctx: Context) {
     var baseUrl: String
         get() = p.getString("baseUrl", MoodleClient.DEFAULT_BASE)!!
         set(v) = p.edit().putString("baseUrl", v.trim().trimEnd('/').ifEmpty { MoodleClient.DEFAULT_BASE }).apply()
+
+    /** University username only (not secret) — prefilled on the IdP form. Passwords are left to Android Autofill. */
+    var username: String?
+        get() = p.getString("username", null)?.takeIf { it.isNotBlank() }
+        set(v) = p.edit().putString("username", v?.trim()).apply()
 
     fun mappedCourse(key: String): Long? = p.getLong("map:$key", -1).takeIf { it > 0 }
     fun mapCourse(key: String, id: Long) = p.edit().putLong("map:$key", id).apply()

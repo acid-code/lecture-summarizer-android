@@ -216,27 +216,54 @@ private fun FileBadge(text: String, bg: androidx.compose.ui.graphics.Color, fg: 
         style = MaterialTheme.typography.labelSmall, color = fg, fontWeight = FontWeight.Medium, maxLines = 1)
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+/**
+ * Moodle (or Panopto) sign-in WebView with autofill:
+ *  - remembered university username (MoodleStore.username, prefs; never the password) is injected into the IdP form if empty;
+ *  - the username typed on submit is captured and remembered;
+ *  - WebView is marked important-for-autofill so Android Autofill / Google Password Manager can save + fill the password.
+ */
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
-private fun MoodleLoginView(base: String, onLoggedIn: () -> Unit) {
+internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index.php",
+                             isDone: (String) -> Boolean = { url -> android.net.Uri.parse(url).host == android.net.Uri.parse(base).host && !url.contains("/login") && !url.contains("saml2") },
+                             onLoggedIn: () -> Unit) {
+    val ctx = LocalContext.current
+    val store = remember { MoodleStore(ctx.applicationContext) }
     var done by remember { mutableStateOf(false) }
+    var user by remember { mutableStateOf(store.username.orEmpty()) }
     Column(Modifier.fillMaxSize()) {
-        Text("Sign in to Moodle (TAU). The app keeps only the session cookie — never your password.",
-            Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text("Sign in to Moodle (TAU). The app remembers only your username + session cookie; your password is saved by Android Autofill, not the app.",
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(user, { user = it; store.username = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            singleLine = true, label = { Text("University username · שם משתמש") })
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { c ->
             WebView(c).apply {
                 settings.javaScriptEnabled = true; settings.domStorageEnabled = true
+                importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                 CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                addJavascriptInterface(object {
+                    @android.webkit.JavascriptInterface fun username(u: String) { if (u.isNotBlank()) store.username = u }
+                }, "LsAndroid")
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(v: WebView, url: String) {
-                        val host = android.net.Uri.parse(base).host
-                        if (!done && android.net.Uri.parse(url).host == host && !url.contains("/login") && !url.contains("saml2")) {
-                            CookieManager.getInstance().flush(); done = true; onLoggedIn()
-                        }
+                        if (!done && isDone(url)) { CookieManager.getInstance().flush(); done = true; onLoggedIn(); return }
+                        val u = org.json.JSONObject.quote(store.username.orEmpty())
+                        v.evaluateJavascript(LOGIN_JS.replace("__USER__", u), null)
                     }
                 }
-                loadUrl("$base/login/index.php")
+                loadUrl(startUrl)
             }
         })
     }
 }
+
+/** Fill the IdP username field if empty; remember what the user submits. Password is never touched. */
+private const val LOGIN_JS = """(function(){var u=__USER__;
+var f=document.querySelector('input[name=username],input[name=user],input[name=j_username],input[id*=user i],input[autocomplete=username]')
+ ||document.querySelector('input[type=text],input[type=email]');
+if(!f)return; f.setAttribute('autocomplete','username');
+var p=document.querySelector('input[type=password]'); if(p)p.setAttribute('autocomplete','current-password');
+if(u&&!f.value){f.value=u;f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));}
+var form=f.form; if(form&&!form.__ls){form.__ls=1;form.addEventListener('submit',function(){try{LsAndroid.username(f.value)}catch(e){}});}
+})();"""

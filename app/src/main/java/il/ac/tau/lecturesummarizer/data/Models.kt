@@ -101,3 +101,9 @@ fun lectureFromJson(o: JSONObject): Lecture {
 }
 
 fun JSONObject.optStringOrNull(k: String): String? = if (isNull(k) || !has(k)) null else optString(k)
+
+/** Body of POST /v1/lectures/{id}/transcript/import. */
+data class TranscriptImport(
+    val source: String, val externalId: String, val title: String, val language: String,
+    val segments: List<il.ac.tau.lecturesummarizer.moodle.CaptionSegment>,
+)
