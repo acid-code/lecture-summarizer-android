@@ -23,13 +23,19 @@ object Panopto {
         val start = html.indexOf(BLOCK_TITLE).takeIf { it >= 0 }
             ?: Regex("""block_panopto""").find(html)?.range?.first ?: 0
         val scope = html.substring(start)
-        val re = Regex("""<a\b[^>]*href="([^"]*?/Panopto/Pages/Viewer\.aspx\?[^"]*?\bid=($GUID)[^"]*)"[^>]*>(.*?)</a>""",
+        // Server-rendered block markup uses single-quoted hrefs (href='…Viewer.aspx?id=…'); browser DOM uses double.
+        // Items beyond the first 3 sit in a hidden <div id='hiddenLecturesDiv'> behind "[תצוגה מלאה]" — same HTML, just parsed.
+        val re = Regex("""<a\b[^>]*?href\s*=\s*(["'])([^"']*?/Panopto/Pages/Viewer\.aspx\?[^"']*?\bid=($GUID)[^"']*)\1[^>]*>(.*?)</a>""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         return re.findAll(scope).map { m ->
-            val title = MoodleClient.unescape(m.groupValues[3].replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim())
-            PanoptoRecording(m.groupValues[2].lowercase(), title.ifBlank { "Recording" }, MoodleClient.unescape(m.groupValues[1]))
+            val title = MoodleClient.unescape(m.groupValues[4].replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim())
+            PanoptoRecording(m.groupValues[3].lowercase(), title.ifBlank { "Recording" }, MoodleClient.unescape(m.groupValues[2]))
         }.filterNot { it.title.contains("תצוגה מלאה") }.distinctBy { it.deliveryId }.toList()
     }
+
+    /** Block still shows its async placeholder ("מאחזר תוכן…" / loading_text) and no recording links yet. */
+    fun isLoadingPlaceholder(html: String): Boolean =
+        extractRecordings(html).isEmpty() && (html.contains("loading_text") || html.contains("מאחזר תוכן") || html.contains("block_panopto/asyncload"))
 
     private val TIME = Regex("""(\d+):(\d{2}):(\d{2})[,.](\d{1,3})""")
     private fun sec(m: MatchResult): Double {

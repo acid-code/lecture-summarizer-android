@@ -16,6 +16,17 @@ class PanoptoTest {
         assertEquals("Recitation 2 & Q", recs[1].title)
     }
 
+    @Test fun placeholderThenAjaxSingleQuotedWithShowAll() {
+        val page = "<section class=\"block_panopto\"><h5>${Panopto.BLOCK_TITLE}</h5><div id=\"block_panopto_content\"><div id=\"loading_text\">מאחזר תוכן...</div></div></section>"
+        assertTrue(Panopto.extractRecordings(page).isEmpty()); assertTrue(Panopto.isLoadingPlaceholder(page))
+        val recs = Panopto.extractRecordings(res("panopto-ajax-block.html"))
+        assertEquals(4, recs.size) // includes the hidden ones behind [תצוגה מלאה]
+        assertEquals("11111111-aaaa-bbbb-cccc-000000000004", recs[3].deliveryId)
+        assertEquals("שיעור 4 & תרגול", recs[3].title)
+        assertTrue(recs[3].viewerUrl.endsWith("&instance=moodle"))
+        assertFalse(Panopto.isLoadingPlaceholder(res("panopto-ajax-block.html")))
+    }
+
     @Test fun captionsUrl() = assertEquals(
         "https://tau.cloud.panopto.eu/Panopto/Pages/Transcription/GenerateSRT.ashx?id=x&language=0", Panopto.captionsUrl("x"))
 

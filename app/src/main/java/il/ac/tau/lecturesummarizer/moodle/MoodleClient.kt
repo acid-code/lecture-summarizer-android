@@ -124,8 +124,20 @@ class MoodleClient(private val base: String) {
 
     /** Recordings listed in the course page's Panopto side block ("הקלטות הקורס בשרת הוידאו Panopto"). */
     fun panoptoRecordings(courseId: Long): List<PanoptoRecording> {
+        // The block renders "מאחזר תוכן…" and loads its list via AJAX (block_panopto_get_content) — the course page HTML
+        // has no links. Call that web service directly (retrying: it hits Panopto's SOAP API and can be slow), then fall back to the page.
+        var lastErr: Throwable? = null
+        repeat(3) { attempt ->
+            runCatching { ajax("block_panopto_get_content", JSONObject().put("courseid", courseId)) as String }
+                .onSuccess { html -> Panopto.extractRecordings(html).let { if (it.isNotEmpty()) return it }; lastErr = null }
+                .onFailure { if (it is MoodleAuthRequired) throw it; lastErr = it }
+            if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
+        }
         val (_, html) = getText("$base/course/view.php?id=$courseId")
-        return Panopto.extractRecordings(html)
+        val recs = Panopto.extractRecordings(html)
+        if (recs.isEmpty() && Panopto.isLoadingPlaceholder(html))
+            error("Panopto block didn't finish loading (\"מאחזר תוכן…\")" + (lastErr?.message?.let { ": $it" } ?: "") + ". Try Refresh.")
+        return recs
     }
 
     /**
