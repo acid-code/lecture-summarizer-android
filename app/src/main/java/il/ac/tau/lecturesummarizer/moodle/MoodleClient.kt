@@ -146,20 +146,25 @@ class MoodleClient(private val base: String) {
         // has no links. Call that web service directly. Retry only on errors / placeholder answers (it hits Panopto's
         // SOAP API and can be slow); a real answer with zero recordings is final — no sleeps, no course-page scrape.
         var lastErr: Throwable? = null
-        repeat(3) { attempt ->
+        var lastAnswer = ""
+        val waits = longArrayOf(1000, 2000, 4000) // ~7 s total for a slow Panopto SOAP backend
+        for (attempt in 0..waits.size) {
             runCatching { ajax("block_panopto_get_content", JSONObject().put("courseid", courseId)) as String }
                 .onSuccess { html ->
                     val recs = Panopto.extractRecordings(html)
                     if (recs.isNotEmpty() || Panopto.isFinalBlockAnswer(html)) return recs
-                    lastErr = null
+                    lastErr = null; lastAnswer = html
                 }
                 .onFailure { if (it is MoodleAuthRequired) throw it; lastErr = it }
-            if (attempt < 2) Thread.sleep(1000L * (attempt + 1))
+            if (attempt < waits.size) Thread.sleep(waits[attempt])
         }
         val (_, html) = getText("$base/course/view.php?id=$courseId")
         val recs = Panopto.extractRecordings(html)
         if (recs.isEmpty() && Panopto.isLoadingPlaceholder(html))
-            error("Panopto block didn't finish loading (\"מאחזר תוכן…\")" + (lastErr?.message?.let { ": $it" } ?: "") + ". Try Refresh.")
+            error("Panopto block didn't finish loading (\"מאחזר תוכן…\")" +
+                (lastErr?.message?.let { " — Moodle web service error: $it" }
+                    ?: lastAnswer.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().take(120).takeIf { it.isNotBlank() }?.let { " — Panopto said: $it" }
+                    ?: " — Panopto is slow to answer") + ". Try Refresh.")
         return recs
     }
 
