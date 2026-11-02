@@ -235,7 +235,7 @@ fun LecturesScreen(
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
-                        "${formatElapsed(l.segments.sumOf { it.durationMs })}" +
+                        "${formatElapsed(l.displayDurationMs)}" +
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
                     when (l.state) {

@@ -53,8 +53,12 @@ data class Lecture(
     val panoptoTitle: String? = null,
     val panoptoUrl: String? = null,
     val panoptoSrtPath: String? = null,
+    /** Recording length for Panopto imports (last caption end), since they have no audio segments. */
+    val panoptoDurationMs: Long = 0,
 ) {
     val fromPanopto get() = panoptoId != null
+    /** Duration shown in list/detail: recorded audio, else Panopto recording length. */
+    val displayDurationMs: Long get() = segments.sumOf { it.durationMs }.takeIf { it > 0 } ?: panoptoDurationMs
 }
 
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
@@ -85,7 +89,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
-    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath)
+    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath).put("panoptoDurationMs", panoptoDurationMs)
 
 fun lectureFromJson(o: JSONObject): Lecture {
     val segs = o.optJSONArray("segments") ?: JSONArray()
@@ -107,6 +111,7 @@ fun lectureFromJson(o: JSONObject): Lecture {
         pdfPath = o.optStringOrNull("pdfPath"),
         panoptoId = o.optStringOrNull("panoptoId"), panoptoTitle = o.optStringOrNull("panoptoTitle"),
         panoptoUrl = o.optStringOrNull("panoptoUrl"), panoptoSrtPath = o.optStringOrNull("panoptoSrtPath"),
+        panoptoDurationMs = o.optLong("panoptoDurationMs").takeIf { it > 0 } ?: srtDurationMs(o.optStringOrNull("panoptoSrtPath")),
     )
 }
 
@@ -117,3 +122,9 @@ data class TranscriptImport(
     val source: String, val externalId: String, val title: String, val language: String,
     val segments: List<il.ac.tau.lecturesummarizer.moodle.CaptionSegment>,
 )
+
+/** Backfill for lectures imported before panoptoDurationMs existed: last caption end of the cached SRT. */
+private fun srtDurationMs(path: String?): Long = path?.let { runCatching {
+    val f = java.io.File(it); if (!f.exists()) 0L
+    else ((il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(f.readText()).maxOfOrNull { s -> s.t1 } ?: 0.0) * 1000).toLong()
+}.getOrDefault(0L) } ?: 0L

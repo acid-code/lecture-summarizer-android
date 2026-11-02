@@ -89,7 +89,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 if (segs.isEmpty()) error("Captions are empty")
                 // Mark the lecture as Panopto-sourced (labels, Upload, Reprocess) and cache the captions locally.
                 val srtFile = java.io.File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srtText) }
-                app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath) }
+                app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
                 val api = ApiProvider.get(app.settings)
                 val repo = app.repo
                 val c = repo.course(lecture.courseId) ?: error("Course missing")
