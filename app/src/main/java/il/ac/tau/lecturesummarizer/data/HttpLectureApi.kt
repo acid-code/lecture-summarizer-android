@@ -184,7 +184,9 @@ class HttpLectureApi(
     }
 
     override suspend fun retryJob(jobId: String): JobStatus {
-        val o = postJson("/v1/jobs/$jobId/retry", JSONObject())
+        // 409 = server still has the job mid-stage (e.g. "pdf" after a killed invocation) while the app shows Failed → force.
+        val o = try { postJson("/v1/jobs/$jobId/retry", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/retry?force=1", JSONObject()) else throw e }
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
