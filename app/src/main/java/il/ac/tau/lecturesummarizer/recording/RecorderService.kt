@@ -16,7 +16,7 @@ import androidx.core.app.ServiceCompat
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.MainActivity
 import il.ac.tau.lecturesummarizer.data.LectureState
-import il.ac.tau.lecturesummarizer.data.Marker
+import il.ac.tau.lecturesummarizer.upload.UploadWorker
 import il.ac.tau.lecturesummarizer.data.Segment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +36,6 @@ data class RecorderUiState(
     val recording: Boolean = false,
     val elapsedMs: Long = 0,
     val segmentSeq: Int = 0,
-    val markerCount: Int = 0,
     /** Service alive, current segment finalized, mic released (class break). */
     val paused: Boolean = false,
 )
@@ -69,7 +68,6 @@ class RecorderService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> intent.getStringExtra(EXTRA_LECTURE)?.let { start(it) }
-            ACTION_MARKER -> addMarker()
             ACTION_PAUSE -> pause()
             ACTION_RESUME -> resume()
             ACTION_STOP -> stopAll()
@@ -85,7 +83,7 @@ class RecorderService : Service() {
         lectureId = id
         val lecture = repo.lecture(id) ?: return stopSelf()
         seq = lecture.segments.maxOfOrNull { it.seq + 1 } ?: 0
-        // Resume elapsed across restarts of the same lecture so marker timestamps stay monotonic.
+        // Resume elapsed across restarts of the same lecture so elapsed time stays monotonic.
         val prior = lecture.segments.sumOf { it.durationMs }
         startElapsed = SystemClock.elapsedRealtime() - prior
 
@@ -126,8 +124,7 @@ class RecorderService : Service() {
         recorder = r; currentFile = f
         segmentStartWall = System.currentTimeMillis()
         segmentStartElapsed = SystemClock.elapsedRealtime()
-        _state.value = RecorderUiState(id, true, SystemClock.elapsedRealtime() - startElapsed, seq,
-            repo.lecture(id)?.markers?.size ?: 0)
+        _state.value = RecorderUiState(id, true, SystemClock.elapsedRealtime() - startElapsed, seq)
     }
 
     /** Finalize the current file (moov atom written on stop) and record it in the repo. */
@@ -144,20 +141,15 @@ class RecorderService : Service() {
         } else f?.delete()
     }
 
-    private fun rotateSegment() { finishSegment(); startSegment() }
+    private fun rotateSegment() { finishSegment(); startSegment(); uploadLive() }
 
-    private fun addMarker() {
-        val id = lectureId ?: return
-        if (recorder == null) return
-        val t = (SystemClock.elapsedRealtime() - startElapsed) / 1000
-        repo.updateLecture(id) { it.copy(markers = it.markers + Marker(t)) }
-        _state.value = _state.value.copy(markerCount = _state.value.markerCount + 1)
-    }
+    /** Mid-lecture: upload the finished part(s) now so the server transcribes while we keep recording. */
+    private fun uploadLive() { lectureId?.let { UploadWorker.enqueue(this, it, live = true) } }
 
     /** Break: finalize the current segment (moov written) and release the mic; break time isn't counted. */
     private fun pause() {
         if (paused || recorder == null) return
-        finishSegment()
+        finishSegment(); uploadLive()
         paused = true
         _state.value = _state.value.copy(recording = true, paused = true,
             elapsedMs = lectureId?.let { repo.lecture(it) }?.segments?.sumOf { it.durationMs } ?: _state.value.elapsedMs)
@@ -209,7 +201,6 @@ class RecorderService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_pause)
             .setContentTitle("Paused: $title")
             .setContentText("⏸ ${fmt(elapsedMs)} recorded · break time not recorded · tap Resume")
-            .setSubText(fmt(elapsedMs))
             .setShowWhen(false)
             .setOnlyAlertOnce(true).setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -221,8 +212,7 @@ class RecorderService : Service() {
         return NotificationCompat.Builder(this, LectureApp.CHANNEL_RECORDING)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Recording: $title")
-            .setContentText("● ${fmt(elapsedMs)} elapsed · ${_state.value.markerCount} markers · tap 'Next slide' to mark")
-            .setSubText(fmt(elapsedMs))
+            .setContentText("● Recording in progress")
             .setWhen(System.currentTimeMillis() - elapsedMs)
             .setShowWhen(true)
             .setUsesChronometer(true)
@@ -231,7 +221,6 @@ class RecorderService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
             .setContentIntent(open)
-            .addAction(0, "Next slide", action(ACTION_MARKER, 1))
             .addAction(0, "Pause", action(ACTION_PAUSE, 4))
             .addAction(0, "Stop", action(ACTION_STOP, 2))
             .build()
@@ -240,7 +229,6 @@ class RecorderService : Service() {
     companion object {
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
-        const val ACTION_MARKER = "marker"
         const val ACTION_PAUSE = "pause"
         const val ACTION_RESUME = "resume"
         const val EXTRA_LECTURE = "lecture"
@@ -255,6 +243,5 @@ class RecorderService : Service() {
         fun stop(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_STOP))
         fun pause(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_PAUSE))
         fun resume(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_RESUME))
-        fun marker(ctx: Context) = ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_MARKER))
     }
 }

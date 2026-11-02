@@ -21,6 +21,8 @@ import android.widget.Toast
 import il.ac.tau.lecturesummarizer.data.Segment
 import il.ac.tau.lecturesummarizer.data.MAX_COURSE_CONTEXT
 import il.ac.tau.lecturesummarizer.data.allContext
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Slideshow
@@ -33,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Share
@@ -52,6 +55,8 @@ import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.data.ApiProvider
 import il.ac.tau.lecturesummarizer.data.LectureState
 import il.ac.tau.lecturesummarizer.recording.RecorderService
+import il.ac.tau.lecturesummarizer.calendar.CalendarResolver
+import il.ac.tau.lecturesummarizer.calendar.TauClass
 import il.ac.tau.lecturesummarizer.upload.UploadWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,14 +67,62 @@ import java.util.Date
 // ---------- Courses ----------
 
 @Composable
-fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> Unit, onRecordLecture: (String) -> Unit = {}) {
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    var deleting by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    val ctx = LocalContext.current
+    var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
+    var pendingNew by remember { mutableStateOf<Pair<il.ac.tau.lecturesummarizer.data.Course, TauClass>?>(null) }
+    fun startIn(course: il.ac.tau.lecturesummarizer.data.Course, c: TauClass) {
+        val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
+        val title = if (c.offScheme) "Event - $date" else when (c.kind) {
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.LECTURE -> "Lecture - $date"
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.RECITATION -> "Recitation - $date"
+            il.ac.tau.lecturesummarizer.calendar.ClassKind.UNKNOWN -> date
+        }
+        val l = app.repo.addLecture(course.id, title); picks = emptyList(); onRecordLecture(l.id)
+    }
+    fun startFor(c: TauClass) {
+        picks = emptyList()
+        if (c.offScheme) {
+            val before = app.repo.courses.value.map { it.id }.toSet()
+            val course = app.repo.findOrCreateCourse(c.courseName, null)
+            // Newly created from a free-form event title: let the user rename it before recording.
+            if (course.id !in before) { pendingNew = course to c; return }
+            startIn(course, c); return
+        }
+        startIn(app.repo.findOrCreateCourse(c.courseName, c.courseNumber), c)
+    }
+    fun resolve() {
+        val found = CalendarResolver.currentClasses(ctx, app.settings.calendarIds)
+        when (found.size) {
+            0 -> android.widget.Toast.makeText(ctx, if (CalendarResolver.hasPermission(ctx)) "לא נמצא שיעור ביומן כרגע — בחר מחברת ידנית" else "אין גישה ליומן — בחר מחברת ידנית", android.widget.Toast.LENGTH_LONG).show()
+            1 -> startFor(found[0])
+            else -> picks = found
+        }
+    }
+    val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resolve() }
     AppScaffold("Notebooks", logo = true,
-        actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
-        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") }) }
+        actions = {
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+        },
+        fab = {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExtendedFloatingActionButton(onClick = { adding = true },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") })
+                ExtendedFloatingActionButton(
+                    onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) },
+                    modifier = Modifier.height(72.dp),
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    icon = { Icon(Icons.Default.Mic, "הקלט את השיעור הנוכחי מהיומן", Modifier.size(32.dp)) },
+                    text = { Text("Record lecture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) })
+            }
+        }
     ) { pad ->
         if (courses.isEmpty()) Column(Modifier.padding(pad).fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), null, Modifier.size(96.dp))
@@ -81,7 +134,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         }
         else androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp), Modifier.padding(pad),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 176.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             items(courses.size, key = { courses[it].id }) { i ->
                 val c = courses[i]
@@ -89,7 +142,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 Column {
                     NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"} ✓" else ""),
                         c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
-                    TextButton(onClick = { editing = c }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                    Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { editing = c }) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                        IconButton(onClick = { deleting = c }) { Icon(Icons.Default.Delete, "Delete notebook", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                 }
             }
         }
@@ -97,6 +153,17 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     if (adding) NotebookEditor(null, onDismiss = { adding = false }) { name, e, col, pat ->
         app.repo.addCourse(name, e, col, pat); adding = false
     }
+    if (picks.isNotEmpty()) AlertDialog(onDismissRequest = { picks = emptyList() }, title = { Text("איזה שיעור מקליטים?") },
+        text = { Column { picks.forEach { c -> TextButton(onClick = { startFor(c) }, modifier = Modifier.fillMaxWidth()) {
+            Text(listOfNotNull(c.courseName, c.kind.he.ifEmpty { null }, c.room).joinToString(" · ")) } } } },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { picks = emptyList() }) { Text("ביטול") } })
+    pendingNew?.let { (course, cls) -> NotebookEditor(course, onDismiss = {
+        pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
+    }) { name, e, col, pat ->
+        app.repo.updateCourse(course.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }
+        pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
+    } }
+    deleting?.let { c -> DeleteCourseDialog(c.name, all.count { it.courseId == c.id }, { deleting = null }) { deleting = null; deleteCourseEverywhere(app, ctx, c.id) } }
     editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
         app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
     } }
@@ -107,7 +174,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
 @Composable
 fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
-    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit,
+    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord,
 ) {
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
@@ -127,7 +194,7 @@ fun LecturesScreen(
     var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
     toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
-        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New lecture") }) }
+        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add lecture") }) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             course?.let { c -> item { CourseHeader(c, "${lectures.size} lecture${if (lectures.size == 1) "" else "s"}") { editCover = true } } }
@@ -156,15 +223,16 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “New lecture” to record, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
+            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “Add lecture” to record, bring one from Panopto, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
                 textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
-                        "${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers",
+                        "${formatElapsed(l.segments.sumOf { it.durationMs })}" +
+                        (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
                     when (l.state) {
-                        LectureState.DRAFT -> if (l.allSlides.isNotEmpty()) onAttach(l.id) else onRecord(l.id)
+                        LectureState.DRAFT -> if (l.allSlides.isNotEmpty() || l.fromPanopto) onAttach(l.id) else onNew(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
                         LectureState.RECORDED -> onAttach(l.id)  // Materials screen offers "Resume recording"
                         else -> onJob(l.id)
@@ -173,8 +241,8 @@ fun LecturesScreen(
             }
         }
     }
-    if (adding) NameDialog("New lecture part", "Title (e.g. Lecture 5 — part 1)", onDismiss = { adding = false }) {
-        val l = app.repo.addLecture(courseId, it); adding = false; onRecord(l.id)
+    if (adding) NameDialog("Add lecture", "Title (e.g. Lecture 5 — part 1)", onDismiss = { adding = false }) {
+        val l = app.repo.addLecture(courseId, it); adding = false; onNew(l.id)
     }
     if (editCover && course != null) NotebookEditor(course, onDismiss = { editCover = false }) { name, e, col, pat ->
         app.repo.updateCourse(courseId) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editCover = false
@@ -184,8 +252,14 @@ fun LecturesScreen(
 // ---------- Record ----------
 
 @Composable
-fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit) {
+fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
+    // Attach materials while recording (same as "Upload slides"/Moodle on Materials; sent with the final upload).
+    val livePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
+        Toast.makeText(ctx, "Attached ${uris.size} file(s) to Materials", Toast.LENGTH_SHORT).show()
+    }
     val rec by RecorderService.state.collectAsStateWithLifecycle()
     val lecture by app.repo.lectures.collectAsStateWithLifecycle()
     val l = lecture.firstOrNull { it.id == lectureId }
@@ -201,7 +275,36 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res[Manifest.permission.RECORD_AUDIO] == true) RecorderService.start(ctx, lectureId) else denied = true
     }
+    // Auto-start once for a brand-new empty lecture (mic / calendar-arm flow).
+    var autoStarted by androidx.compose.runtime.saveable.rememberSaveable(lectureId) { mutableStateOf(false) }
+    val isEmpty = l != null && l.segments.isEmpty()
+    LaunchedEffect(lectureId, isEmpty) {
+        if (autoStarted || !isEmpty || rec.recording) return@LaunchedEffect
+        autoStarted = true
+        val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
+    }
 
+    // "Record another": start a new segment right away, and when it stops go back to Materials (Moodle attach).
+    var anotherStarted by androidx.compose.runtime.saveable.rememberSaveable(lectureId) { mutableStateOf(false) }
+    LaunchedEffect(autoResume, l != null) {
+        if (!autoResume || anotherStarted || l == null || rec.recording) return@LaunchedEffect
+        anotherStarted = true; autoStarted = true
+        val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
+    }
+    var wasActive by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        if (active) wasActive = true
+        else if (autoResume && wasActive) { wasActive = false; onDone() }
+    }
+
+    val courses by app.repo.courses.collectAsStateWithLifecycle()
+    var moving by remember { mutableStateOf(false) }
+    if (moving && l != null) AlertDialog(onDismissRequest = { moving = false }, title = { Text("העבר למחברת") },
+        text = { Column { courses.forEach { c -> TextButton(onClick = { app.repo.moveLecture(l.id, c.id); moving = false }, modifier = Modifier.fillMaxWidth()) {
+            Text((if (c.id == l.courseId) "✓ " else "") + c.name) } } } },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { moving = false }) { Text("ביטול") } })
     AppScaffold(l?.title ?: "Record", onBack = onBack) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().padding(24.dp),
@@ -212,10 +315,21 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 color = if (active && !paused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text(if (paused) "⏸ Paused · ${l?.segments?.size ?: 0} segments saved · break time isn't recorded"
-                 else if (active) "Recording · segment ${rec.segmentSeq + 1} · ${rec.markerCount} markers"
-                 else "Stopped · ${l?.segments?.size ?: 0} segments · ${l?.markers?.size ?: 0} markers")
+                 else if (active) "Recording · segment ${rec.segmentSeq + 1}"
+                 else "Stopped · ${l?.segments?.size ?: 0} segments")
             Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            l?.let { cur -> TextButton(onClick = { moving = true }) { Text("מחברת: ${courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"} · שינוי") } }
+            if (l != null && !otherActive) {
+                val n = l.allSlides.size
+                Text("Materials · חומרים: $n file(s)", style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { livePicker.launch(SLIDE_MIMES) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text("Files (PDF/PPTX)") }
+                    OutlinedButton(onClick = onMoodle, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.School, null); Spacer(Modifier.width(6.dp)); Text("Moodle") }
+                }
+            }
             if (otherActive) Text("Another lecture is recording. Stop it first.", color = MaterialTheme.colorScheme.error)
             if (denied) Text("Microphone permission is required.", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
@@ -239,9 +353,6 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             } else {
                 Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
                     Text("⏸ Pause (break)", fontSize = 20.sp)
-                }
-                FilledTonalButton(onClick = { RecorderService.marker(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
-                    Text("Next slide / topic", fontSize = 22.sp)
                 }
                 Button(onClick = { RecorderService.stop(ctx) },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
@@ -369,17 +480,47 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
     AppScaffold("Settings", onBack = {
         app.settings.baseUrl = url; app.settings.apiToken = token; app.settings.mockMode = mock; onBack()
     }) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(url, { url = it }, label = { Text("API BASE_URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(token, { token = it }, label = { Text("API token (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Device ID: ${app.settings.deviceId.take(8)}…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(app.settings.deviceId)) }) { Text("Copy") }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(mock, { mock = it }); Spacer(Modifier.width(12.dp)); Text("Mock mode (offline, fake processing)")
             }
+            CalendarSourceSection(app)
             Text("Privacy: recordings stay in app-private storage until you upload them to YOUR API above. " +
                 "The app talks to no other server and never calls an AI model directly.",
                 style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+@Composable
+private fun CalendarSourceSection(app: LectureApp) {
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(CalendarResolver.hasPermission(ctx)) }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    var sel by remember { mutableStateOf(app.settings.calendarIds) }
+    fun set(v: Set<Long>) { sel = v; app.settings.calendarIds = v }
+    HorizontalDivider()
+    Text("יומן לזיהוי שיעור (כפתור המיקרופון)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    if (!granted) { OutlinedButton(onClick = { perm.launch(Manifest.permission.READ_CALENDAR) }) { Text("אפשר גישה ליומן") }; return }
+    val cals = remember(granted) { CalendarResolver.listCalendars(ctx) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(sel.isEmpty(), { set(emptySet()) })
+        Text("אוטומטי (עדיפות ל-@mail.tau.ac.il, אחרת כל היומנים)")
+    }
+    cals.forEach { c ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(c.id in sel, { on -> set(if (on) sel + c.id else sel - c.id) })
+            Column { Text(c.name); Text(c.account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+    if (cals.isEmpty()) Text("לא נמצאו יומנים במכשיר", style = MaterialTheme.typography.bodySmall)
 }
 
 // ---------- helpers ----------

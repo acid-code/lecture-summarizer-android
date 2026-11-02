@@ -29,11 +29,18 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         val until = System.currentTimeMillis() + 8 * 60_000
         while (System.currentTimeMillis() < until) {
             val l = app.repo.lecture(id) ?: return Result.success()
-            if (l.state != LectureState.PROCESSING) return Result.success()
+            // Live job (ASR while recording): poll so the server advances, but the lecture stays in its recording state.
+            val live = l.liveJob && l.state != LectureState.PROCESSING
+            if (l.state != LectureState.PROCESSING && !(live && l.state in LIVE_STATES)) return Result.success()
             val jobId = l.jobId ?: return Result.success()
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
+            if (st != null && !live && JobKick.staleDone(id, st.state)) { delay(3000); continue }
             if (st != null) {
                 app.repo.updateLecture(id) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
+                if (live) {
+                    if (st.state == "failed") return Result.success() // next part upload resumes it on the server
+                    delay(15_000); continue
+                }
                 if (st.state == "done") {
                     val dest = File(app.repo.pdfDir(), "$id.pdf")
                     runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
@@ -59,7 +66,9 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val open = PendingIntent.getActivity(ctx, id.hashCode(),
-            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            Intent(ctx, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_LECTURE).putExtra(MainActivity.EXTRA_LECTURE_ID, id)
+                .setData(android.net.Uri.parse("lecturesummarizer://lecture/$id"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
@@ -70,6 +79,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
     }
 
     companion object {
+        private val LIVE_STATES = setOf(LectureState.RECORDING, LectureState.RECORDED, LectureState.UPLOADING)
         fun enqueue(ctx: Context, lectureId: String, replace: Boolean = false) {
             val req = OneTimeWorkRequestBuilder<JobPollWorker>()
                 .setInputData(workDataOf(UploadWorker.KEY_LECTURE to lectureId))

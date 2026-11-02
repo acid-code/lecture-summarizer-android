@@ -9,6 +9,8 @@ data class Course(
     val emoji: String? = null, val color: Long? = null, val pattern: String? = null,
     /** Additional course-context files; all = [allContext] (max [MAX_COURSE_CONTEXT]). */
     val extraContext: List<String> = emptyList(),
+    /** TAU course number from the calendar event description (local only). */
+    val courseNumber: String? = null,
 )
 
 const val MAX_COURSE_CONTEXT = 3
@@ -37,6 +39,8 @@ data class Lecture(
     val contextPdfUri: String? = null,
     val remoteId: String? = null,
     val jobId: String? = null,
+    /** [jobId] is a live server job (ASR while recording); the final "Upload & process" finalizes it. */
+    val liveJob: Boolean = false,
     val state: LectureState = LectureState.DRAFT,
     val stage: String? = null,
     val progress: Int = 0,
@@ -44,7 +48,14 @@ data class Lecture(
     val stageDetail: String? = null,
     val error: String? = null,
     val pdfPath: String? = null,
-)
+    /** Panopto source chosen instead of recording (new-entry chooser). Captions are cached at [panoptoSrtPath]. */
+    val panoptoId: String? = null,
+    val panoptoTitle: String? = null,
+    val panoptoUrl: String? = null,
+    val panoptoSrtPath: String? = null,
+) {
+    val fromPanopto get() = panoptoId != null
+}
 
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
@@ -58,10 +69,11 @@ data class Transcript(val source: String, val complete: Boolean, val lines: List
 // ---- tiny JSON (de)serialization with org.json, no extra deps ----
 
 fun Course.toJson() = JSONObject().put("id", id).put("name", name).put("remoteId", remoteId).put("contextPdfUri", contextPdfUri)
-    .put("emoji", emoji).put("color", color).put("pattern", pattern).put("extraContext", JSONArray(extraContext))
+    .put("emoji", emoji).put("color", color).put("pattern", pattern).put("extraContext", JSONArray(extraContext)).put("courseNumber", courseNumber)
 fun courseFromJson(o: JSONObject) = Course(o.getString("id"), o.getString("name"), o.optStringOrNull("remoteId"), o.optStringOrNull("contextPdfUri"),
     o.optStringOrNull("emoji"), if (o.has("color") && !o.isNull("color")) o.getLong("color") else null, o.optStringOrNull("pattern"),
-    o.optJSONArray("extraContext")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList())
+    o.optJSONArray("extraContext")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+    o.optStringOrNull("courseNumber"))
 
 fun Lecture.toJson(): JSONObject = JSONObject()
     .put("id", id).put("courseId", courseId).put("title", title).put("recordedAtMs", recordedAtMs)
@@ -71,8 +83,9 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     }))
     .put("markers", JSONArray(markers.map { JSONObject().put("tSec", it.tSec).put("label", it.label) }))
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
-    .put("remoteId", remoteId).put("jobId", jobId).put("state", state.name)
+    .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
+    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath)
 
 fun lectureFromJson(o: JSONObject): Lecture {
     val segs = o.optJSONArray("segments") ?: JSONArray()
@@ -88,11 +101,19 @@ fun lectureFromJson(o: JSONObject): Lecture {
         extraSlides = o.optJSONArray("extraSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         uploadedSlides = o.optJSONArray("uploadedSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         contextPdfUri = o.optStringOrNull("contextPdfUri"),
-        remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"),
+        remoteId = o.optStringOrNull("remoteId"), jobId = o.optStringOrNull("jobId"), liveJob = o.optBoolean("liveJob"),
         state = runCatching { LectureState.valueOf(o.getString("state")) }.getOrDefault(LectureState.DRAFT),
         stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), stageDetail = o.optStringOrNull("stageDetail"), error = o.optStringOrNull("error"),
         pdfPath = o.optStringOrNull("pdfPath"),
+        panoptoId = o.optStringOrNull("panoptoId"), panoptoTitle = o.optStringOrNull("panoptoTitle"),
+        panoptoUrl = o.optStringOrNull("panoptoUrl"), panoptoSrtPath = o.optStringOrNull("panoptoSrtPath"),
     )
 }
 
 fun JSONObject.optStringOrNull(k: String): String? = if (isNull(k) || !has(k)) null else optString(k)
+
+/** Body of POST /v1/lectures/{id}/transcript/import. */
+data class TranscriptImport(
+    val source: String, val externalId: String, val title: String, val language: String,
+    val segments: List<il.ac.tau.lecturesummarizer.moodle.CaptionSegment>,
+)

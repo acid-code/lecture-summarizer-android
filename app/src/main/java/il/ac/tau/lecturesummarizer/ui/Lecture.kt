@@ -45,7 +45,7 @@ import java.io.File
  *   Outlined = adds/changes/fixes          (“Upload slides”, “Import audio”, “Save PDF”, “Retry job”, “Re-summarize”)
  *   Text     = low-emphasis / navigation   (“Edit materials”, “Re-download PDF”)
  */
-private val SLIDE_MIMES = arrayOf("application/pdf",
+internal val SLIDE_MIMES = arrayOf("application/pdf",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.ms-powerpoint")
 
 @Composable
@@ -117,14 +117,68 @@ fun MaterialsList(items: List<Material>, onSave: (Material) -> Unit, onRemove: (
     if (items.isNotEmpty()) Text("Tap a file to open it.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private fun persist(ctx: android.content.Context, uri: Uri) = runCatching {
+internal fun persist(ctx: android.content.Context, uri: Uri) = runCatching {
     ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 }
 
-private fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) = app.repo.updateLecture(lectureId) { x ->
-    val new = uris.map { it.toString() }.filterNot { it in x.allSlides }
-    if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))
-    else x.copy(extraSlides = x.extraSlides + new)
+internal fun addSlides(app: LectureApp, lectureId: String, uris: List<Uri>) {
+    app.repo.updateLecture(lectureId) { x ->
+        val new = uris.map { it.toString() }.filterNot { it in x.allSlides }
+        if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))
+        else x.copy(extraSlides = x.extraSlides + new)
+    }
+    // Manual Materials update → offer to re-summarize (only matters once a summary job exists).
+    MaterialsUpdates.mark(lectureId, uris.map { it.toString() })
+}
+
+/** Manually attached materials not yet folded into a summary, per lecture (in-memory; drives the "Re-summarize?" offer). */
+object MaterialsUpdates {
+    val pending = kotlinx.coroutines.flow.MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    fun mark(id: String, uris: List<String>) { if (uris.isNotEmpty()) pending.value = pending.value + (id to ((pending.value[id] ?: emptyList()) + uris).distinct()) }
+    fun clear(id: String) { pending.value = pending.value - id }
+}
+
+/** "Materials updated — re-summarize?" Shown once per batch of manual attaches when a finished/failed summary job exists and nothing is processing. */
+@Composable
+internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pend by MaterialsUpdates.pending.collectAsStateWithLifecycle()
+    val uris = pend[l.id].orEmpty()
+    val busy = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
+    val hasJob = l.jobId != null && l.remoteId != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
+    LaunchedEffect(uris, busy, hasJob) {
+        if (uris.isEmpty()) return@LaunchedEffect
+        if (busy) { MaterialsUpdates.clear(l.id); Toast.makeText(ctx, "Materials updated — already processing; use Re-summarize later if needed", Toast.LENGTH_LONG).show() }
+        else if (!hasJob) MaterialsUpdates.clear(l.id)  // no summary yet → new files go in with the regular upload
+    }
+    if (uris.isEmpty() || busy || !hasJob) return
+    AlertDialog(onDismissRequest = { MaterialsUpdates.clear(l.id) },
+        icon = { Icon(Icons.Default.AutoAwesome, null) },
+        title = { Text("Materials updated · החומרים עודכנו") },
+        text = { Text("${uris.size} file(s) were added to Materials. Re-summarize now to get a new Study PDF that includes them?\n\nלסכם מחדש עם החומרים החדשים?") },
+        confirmButton = { Button(onClick = {
+            MaterialsUpdates.clear(l.id)
+            // Not rememberCoroutineScope: clearing pending removes this dialog from composition and cancels that scope
+            // mid-request ("StandaloneCoroutine was cancelled"). Run detached like the other lecture actions.
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+                val api = ApiProvider.get(app.settings)
+                val res = runCatching {
+                    val cur = app.repo.lecture(l.id)!!
+                    uris.filter { it in cur.allSlides && it !in cur.uploadedSlides }.forEach { s ->
+                        val u = Uri.parse(s)
+                        ctx.contentResolver.openInputStream(u)?.use { api.uploadSlides(cur.remoteId!!, displayName(ctx, s), ctx.contentResolver.getType(u) ?: "application/pdf", it) }
+                        app.repo.updateLecture(l.id) { x -> x.copy(uploadedSlides = (if (x.uploadedSlides.isEmpty()) x.allSlides - uris.toSet() else x.uploadedSlides) + s) }
+                    }
+                    val st = api.resummarizeJob(cur.jobId!!)
+                    il.ac.tau.lecturesummarizer.upload.JobKick.kick(l.id)
+                    app.repo.updateLecture(l.id) { it.copy(state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
+                    JobPollWorker.enqueue(ctx, l.id)
+                }
+                launch(Dispatchers.Main) { Toast.makeText(ctx, res.fold({ "Re-summarizing with the new materials…" }, { "Re-summarize failed: ${it.message}" }), Toast.LENGTH_LONG).show() }
+            }
+        }) { Text("Yes, re-summarize") } },
+        dismissButton = { TextButton(onClick = { MaterialsUpdates.clear(l.id) }) { Text("Not now") } })
 }
 
 private fun removeSlide(app: LectureApp, lectureId: String, s: String) = app.repo.updateLecture(lectureId) { x ->
@@ -149,6 +203,41 @@ fun deleteLectureEverywhere(app: LectureApp, ctx: android.content.Context, lectu
     }
 }
 
+/** Delete a notebook: stop its workers/recording, delete each lecture + the course on the server, then remove locally. */
+fun deleteCourseEverywhere(app: LectureApp, ctx: android.content.Context, courseId: String, onDone: () -> Unit = {}) {
+    val c = app.repo.course(courseId) ?: return onDone()
+    val ls = app.repo.lectures.value.filter { it.courseId == courseId }
+    val wm = androidx.work.WorkManager.getInstance(ctx)
+    ls.forEach { l ->
+        wm.cancelUniqueWork("upload-${l.id}"); wm.cancelUniqueWork("poll-${l.id}")
+        if (il.ac.tau.lecturesummarizer.recording.RecorderService.state.value.let { it.recording && it.lectureId == l.id })
+            il.ac.tau.lecturesummarizer.recording.RecorderService.stop(ctx)
+    }
+    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        val api = runCatching { ApiProvider.get(app.settings) }.getOrNull()
+        var failed: Throwable? = null
+        if (api != null) {
+            ls.forEach { l -> l.remoteId?.let { rid -> runCatching { api.deleteLecture(rid) }.onFailure { failed = it } } }
+            c.remoteId?.let { rid -> runCatching { api.deleteCourse(rid) }.onFailure { failed = it } }
+        }
+        app.repo.deleteCourse(courseId)
+        launch(Dispatchers.Main) {
+            Toast.makeText(ctx, if (failed != null) "Notebook deleted on phone — server cleanup failed: ${failed?.message}" else "Notebook “${c.name}” deleted", Toast.LENGTH_LONG).show()
+            onDone()
+        }
+    }
+}
+
+@Composable
+fun DeleteCourseDialog(name: String, lectureCount: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Delete notebook?") },
+        text = { Text("“$name” and its $lectureCount lecture${if (lectureCount == 1) "" else "s"} will be deleted from this phone and the server: recordings, materials, course files, transcripts and study PDFs. This can't be undone.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete notebook", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
 @Composable
 fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,
@@ -162,10 +251,12 @@ fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> U
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onPanoptoLogin: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
+    val srtReady = l.panoptoSrtPath?.let { File(it).exists() } == true
+    LaunchedEffect(l.panoptoId, srtReady) { if (l.fromPanopto && !srtReady && PanoptoFetch.status[lectureId] == null) PanoptoFetch.start(app, lectureId) }
     val slidesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
     }
@@ -188,13 +279,35 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text("${l.segments.size} audio part${if (l.segments.size == 1) "" else "s"} · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.markers.size} markers · ${l.allSlides.size} slide file${if (l.allSlides.size == 1) "" else "s"}",
+                Text("${l.segments.size} audio part${if (l.segments.size == 1) "" else "s"} · ${formatElapsed(l.segments.sumOf { it.durationMs })} · ${l.allSlides.size} slide file${if (l.allSlides.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if ((l.state == LectureState.RECORDED || l.state == LectureState.RECORDING) && l.segments.any { File(it.path).exists() }) {
                 Button(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("▶ Resume recording (after a break)") }
                 Text("Stopped by mistake during a break? Resume adds new segments to this same lecture.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (l.fromPanopto) SectionCard("Panopto recording", Icons.Default.OndemandVideo) {
+                Text("🎬 " + (l.panoptoTitle ?: "Recording"), style = MaterialTheme.typography.bodyMedium)
+                val st = PanoptoFetch.status[lectureId]
+                when {
+                    srtReady -> Text("✓ Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
+                    st == PanoptoFetch.AUTH -> {
+                        Text("Panopto needs you to sign in once.", style = MaterialTheme.typography.bodySmall)
+                        OutlineAction("Sign in to Panopto", Icons.Default.Login, Modifier.fillMaxWidth()) { onPanoptoLogin() }
+                    }
+                    st != null && st.startsWith("error:") -> {
+                        ErrorText(st.removePrefix("error:"))
+                        if (st.removePrefix("error:") == il.ac.tau.lecturesummarizer.moodle.Panopto.NO_CAPTIONS)
+                            OutlineAction("🎙 Record instead · הקלט במקום", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecord() }
+                        OutlineAction("Retry captions", Icons.Default.Refresh, Modifier.fillMaxWidth()) { PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId) }
+                    }
+                    else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Importing captions… add slides meanwhile.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                TextButton(onClick = onPanopto) { Text("Choose another recording") }
             }
             SectionCard("Files for this lecture", Icons.Default.Folder) {
                 MaterialsList(materialsOf(ctx, l), onSave = { download(it.uri, it.name, it.mime) },
@@ -203,6 +316,10 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     OutlineAction("Add slides / PDFs", Icons.Default.NoteAdd, Modifier.weight(1f)) { slidesPicker.launch(SLIDE_MIMES) }
                     OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.weight(1f)) { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }
                 }
+                if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING)
+                    OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
+                PrimaryAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
+                if (!l.fromPanopto) OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, "Listen to recording") }
             }
             SectionCard("Course context PDF", Icons.Default.MenuBook) {
@@ -216,12 +333,14 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             }
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
             l.error?.let { ErrorText(if (it == UploadWorker.INTERRUPTED) it else "Last error: $it (will retry)") }
-            PrimaryAction(if (l.segments.isEmpty()) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
-                enabled = l.segments.isNotEmpty() || hasMaterials) {
+            PrimaryAction(if (l.segments.isEmpty() && !l.fromPanopto) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
+                enabled = if (l.fromPanopto && l.segments.isEmpty()) srtReady else l.segments.isNotEmpty() || hasMaterials) {
                 if (l.state == LectureState.DRAFT) app.repo.updateLecture(lectureId) { it.copy(state = LectureState.RECORDED) }
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
             }
             Text(when {
+                l.fromPanopto && l.segments.isEmpty() && !srtReady -> "Waiting for Panopto captions…"
+                l.fromPanopto && l.segments.isEmpty() -> if (hasMaterials) "Summary uses the Panopto captions + slides together." else "Summary from the Panopto captions. Add slides (file or Moodle) for better terms and formulas."
                 l.segments.isNotEmpty() && hasMaterials -> "Summary uses the recording + slides together."
                 l.segments.isNotEmpty() -> "Summary from the recording. Add slides / PDFs for better terms and formulas."
                 hasMaterials -> "No recording needed — a study summary PDF is written from the slides / PDFs alone. Audio is optional."
@@ -236,7 +355,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 // ---------- Lecture (status + materials + study PDF + listen) ----------
 
 @Composable
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -249,6 +368,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         val api = ApiProvider.get(app.settings)
         while (true) {
             val st = runCatching { api.jobStatus(jobId) }.getOrNull()
+            if (st != null && il.ac.tau.lecturesummarizer.upload.JobKick.staleDone(lectureId, st.state)) { delay(2000); continue }
             if (st != null) {
                 app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
                 if (st.state == "done") {
@@ -284,11 +404,18 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             }
             uploading = false
             launch(Dispatchers.Main) {
-                Toast.makeText(ctx, res.fold({ "Uploaded — tap Re-summarize to include them" }, { "Upload failed: ${it.message}" }), Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, res.fold({ "Uploaded to Materials" }, { "Upload failed: ${it.message}" }), Toast.LENGTH_LONG).show()
             }
         }
     }
+    val jobAudioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        scope.launch(Dispatchers.IO) {
+            uris.forEach { uri -> runCatching { importAudio(app, lectureId, uri, ctx) }.onFailure { e ->
+                app.repo.updateLecture(lectureId) { it.copy(error = "Import failed: ${e.message}") } } }
+        }
+    }
     val processing = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
+    ResummarizeOffer(app, l)
     val materials = materialsOf(ctx, l)
 
     var confirmDelete by remember { mutableStateOf(false) }
@@ -315,18 +442,28 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
                             modifier = Modifier.height(28.dp))
-                        (l.stageDetail ?: l.stage)?.takeIf { processing }?.let {
-                            Text(if (l.stageDetail != null) it else "Stage: $it", modifier = Modifier.weight(1f),
+                        (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${l.segments.size}" else (l.stageDetail ?: l.stage))
+                            ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it)) }?.let {
+                            Text(if (l.stageDetail != null || l.state == LectureState.UPLOADING) it else "Stage: $it", modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                     if (processing) {
                         LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text((if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
+                        Text((if (l.segments.isEmpty() && l.fromPanopto) (if (l.allSlides.isNotEmpty()) "Panopto captions + slides summary" else "Summary from Panopto captions") else if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
+                    // New local audio (e.g. "Record another") not yet sent: offer upload right away (state is a live flow).
+                    val newSegs = l.segments.count { !it.uploaded && File(it.path).exists() }
+                    val recNow = il.ac.tau.lecturesummarizer.recording.RecorderService.state.collectAsStateWithLifecycle().value.let { it.recording && it.lectureId == lectureId }
+                    if (!processing && !recNow && newSegs > 0) {
+                        PrimaryAction("Upload & summarize ($newSegs new part${if (newSegs == 1) "" else "s"})", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
+                            app.repo.updateLecture(lectureId) { it.copy(error = null) }
+                            UploadWorker.enqueue(ctx, lectureId)
+                        }
+                    }
                 }
             }
 
@@ -343,13 +480,17 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
                 if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
                 if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
+                OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onRecordAnother() }
+                OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) }
+                OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
+                OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onPanopto() }
               }
             }
 
             // 3) Study PDF
             val pdf = l.pdfPath?.let(::File)?.takeIf { it.exists() }
             SectionCard("Study PDF", Icons.Default.AutoStories) {
-                if (pdf == null) Text(if (processing) "Being written… it appears here when ready." else if (l.state == LectureState.FAILED) "Not created — see the error above, then Retry job." else "Not ready yet.",
+                if (pdf == null) Text(if (processing) "Being written… " + (l.stageDetail?.takeUnless { il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.let { "($it) " } ?: "") + "it appears here when ready." else if (l.state == LectureState.FAILED) "Not created — see the error above, then Retry job." else "Not ready yet.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else {
                     val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf)
@@ -394,8 +535,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).
                     if (canRetryJob) OutlineAction("Retry job", Icons.Default.Refresh, Modifier.fillMaxWidth()) {
                         scope.launch {
-                            runCatching { ApiProvider.get(app.settings).retryJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                            runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).retryJob(jid!!) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Retry failed: ${e.message}") } }
                         }
                     } else OutlineAction("Retry upload", Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
@@ -403,12 +544,12 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         UploadWorker.enqueue(ctx, lectureId, retry = true) }
                 }
                 if (canResummarize) {
-                    TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
+                    TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty() && l.fromPanopto) "Reprocess summary from captions" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
                         reprocessing = true
                         scope.launch(Dispatchers.IO) {
                             val api = ApiProvider.get(app.settings)
                             val msg = runCatching {
-                                var r = api.reprocessJob(jid!!)
+                                il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); var r = api.reprocessJob(jid!!)
                                 val local = l.segments.sortedBy { it.seq }.filter { File(it.path).exists() }
                                 if (r.status == null && r.audioMissing && l.remoteId != null && local.isNotEmpty() && local.size == l.segments.size) {
                                     // Server deleted the raw audio after the last run, but the phone still has it: re-upload, then full redo.
@@ -417,7 +558,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                                 }
                                 if (r.status == null && r.audioMissing) r = api.reprocessJob(jid, fallback = true)
                                 val st = r.status ?: error(r.error ?: "server refused")
-                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }
+                                app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
                                 JobPollWorker.enqueue(ctx, lectureId)
                                 if (r.mode == "full") "Reprocessing: new transcription + summary"
                                 else "Audio is no longer on the server or phone — re-summarizing from the existing transcript instead"
@@ -430,8 +571,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlineAction("Re-summarize", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) {
                         scope.launch {
-                            runCatching { ApiProvider.get(app.settings).resummarizeJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                            runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).resummarizeJob(jid!!) }
+                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
                                 .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
                         }
                     }

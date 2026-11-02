@@ -1,6 +1,7 @@
 package il.ac.tau.lecturesummarizer.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -16,7 +17,12 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
-class HttpLectureApi(private val baseUrl: String, private val token: String) : LectureApi {
+class HttpLectureApi(
+    private val baseUrl: String,
+    private val token: String,
+    private val deviceId: String = "",
+    private val claimIds: () -> List<String> = { emptyList() },
+) : LectureApi {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.MINUTES)   // segments are tens of MB
@@ -26,11 +32,40 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
 
     private fun req(path: String) = Request.Builder().url("$baseUrl$path").apply {
         if (token.isNotBlank()) header("Authorization", "Bearer $token")
+        if (deviceId.isNotBlank()) header("X-Device-Id", deviceId)
+    }
+
+    /**
+     * Per-device migration: before the first API call of this process (per server+device), claim the legacy
+     * (unowned) server courses whose remote ids this phone already stores. Only sets ownership server-side;
+     * ids never change. Older servers (404) are ignored; network errors retry on the next call.
+     */
+    private suspend fun ensureClaimed() {
+        val key = "$baseUrl|$deviceId"
+        if (deviceId.isBlank() || key in claimedKeys) return
+        claimMutex.withLock {
+            if (key in claimedKeys) return
+            val ids = runCatching { claimIds() }.getOrDefault(emptyList()).distinct()
+            val body = JSONObject().put("claim_course_ids", JSONArray(ids)).toString().toRequestBody(json)
+            withContext(Dispatchers.IO) {
+                client.newCall(req("/v1/devices/claim").post(body).build()).execute().use { resp ->
+                    if (resp.isSuccessful || resp.code == 404 || resp.code == 405) claimedKeys += key
+                    else throw IOException("HTTP ${resp.code} POST /v1/devices/claim")
+                }
+            }
+        }
     }
 
     private suspend fun <T> call(r: Request, f: (Response) -> T): T = withContext(Dispatchers.IO) {
+        ensureClaimed()
         client.newCall(r).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${r.method} ${r.url.encodedPath}")
+            if (!resp.isSuccessful) {
+                val msg = runCatching { resp.body?.string().orEmpty() }.getOrDefault("").let { b ->
+                    runCatching { JSONObject(b).let { it.optString("error").ifBlank { it.optString("message") } } }.getOrNull()
+                        ?.takeIf { it.isNotBlank() } ?: b.take(200)
+                }
+                throw HttpStatusException(resp.code, "HTTP ${resp.code} ${r.method} ${r.url.encodedPath}" + if (msg.isNotBlank()) " — $msg" else "")
+            }
             f(resp)
         }
     }
@@ -115,10 +150,25 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
         postJson("/v1/lectures/$lectureRemoteId/markers", arr)
     }
 
-    override suspend fun startProcessing(lectureRemoteId: String) =
+    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean) =
         postJson("/v1/lectures/$lectureRemoteId/process",
-            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false))
+            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live))
         ).getString("job_id")
+
+    override suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String? {
+        val segs = org.json.JSONArray()
+        import.segments.forEach { g ->
+            segs.put(JSONObject().put("t0", g.t0).put("t1", g.t1).put("text", g.text).apply { g.speaker?.let { put("speaker", it) } })
+        }
+        val body = JSONObject().put("source", import.source).put("external_id", import.externalId)
+            .put("title", import.title).put("language", import.language).put("segments", segs)
+        return postJson("/v1/lectures/$lectureRemoteId/transcript/import", body).optString("job_id").ifBlank { null }
+    }
+
+    override suspend fun deleteCourse(courseRemoteId: String) = withContext(Dispatchers.IO) {
+        val r = req("/v1/courses/$courseRemoteId").delete().build()
+        client.newCall(r).execute().use { resp -> if (!resp.isSuccessful && resp.code != 404 && resp.code != 405) throw IOException("HTTP ${resp.code} DELETE ${r.url.encodedPath}") }
+    }
 
     override suspend fun deleteLecture(lectureRemoteId: String) = withContext(Dispatchers.IO) {
         val r = req("/v1/lectures/$lectureRemoteId").delete().build()
@@ -137,7 +187,9 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
     }
 
     override suspend fun resummarizeJob(jobId: String): JobStatus {
-        val o = postJson("/v1/jobs/$jobId/resummarize", JSONObject())
+        // 409 = server thinks the job is mid-flight (e.g. stuck in summary with a stale "Done"); retry once with force.
+        val o = try { postJson("/v1/jobs/$jobId/resummarize", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/resummarize?force=1", JSONObject()) else throw e }
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
@@ -176,6 +228,8 @@ class HttpLectureApi(private val baseUrl: String, private val token: String) : L
     companion object {
         /** Above this, use Blob direct upload when the server offers it (Vercel body limit is 4.5 MB). */
         const val BLOB_THRESHOLD = 4L * 1024 * 1024
+        private val claimMutex = kotlinx.coroutines.sync.Mutex()
+        private val claimedKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     }
 }
 
@@ -185,3 +239,6 @@ fun audioMime(f: File): String = when (f.extension.lowercase()) {
     "aac" -> "audio/aac"; "webm" -> "audio/webm"; "amr" -> "audio/amr"; "3gp" -> "audio/3gpp"
     else -> "audio/mp4"
 }
+
+/** Non-2xx HTTP response; [message] includes the server's error body when present. */
+class HttpStatusException(val code: Int, message: String) : IOException(message)

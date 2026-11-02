@@ -37,12 +37,16 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val repo = app.repo
         val api = ApiProvider.get(app.settings)
         val id = inputData.getString(KEY_LECTURE) ?: return Result.failure()
+        // Live = mid-recording: upload finished parts and keep a server job transcribing them; no state/UI changes.
+        val live = inputData.getBoolean(KEY_LIVE, false)
+        if (live && repo.lecture(id)?.state != LectureState.RECORDING) return Result.success()
 
         try { setForeground(getForegroundInfo()) } catch (_: Exception) { /* best effort (e.g. FGS start not allowed) */ }
 
         return try {
             var lecture = repo.lecture(id) ?: return Result.failure()
-            repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null) }
+            val hadFinished = lecture.state == LectureState.DONE || lecture.state == LectureState.FAILED || lecture.state == LectureState.RECORDED
+            if (!live) repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stage = null, stageDetail = null, progress = 0) }
             val course = repo.course(lecture.courseId) ?: return Result.failure()
 
             val courseRemote = course.remoteId ?: api.createCourse(course.name).also { rid ->
@@ -52,14 +56,15 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 repo.updateLecture(id) { it.copy(remoteId = rid) }
             }
 
-            for ((i, s) in lecture.allSlides.withIndex()) {
+            // Live runs send slides once (ASR spelling hints) and skip course context; the final run sends everything.
+            if (!live || lecture.uploadedSlides.isEmpty()) for ((i, s) in lecture.allSlides.withIndex()) {
                 val uri = Uri.parse(s)
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
                 applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
                 repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
             // Course context: lecture override (single) or all course files (max 3). First replaces, rest are added.
-            (lecture.contextPdfUri?.let { listOf(it) } ?: course.allContext.take(MAX_COURSE_CONTEXT)).forEachIndexed { i, s ->
+            if (!live) (lecture.contextPdfUri?.let { listOf(it) } ?: course.allContext.take(MAX_COURSE_CONTEXT)).forEachIndexed { i, s ->
                 val uri = Uri.parse(s)
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
                 applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadCourseContext(remote, displayName(uri), it, mime, add = i > 0) }
@@ -75,8 +80,25 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             }
             if (lecture.markers.isNotEmpty()) api.uploadMarkers(remote, lecture.markers)
 
-            val jobId = repo.lecture(id)?.jobId ?: api.startProcessing(remote)
-            repo.updateLecture(id) { it.copy(jobId = jobId, state = LectureState.PROCESSING) }
+            val cur = repo.lecture(id)!!
+            if (live) {
+                // Don't hijack an older (non-live) job, e.g. "Record another" after a finished summary.
+                if (cur.jobId != null && !cur.liveJob) return Result.success()
+                val jobId = api.startProcessing(remote, live = true) // idempotent: server reuses the live job
+                repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = true) }
+                JobPollWorker.enqueue(applicationContext, id)
+                return Result.success()
+            }
+            val srt = cur.panoptoSrtPath?.let(::File)?.takeIf { cur.segments.isEmpty() && it.exists() }
+            val jobId = if (srt != null && (cur.jobId == null || hadFinished)) {
+                // Panopto entry: captions replace ASR; slides above were already uploaded for this lecture.
+                val segs = il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(srt.readText())
+                if (segs.isEmpty()) error("Panopto captions are empty")
+                JobKick.kick(id)
+                api.importTranscript(remote, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", cur.panoptoId!!, cur.panoptoTitle ?: cur.title,
+                    il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: api.startProcessing(remote)
+            } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote) } else cur.jobId
+            repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()
         } catch (e: CancellationException) {
@@ -85,6 +107,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             repo.updateLecture(id) { it.copy(error = INTERRUPTED) }
             throw e
         } catch (e: Exception) {
+            if (live) return if (runAttemptCount < 3) Result.retry() else Result.success() // final upload catches up
             if (isStopped) return interrupted(id)
             repo.updateLecture(id) { it.copy(error = e.message) }
             if (runAttemptCount < MAX_ATTEMPTS) Result.retry()
@@ -118,18 +141,19 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
     companion object {
         const val KEY_LECTURE = "lecture"
+        const val KEY_LIVE = "live"
         private const val MAX_ATTEMPTS = 8
         private const val NOTIF_BASE = 0x20000
         const val INTERRUPTED = "Upload interrupted (app closed) — resumes automatically, or tap Retry upload"
 
         /** [retry] = explicit user retry: REPLACE so a cancelled/failed previous run doesn't swallow it. */
-        fun enqueue(ctx: Context, lectureId: String, retry: Boolean = false) {
+        fun enqueue(ctx: Context, lectureId: String, retry: Boolean = false, live: Boolean = false) {
             val req = OneTimeWorkRequestBuilder<UploadWorker>()
-                .setInputData(workDataOf(KEY_LECTURE to lectureId))
+                .setInputData(workDataOf(KEY_LECTURE to lectureId, KEY_LIVE to live))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniqueWork("upload-$lectureId", if (retry) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, req)
+            WorkManager.getInstance(ctx).enqueueUniqueWork("upload-$lectureId", if (retry) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE, req)
         }
     }
 }

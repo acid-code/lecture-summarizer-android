@@ -14,12 +14,19 @@ import il.ac.tau.lecturesummarizer.ui.AppTheme
 class MainActivity : ComponentActivity() {
     /** URIs received from the Android share sheet; non-empty → share import wizard. */
     val shared = mutableStateOf<List<Uri>>(emptyList())
+    /** Lecture id from a tapped 'summary ready' notification → deep-link to its lecture screen. */
+    val openLecture = mutableStateOf<String?>(null)
+
+    companion object {
+        const val ACTION_OPEN_LECTURE = "il.ac.tau.lecturesummarizer.OPEN_LECTURE"
+        const val EXTRA_LECTURE_ID = "lectureId"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handle(intent)
-        setContent { AppTheme { AppNav(application as LectureApp, shared) } }
+        setContent { AppTheme { AppNav(application as LectureApp, shared, openLecture) } }
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
@@ -27,6 +34,7 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun handle(i: Intent?) {
         i ?: return
+        if (i.action == ACTION_OPEN_LECTURE) { i.getStringExtra(EXTRA_LECTURE_ID)?.let { openLecture.value = it }; return }
         val uris: List<Uri> = when (i.action) {
             Intent.ACTION_SEND -> listOfNotNull(
                 if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else i.getParcelableExtra(Intent.EXTRA_STREAM))
