@@ -39,7 +39,8 @@ private sealed interface PState {
  * GenerateSRT captions → POST /v1/lectures/{id}/transcript/import → process (no audio upload, no ASR).
  */
 @Composable
-fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onStarted: () -> Unit) {
+fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onStarted: () -> Unit,
+                        newEntry: Boolean = false, onRecordInstead: () -> Unit = {}) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
     val client = remember { MoodleClient(store.baseUrl) }
@@ -62,6 +63,14 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     }
 
     suspend fun import(course: MoodleCourse, rec: PanoptoRecording) {
+        if (newEntry) {
+            // New entry from Panopto: pin source + Moodle course, fetch captions in the background and go straight to
+            // Materials so slides (file / Moodle, filtered to this course) can be attached meanwhile.
+            store.setLectureSource(lectureId, course.id, rec.title)
+            app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, error = null) }
+            PanoptoFetch.start(app, lectureId)
+            onStarted(); return
+        }
         state = PState.Importing(rec.title)
         state = withContext(Dispatchers.IO) {
             runCatching {
@@ -73,7 +82,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 val courseRemote = c.remoteId ?: api.createCourse(c.name).also { rid -> repo.updateCourse(c.id) { it.copy(remoteId = rid) } }
                 val l = repo.lecture(lectureId)!!
                 val remote = l.remoteId ?: api.createLecture(courseRemote, l.title, l.recordedAtMs).also { rid -> repo.updateLecture(lectureId) { it.copy(remoteId = rid) } }
-                val lang = if (segs.any { s -> s.text.any { it in '\u0590'..'\u05FF' } }) "he" else "en"
+                val lang = Panopto.languageOf(segs)
                 store.setLectureSource(lectureId, course.id, rec.title)
                 JobKick.kick(lectureId)
                 val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, lang, segs))
@@ -95,7 +104,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
         else state = PState.PickCourse(ranked.map { it.course } + courses.filterNot { c -> ranked.any { it.course.id == c.id } })
     }
 
-    AppScaffold("Import from Panopto", onBack = onBack, actions = {
+    AppScaffold(if (newEntry) "Choose Panopto recording" else "Import from Panopto", onBack = onBack, actions = {
         if (state is PState.Recordings || state is PState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
@@ -110,6 +119,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { reload++ }) { Text("Retry") }
+                    if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium) }
@@ -125,7 +135,17 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                         Text(s.course.fullname, style = MaterialTheme.typography.titleMedium)
                         Text("${s.recs.size} recordings · ${Panopto.BLOCK_TITLE}", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (s.recs.isEmpty()) item { Text("📭  No Panopto recordings found on this course page.", Modifier.padding(top = 12.dp)) }
+                    if (s.recs.isEmpty()) item {
+                        Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("📭", style = MaterialTheme.typography.displaySmall)
+                            Text("No Panopto recordings for this course · אין הקלטות Panopto לקורס הזה", style = MaterialTheme.typography.titleSmall)
+                            Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
+                            if (newEntry) Button(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
+                            OutlinedButton(onClick = { reload++ }) { Text("Refresh") }
+                            TextButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Text("Wrong course? Pick another") }
+                            TextButton(onClick = onBack) { Text("Back") }
+                        }
+                    }
                     items(s.recs, key = { it.deliveryId }) { r ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth().clickable { scope.launch { import(s.course, r) } }) {

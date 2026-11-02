@@ -31,10 +31,21 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         }
         composable("lectures/{courseId}") { e -> CourseTheme(app, e.arguments!!.getString("courseId")!!) {
             LecturesScreen(app, e.arguments!!.getString("courseId")!!, onBack = { nav.popBackStack() },
-                onRecord = { nav.navigate("record/$it") }, onAttach = { nav.navigate("attach/$it") },
+                onRecord = { nav.navigate("record/$it") }, onNew = { nav.navigate("start/$it") }, onAttach = { nav.navigate("attach/$it") },
                 onJob = { nav.navigate("job/$it") })
         }
         }
+        composable("start/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
+            NewEntryScreen(app, id, onBack = { nav.popBackStack() },
+                onRecord = { nav.navigate("record/$id") { popUpTo("start/$id") { inclusive = true } } },
+                onPanopto = { nav.navigate("panoptoNew/$id") }) }
+        }
+        composable("panoptoNew/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
+            PanoptoImportScreen(app, id, newEntry = true, onBack = { nav.popBackStack() },
+                onRecordInstead = { nav.navigate("record/$id") { popUpTo("start/$id") { inclusive = true } } },
+                onStarted = { nav.navigate("attach/$id") { popUpTo("start/$id") { inclusive = true } } }) }
+        }
+        composable("panoptoLogin/{id}") { e -> PanoptoLoginScreen(app, e.arguments!!.getString("id")!!, onDone = { nav.popBackStack() }) }
         composable("record/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) {
             val id = e.arguments!!.getString("id")!!
             RecordScreen(app, id, onBack = { nav.popBackStack() }, onDone = { nav.navigate("attach/$id") { popUpTo("record/$id") { inclusive = true } } }, onMoodle = { nav.navigate("moodle/$id") })
@@ -48,7 +59,7 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         }
         composable("attach/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) {
             val id = e.arguments!!.getString("id")!!
-            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onRecord = { nav.navigate("record/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onListen = { nav.navigate("listen/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { nav.navigate("panopto/$id") }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } })
+            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onRecord = { nav.navigate("record/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onListen = { nav.navigate("listen/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { if (app.repo.lecture(id)?.fromPanopto == true) nav.navigate("panoptoNew/$id") else nav.navigate("panopto/$id") }, onPanoptoLogin = { nav.navigate("panoptoLogin/$id") }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } })
         }
         }
         composable("moodle/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { MoodleAttachScreen(app, e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }) }

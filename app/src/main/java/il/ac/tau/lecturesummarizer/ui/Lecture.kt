@@ -251,10 +251,12 @@ fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> U
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onPanoptoLogin: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
+    val srtReady = l.panoptoSrtPath?.let { File(it).exists() } == true
+    LaunchedEffect(l.panoptoId, srtReady) { if (l.fromPanopto && !srtReady && PanoptoFetch.status[lectureId] == null) PanoptoFetch.start(app, lectureId) }
     val slidesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
     }
@@ -285,6 +287,26 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 Text("Stopped by mistake during a break? Resume adds new segments to this same lecture.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (l.fromPanopto) SectionCard("Panopto recording", Icons.Default.OndemandVideo) {
+                Text("🎬 " + (l.panoptoTitle ?: "Recording"), style = MaterialTheme.typography.bodyMedium)
+                val st = PanoptoFetch.status[lectureId]
+                when {
+                    srtReady -> Text("✓ Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
+                    st == PanoptoFetch.AUTH -> {
+                        Text("Panopto needs you to sign in once.", style = MaterialTheme.typography.bodySmall)
+                        OutlineAction("Sign in to Panopto", Icons.Default.Login, Modifier.fillMaxWidth()) { onPanoptoLogin() }
+                    }
+                    st != null && st.startsWith("error:") -> {
+                        ErrorText(st.removePrefix("error:"))
+                        OutlineAction("Retry captions", Icons.Default.Refresh, Modifier.fillMaxWidth()) { PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId) }
+                    }
+                    else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Importing captions… add slides meanwhile.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                TextButton(onClick = onPanopto) { Text("Choose another recording") }
+            }
             SectionCard("Files for this lecture", Icons.Default.Folder) {
                 MaterialsList(materialsOf(ctx, l), onSave = { download(it.uri, it.name, it.mime) },
                     onRemove = { m -> removeSlide(app, lectureId, m.key) })
@@ -295,7 +317,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING)
                     OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
                 PrimaryAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
-                OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
+                if (!l.fromPanopto) OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, "Listen to recording") }
             }
             SectionCard("Course context PDF", Icons.Default.MenuBook) {
@@ -309,12 +331,14 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             }
             if (app.settings.mockMode) Text("Mock mode is ON — nothing leaves the phone.", color = MaterialTheme.colorScheme.tertiary)
             l.error?.let { ErrorText(if (it == UploadWorker.INTERRUPTED) it else "Last error: $it (will retry)") }
-            PrimaryAction(if (l.segments.isEmpty()) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
-                enabled = l.segments.isNotEmpty() || hasMaterials) {
+            PrimaryAction(if (l.segments.isEmpty() && !l.fromPanopto) "Summarize from slides" else "Upload & summarize", Icons.Default.CloudUpload, Modifier.fillMaxWidth(),
+                enabled = if (l.fromPanopto && l.segments.isEmpty()) srtReady else l.segments.isNotEmpty() || hasMaterials) {
                 if (l.state == LectureState.DRAFT) app.repo.updateLecture(lectureId) { it.copy(state = LectureState.RECORDED) }
                 UploadWorker.enqueue(ctx, lectureId); onUploaded()
             }
             Text(when {
+                l.fromPanopto && l.segments.isEmpty() && !srtReady -> "Waiting for Panopto captions…"
+                l.fromPanopto && l.segments.isEmpty() -> if (hasMaterials) "Summary uses the Panopto captions + slides together." else "Summary from the Panopto captions. Add slides (file or Moodle) for better terms and formulas."
                 l.segments.isNotEmpty() && hasMaterials -> "Summary uses the recording + slides together."
                 l.segments.isNotEmpty() -> "Summary from the recording. Add slides / PDFs for better terms and formulas."
                 hasMaterials -> "No recording needed — a study summary PDF is written from the slides / PDFs alone. Audio is optional."

@@ -89,7 +89,15 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobPollWorker.enqueue(applicationContext, id)
                 return Result.success()
             }
-            val jobId = if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote) } else cur.jobId
+            val srt = cur.panoptoSrtPath?.let(::File)?.takeIf { cur.segments.isEmpty() && it.exists() }
+            val jobId = if (srt != null && (cur.jobId == null || hadFinished)) {
+                // Panopto entry: captions replace ASR; slides above were already uploaded for this lecture.
+                val segs = il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(srt.readText())
+                if (segs.isEmpty()) error("Panopto captions are empty")
+                JobKick.kick(id)
+                api.importTranscript(remote, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", cur.panoptoId!!, cur.panoptoTitle ?: cur.title,
+                    il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: api.startProcessing(remote)
+            } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote) } else cur.jobId
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()

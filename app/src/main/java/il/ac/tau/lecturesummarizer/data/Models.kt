@@ -48,7 +48,14 @@ data class Lecture(
     val stageDetail: String? = null,
     val error: String? = null,
     val pdfPath: String? = null,
-)
+    /** Panopto source chosen instead of recording (new-entry chooser). Captions are cached at [panoptoSrtPath]. */
+    val panoptoId: String? = null,
+    val panoptoTitle: String? = null,
+    val panoptoUrl: String? = null,
+    val panoptoSrtPath: String? = null,
+) {
+    val fromPanopto get() = panoptoId != null
+}
 
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
@@ -78,6 +85,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
+    .put("panoptoId", panoptoId).put("panoptoTitle", panoptoTitle).put("panoptoUrl", panoptoUrl).put("panoptoSrtPath", panoptoSrtPath)
 
 fun lectureFromJson(o: JSONObject): Lecture {
     val segs = o.optJSONArray("segments") ?: JSONArray()
@@ -97,6 +105,8 @@ fun lectureFromJson(o: JSONObject): Lecture {
         state = runCatching { LectureState.valueOf(o.getString("state")) }.getOrDefault(LectureState.DRAFT),
         stage = o.optStringOrNull("stage"), progress = o.optInt("progress"), stageDetail = o.optStringOrNull("stageDetail"), error = o.optStringOrNull("error"),
         pdfPath = o.optStringOrNull("pdfPath"),
+        panoptoId = o.optStringOrNull("panoptoId"), panoptoTitle = o.optStringOrNull("panoptoTitle"),
+        panoptoUrl = o.optStringOrNull("panoptoUrl"), panoptoSrtPath = o.optStringOrNull("panoptoSrtPath"),
     )
 }
 

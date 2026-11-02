@@ -52,4 +52,9 @@ class PanoptoTest {
         assertTrue(s.last().t1 > 9360)
         assertTrue(s.zipWithNext().all { (a, b) -> b.t0 >= a.t0 })
     }
+
+    @Test fun languageOfCaptions() {
+        assertEquals("he", Panopto.languageOf(Panopto.parseSrt(res("panopto-sample.srt"))))
+        assertEquals("en", Panopto.languageOf(listOf(CaptionSegment(0.0, 1.0, "hello world"))))
+    }
 }

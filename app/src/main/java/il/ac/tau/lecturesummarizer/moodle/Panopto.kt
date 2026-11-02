@@ -37,6 +37,10 @@ object Panopto {
     fun isLoadingPlaceholder(html: String): Boolean =
         extractRecordings(html).isEmpty() && (html.contains("loading_text") || html.contains("מאחזר תוכן") || html.contains("block_panopto/asyncload"))
 
+    /** "he" when any cue has Hebrew letters, else "en". */
+    fun languageOf(segs: List<CaptionSegment>): String =
+        if (segs.any { s -> s.text.any { it in '\u0590'..'\u05FF' } }) "he" else "en"
+
     private val TIME = Regex("""(\d+):(\d{2}):(\d{2})[,.](\d{1,3})""")
     private fun sec(m: MatchResult): Double {
         val (h, mi, s, ms) = m.destructured

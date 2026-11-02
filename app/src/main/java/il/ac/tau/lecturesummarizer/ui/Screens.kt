@@ -174,7 +174,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
 @Composable
 fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
-    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit,
+    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord,
 ) {
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
@@ -194,7 +194,7 @@ fun LecturesScreen(
     var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
     toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
-        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("New lecture") }) }
+        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add lecture") }) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             course?.let { c -> item { CourseHeader(c, "${lectures.size} lecture${if (lectures.size == 1) "" else "s"}") { editCover = true } } }
@@ -223,7 +223,7 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “New lecture” to record, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
+            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “Add lecture” to record, bring one from Panopto, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
                 textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
@@ -232,7 +232,7 @@ fun LecturesScreen(
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
                     course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
                     when (l.state) {
-                        LectureState.DRAFT -> if (l.allSlides.isNotEmpty()) onAttach(l.id) else onRecord(l.id)
+                        LectureState.DRAFT -> if (l.allSlides.isNotEmpty() || l.fromPanopto) onAttach(l.id) else onNew(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
                         LectureState.RECORDED -> onAttach(l.id)  // Materials screen offers "Resume recording"
                         else -> onJob(l.id)
@@ -241,8 +241,8 @@ fun LecturesScreen(
             }
         }
     }
-    if (adding) NameDialog("New lecture part", "Title (e.g. Lecture 5 — part 1)", onDismiss = { adding = false }) {
-        val l = app.repo.addLecture(courseId, it); adding = false; onRecord(l.id)
+    if (adding) NameDialog("Add lecture", "Title (e.g. Lecture 5 — part 1)", onDismiss = { adding = false }) {
+        val l = app.repo.addLecture(courseId, it); adding = false; onNew(l.id)
     }
     if (editCover && course != null) NotebookEditor(course, onDismiss = { editCover = false }) { name, e, col, pat ->
         app.repo.updateCourse(courseId) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editCover = false
