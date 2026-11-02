@@ -232,6 +232,12 @@ class MoodleStore(private val ctx: Context) {
         get() = p.getString("username", null)?.takeIf { it.isNotBlank() }
         set(v) = p.edit().putString("username", v?.trim()).apply()
 
+    /** Moodle course + Panopto recording a lecture was imported from: Attach-from-Moodle goes straight there. */
+    fun lectureCourse(lectureId: String): Long? = p.getLong("lcourse:$lectureId", -1).takeIf { it > 0 }
+    fun lectureRecording(lectureId: String): String? = p.getString("lrec:$lectureId", null)
+    fun setLectureSource(lectureId: String, courseId: Long, recordingTitle: String) =
+        p.edit().putLong("lcourse:$lectureId", courseId).putString("lrec:$lectureId", recordingTitle).apply()
+
     fun mappedCourse(key: String): Long? = p.getLong("map:$key", -1).takeIf { it > 0 }
     fun mapCourse(key: String, id: Long) = p.edit().putLong("map:$key", id).apply()
 

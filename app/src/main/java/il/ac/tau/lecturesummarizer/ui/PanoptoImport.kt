@@ -27,7 +27,7 @@ import kotlinx.coroutines.withContext
 private sealed interface PState {
     data object Loading : PState
     data object Login : PState
-    data class PanoptoLogin(val url: String, val rec: PanoptoRecording) : PState
+    data class PanoptoLogin(val url: String, val course: MoodleCourse, val rec: PanoptoRecording) : PState
     data class PickCourse(val options: List<MoodleCourse>) : PState
     data class Recordings(val course: MoodleCourse, val recs: List<PanoptoRecording>) : PState
     data class Importing(val title: String) : PState
@@ -61,7 +61,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
         state = withContext(Dispatchers.IO) { runCatching { PState.Recordings(c, client.panoptoRecordings(c.id)) }.getOrElse(::fail) }
     }
 
-    suspend fun import(rec: PanoptoRecording) {
+    suspend fun import(course: MoodleCourse, rec: PanoptoRecording) {
         state = PState.Importing(rec.title)
         state = withContext(Dispatchers.IO) {
             runCatching {
@@ -74,13 +74,14 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 val l = repo.lecture(lectureId)!!
                 val remote = l.remoteId ?: api.createLecture(courseRemote, l.title, l.recordedAtMs).also { rid -> repo.updateLecture(lectureId) { it.copy(remoteId = rid) } }
                 val lang = if (segs.any { s -> s.text.any { it in '\u0590'..'\u05FF' } }) "he" else "en"
+                store.setLectureSource(lectureId, course.id, rec.title)
                 JobKick.kick(lectureId)
                 val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, lang, segs))
                     ?: api.startProcessing(remote)
                 repo.updateLecture(lectureId) { it.copy(jobId = job, liveJob = false, state = LectureState.PROCESSING, error = null, stage = null, stageDetail = null, progress = 0) }
                 JobPollWorker.enqueue(ctx.applicationContext, lectureId, replace = true)
                 null
-            }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, rec) else fail(e) }
+            }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
         } ?: run { Toast.makeText(ctx, "Imported captions · התחיל סיכום", Toast.LENGTH_SHORT).show(); onStarted(); return }
     }
 
@@ -106,7 +107,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 PState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 // Panopto has its own SAML session; open the viewer once so tau.cloud.panopto.eu cookies land in CookieManager.
                 is PState.PanoptoLogin -> MoodleLoginView(store.baseUrl, startUrl = s.url,
-                    isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.rec) } }
+                    isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { reload++ }) { Text("Retry") }
                 }
@@ -127,7 +128,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     if (s.recs.isEmpty()) item { Text("📭  No Panopto recordings found on this course page.", Modifier.padding(top = 12.dp)) }
                     items(s.recs, key = { it.deliveryId }) { r ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth().clickable { scope.launch { import(r) } }) {
+                            modifier = Modifier.fillMaxWidth().clickable { scope.launch { import(s.course, r) } }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text("🎬 " + r.title)
                                 Text(MoodleMatch.kindFromTitle(r.title).he, style = MaterialTheme.typography.bodySmall)

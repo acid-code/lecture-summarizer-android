@@ -54,6 +54,8 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     val dayMonth = Regex("""(\d{1,2})\.(\d{1,2})\.\d{4}""").find(lecture.title)?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
     var state by remember { mutableStateOf<MState>(MState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
+    var pickAny by remember { mutableStateOf(false) }
+    val recTitle = remember { store.lectureRecording(lectureId) }
     val scope = rememberCoroutineScope()
 
     suspend fun openCourse(c: MoodleCourse) {
@@ -67,6 +69,8 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
         state = MState.Loading
         val res = withContext(Dispatchers.IO) { runCatching { client.courses() } }
         val courses = res.getOrElse { state = if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error"); return@LaunchedEffect }
+        // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped "Change course".
+        if (!pickAny) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         val ranked = MoodleMatch.rank(courses, course?.courseNumber, kind, course?.name)
         val pick = MoodleMatch.confident(ranked)
@@ -75,7 +79,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     }
 
     AppScaffold("Attach from Moodle", onBack = onBack, actions = {
-        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
+        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); pickAny = true; reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
@@ -94,7 +98,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                         }
                     }
                 }
-                is MState.Files -> FilePicker(s, store, dayMonth, client) { files ->
+                is MState.Files -> FilePicker(s, store, dayMonth, client, recTitle) { files ->
                     addSlides(app, lectureId, files.map { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) })
                     Toast.makeText(ctx, "Attached ${files.size} file(s)", Toast.LENGTH_SHORT).show(); onBack()
                 }
@@ -104,10 +108,13 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, Int>?, client: MoodleClient, onAttach: (List<java.io.File>) -> Unit) {
+private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, Int>?, client: MoodleClient, recTitle: String? = null, onAttach: (List<java.io.File>) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sel = remember { mutableStateListOf<Long>() }
+    // Pre-select PDF/PPTX that match the imported Panopto recording (e.g. "Lecture 3" → lecture3.pdf).
+    val sel = remember(s) { mutableStateListOf<Long>().apply {
+        addAll(s.sections.flatMap { it.files }.filter { !store.isUsed(it.cmid) && MoodleMatch.matchesRecording(it.name, recTitle) }.map { it.cmid })
+    } }
     var busy by remember { mutableStateOf(false) }
     // Show the actual Moodle file name (e.g. "Lecture3_genetics.pdf"), not the activity/section title.
     val fileNames = remember(s) { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
@@ -152,7 +159,8 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     val fn = fileNames[f.cmid] ?: store.cached(f.cmid)?.name?.substringAfter('_')
                     val type = MoodleFileType.of(fn ?: f.name, f.module)
                     val selected = f.cmid in sel
-                    val suggested = !used && !cached && (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth))
+                    val suggested = !used && !cached && (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth)
+                        || MoodleMatch.matchesRecording(fileNames[f.cmid] ?: f.name, recTitle))
                     val toggle = { if (selected) sel.remove(f.cmid) else sel.add(f.cmid); Unit }
                     Surface(onClick = toggle, shape = RoundedCornerShape(16.dp),
                         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
