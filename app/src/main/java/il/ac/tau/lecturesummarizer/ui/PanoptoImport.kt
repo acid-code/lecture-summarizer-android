@@ -77,15 +77,19 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
             // New entry from Panopto: pin source + Moodle course, fetch captions in the background and go straight to
             // Materials so slides (file / Moodle, filtered to this course) can be attached meanwhile.
             store.setLectureSource(lectureId, course.id, rec.title)
-            app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, error = null) }
+            app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, error = null) }
             PanoptoFetch.start(app, lectureId)
             onStarted(); return
         }
         state = PState.Importing(rec.title)
         state = withContext(Dispatchers.IO) {
             runCatching {
-                val segs = Panopto.parseSrt(client.downloadCaptions(rec))
+                val srtText = client.downloadCaptions(rec)
+                val segs = Panopto.parseSrt(srtText)
                 if (segs.isEmpty()) error("Captions are empty")
+                // Mark the lecture as Panopto-sourced (labels, Upload, Reprocess) and cache the captions locally.
+                val srtFile = java.io.File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srtText) }
+                app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath) }
                 val api = ApiProvider.get(app.settings)
                 val repo = app.repo
                 val c = repo.course(lecture.courseId) ?: error("Course missing")
@@ -96,7 +100,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 store.setLectureSource(lectureId, course.id, rec.title)
                 JobKick.kick(lectureId)
                 val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, lang, segs))
-                    ?: api.startProcessing(remote)
+                    ?: error("Server didn't start a captions job")
                 repo.updateLecture(lectureId) { it.copy(jobId = job, liveJob = false, state = LectureState.PROCESSING, error = null, stage = null, stageDetail = null, progress = 0) }
                 JobPollWorker.enqueue(ctx.applicationContext, lectureId, replace = true)
                 null

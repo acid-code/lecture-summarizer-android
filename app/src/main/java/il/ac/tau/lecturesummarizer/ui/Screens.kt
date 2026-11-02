@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -174,7 +175,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
 @Composable
 fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
-    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord,
+    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord, onPanopto: (String) -> Unit = {},
 ) {
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
@@ -194,7 +195,13 @@ fun LecturesScreen(
     var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
     toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: "Lectures", onBack = onBack,
-        fab = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add lecture") }) }
+        fab = { Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Panopto lives at course level: pick a recording → lecture is created and titled from the recording.
+            ExtendedFloatingActionButton(onClick = { onPanopto(app.repo.addLecture(courseId, PANOPTO_PLACEHOLDER).id) },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                icon = { Icon(Icons.Default.OndemandVideo, null) }, text = { Text("Import from Panopto") })
+            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add lecture") })
+        } }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             course?.let { c -> item { CourseHeader(c, "${lectures.size} lecture${if (lectures.size == 1) "" else "s"}") { editCover = true } } }
@@ -223,7 +230,7 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “Add lecture” to record, bring one from Panopto, import audio, or summarize slides / PDFs.", Modifier.fillMaxWidth().padding(32.dp),
+            if (lectures.isEmpty()) item { Text("🎙️  No lectures yet.\nTap “Add lecture” to record or summarize slides / PDFs, or “Import from Panopto” for a course recording.", Modifier.fillMaxWidth().padding(32.dp),
                 textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(lectures, key = { it.id }) { l ->
                 NotebookCard(l.title,
@@ -566,3 +573,6 @@ fun rememberDownloader(): (Uri, String, String) -> Unit {
     }
     return { uri, name, mime -> src = uri; launcher.launch(name to mime) }
 }
+
+/** Temporary title of a lecture created by the course-level Panopto button until a recording is picked. */
+const val PANOPTO_PLACEHOLDER = "Panopto recording"

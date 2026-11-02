@@ -307,6 +307,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                         Text("Importing captions… add slides meanwhile.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                PanoptoStatusLines(l, srtReady)
                 TextButton(onClick = onPanopto) { Text("Choose another recording") }
             }
             SectionCard("Files for this lecture", Icons.Default.Folder) {
@@ -449,9 +450,10 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
+                    if (l.fromPanopto) PanoptoStatusLines(l, l.panoptoSrtPath?.let { File(it).exists() } == true)
                     if (processing) {
                         LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text((if (l.segments.isEmpty() && l.fromPanopto) (if (l.allSlides.isNotEmpty()) "Panopto captions + slides summary" else "Summary from Panopto captions") else if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
+                        Text((if (l.segments.isEmpty() && l.fromPanopto) (if (l.allSlides.isNotEmpty()) "Panopto captions + slides summary" else "Summary from Panopto captions") else if (l.segments.isEmpty()) "Summarizing on the server (no audio on this phone)" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
@@ -549,7 +551,25 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         scope.launch(Dispatchers.IO) {
                             val api = ApiProvider.get(app.settings)
                             val msg = runCatching {
-                                il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); var r = api.reprocessJob(jid!!)
+                                il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId)
+                                if (l.fromPanopto && l.segments.isEmpty()) {
+                                    // Never let the server redo this as slides-only: re-import the cached Panopto captions as a fresh job.
+                                    val srt = l.panoptoSrtPath?.let(::File)?.takeIf { it.exists() }
+                                    if (srt != null && l.remoteId != null) {
+                                        val segs = il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(srt.readText())
+                                        val job = api.importTranscript(l.remoteId!!, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", l.panoptoId!!, l.panoptoTitle ?: l.title,
+                                            il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: error("server didn't start a captions job")
+                                        app.repo.updateLecture(lectureId) { it.copy(jobId = job, liveJob = false, state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = 0, error = null, pdfPath = null) }
+                                        JobPollWorker.enqueue(ctx, lectureId)
+                                        return@runCatching "Reprocessing from Panopto captions + slides"
+                                    }
+                                    // No local captions: re-summarize keeps the server's Panopto transcript.
+                                    val st = api.resummarizeJob(jid!!)
+                                    app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }
+                                    JobPollWorker.enqueue(ctx, lectureId)
+                                    return@runCatching "Re-summarizing from the Panopto transcript"
+                                }
+                                var r = api.reprocessJob(jid!!)
                                 val local = l.segments.sortedBy { it.seq }.filter { File(it.path).exists() }
                                 if (r.status == null && r.audioMissing && l.remoteId != null && local.isNotEmpty() && local.size == l.segments.size) {
                                     // Server deleted the raw audio after the last run, but the phone still has it: re-upload, then full redo.
@@ -594,4 +614,14 @@ internal fun summaryPdfName(course: String?, title: String?): String {
     fun clean(x: String?) = x.orEmpty().replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim()
     val parts = listOf(clean(course), clean(title)).filter { it.isNotEmpty() }.distinct()
     return (parts.ifEmpty { listOf("lecture") } + "summary").joinToString(" - ").take(150) + ".pdf"
+}
+
+
+/** Panopto pipeline checklist: captions ✓, slides attached, job source. */
+@Composable
+internal fun PanoptoStatusLines(l: Lecture, srtReady: Boolean) {
+    val c = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(if (srtReady) "✓ Captions imported" else "… Captions not downloaded yet", style = MaterialTheme.typography.bodySmall, color = c)
+    Text(if (l.allSlides.isNotEmpty()) "✓ Slides attached (${l.allSlides.size})" else "○ No slides attached (optional)", style = MaterialTheme.typography.bodySmall, color = c)
+    Text("Job source: " + if (l.segments.isEmpty()) "panopto captions" else "recorded audio", style = MaterialTheme.typography.bodySmall, color = c)
 }

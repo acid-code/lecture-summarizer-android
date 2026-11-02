@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.OndemandVideo
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,15 +24,15 @@ import java.io.File
 
 /** "Add lecture" chooser: record live, or bring an existing Panopto recording (captions) instead. */
 @Composable
-fun NewEntryScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onRecord: () -> Unit, onPanopto: () -> Unit) {
+fun NewEntryScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onRecord: () -> Unit, onUpload: () -> Unit) {
     val l = app.repo.lecture(lectureId) ?: return
     AppScaffold("Add lecture · הוספת שיעור", onBack = onBack) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text("Where does this lecture come from? · מאיפה השיעור?", style = MaterialTheme.typography.bodyMedium)
             ChoiceCard(Icons.Default.Mic, "Record · הקלטה", "Record now in class (or import an audio file later).", onRecord)
-            ChoiceCard(Icons.Default.OndemandVideo, "From Panopto · מפנופטו",
-                "Use a recording from the course's Panopto block — its captions replace ASR. Add slides from a file or Moodle meanwhile.", onPanopto)
+            ChoiceCard(Icons.Default.UploadFile, "Upload summaries / presentations · העלאת קבצים",
+                "Summarize slides, PDFs or notes (file or Moodle) without a recording. Panopto: use “Import from Panopto” on the course screen.", onUpload)
             TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
         }
     }

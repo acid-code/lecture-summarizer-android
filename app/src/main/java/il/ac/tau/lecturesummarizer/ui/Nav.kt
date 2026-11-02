@@ -32,18 +32,21 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         composable("lectures/{courseId}") { e -> CourseTheme(app, e.arguments!!.getString("courseId")!!) {
             LecturesScreen(app, e.arguments!!.getString("courseId")!!, onBack = { nav.popBackStack() },
                 onRecord = { nav.navigate("record/$it") }, onNew = { nav.navigate("start/$it") }, onAttach = { nav.navigate("attach/$it") },
-                onJob = { nav.navigate("job/$it") })
+                onJob = { nav.navigate("job/$it") }, onPanopto = { nav.navigate("panoptoNew/$it") })
         }
         }
         composable("start/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
             NewEntryScreen(app, id, onBack = { nav.popBackStack() },
                 onRecord = { nav.navigate("record/$id") { popUpTo("start/$id") { inclusive = true } } },
-                onPanopto = { nav.navigate("panoptoNew/$id") }) }
+                onUpload = { nav.navigate("attach/$id") { popUpTo("start/$id") { inclusive = true } } }) }
         }
         composable("panoptoNew/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
-            PanoptoImportScreen(app, id, newEntry = true, onBack = { nav.popBackStack() },
-                onRecordInstead = { nav.navigate("record/$id") { popUpTo("start/$id") { inclusive = true } } },
-                onStarted = { nav.navigate("attach/$id") { popUpTo("start/$id") { inclusive = true } } }) }
+            PanoptoImportScreen(app, id, newEntry = true, onBack = {
+                    // Backed out of the course-level Panopto picker without choosing: drop the placeholder lecture.
+                    app.repo.lecture(id)?.let { if (!it.fromPanopto && it.title == PANOPTO_PLACEHOLDER && it.segments.isEmpty() && it.remoteId == null) app.repo.deleteLecture(id) }
+                    nav.popBackStack() },
+                onRecordInstead = { nav.navigate("record/$id") { popUpTo("panoptoNew/$id") { inclusive = true } } },
+                onStarted = { nav.navigate("attach/$id") { popUpTo("panoptoNew/$id") { inclusive = true } } }) }
         }
         composable("panoptoLogin/{id}") { e -> PanoptoLoginScreen(app, e.arguments!!.getString("id")!!, onDone = { nav.popBackStack() }) }
         composable("record/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) {

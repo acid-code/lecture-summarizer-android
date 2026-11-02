@@ -8,6 +8,8 @@ data class PanoptoRecording(val deliveryId: String, val title: String, val viewe
 
 /** Pure parsing helpers (no Android deps → unit-testable). */
 object Panopto {
+    /** Lecture title from a Panopto recording title: trimmed, whitespace collapsed, course-name prefix kept as-is ("Lecture 3", "תרגול 1"). */
+    fun lectureTitle(recTitle: String): String = recTitle.replace(Regex("""\s+"""), " ").trim().ifBlank { "Panopto recording" }
     const val HOST = "https://tau.cloud.panopto.eu"
 
     /** True when the WebView already holds a Panopto forms-auth session (Viewer loaded = signed in). */
