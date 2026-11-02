@@ -155,6 +155,16 @@ class HttpLectureApi(
             JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live))
         ).getString("job_id")
 
+    override suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String? {
+        val segs = org.json.JSONArray()
+        import.segments.forEach { g ->
+            segs.put(JSONObject().put("t0", g.t0).put("t1", g.t1).put("text", g.text).apply { g.speaker?.let { put("speaker", it) } })
+        }
+        val body = JSONObject().put("source", import.source).put("external_id", import.externalId)
+            .put("title", import.title).put("language", import.language).put("segments", segs)
+        return postJson("/v1/lectures/$lectureRemoteId/transcript/import", body).optString("job_id").ifBlank { null }
+    }
+
     override suspend fun deleteCourse(courseRemoteId: String) = withContext(Dispatchers.IO) {
         val r = req("/v1/courses/$courseRemoteId").delete().build()
         client.newCall(r).execute().use { resp -> if (!resp.isSuccessful && resp.code != 404 && resp.code != 405) throw IOException("HTTP ${resp.code} DELETE ${r.url.encodedPath}") }

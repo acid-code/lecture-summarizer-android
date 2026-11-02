@@ -251,7 +251,7 @@ fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> U
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -295,6 +295,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING)
                     OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
                 PrimaryAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
+                OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, "Listen to recording") }
             }
             SectionCard("Course context PDF", Icons.Default.MenuBook) {
@@ -328,7 +329,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 // ---------- Lecture (status + materials + study PDF + listen) ----------
 
 @Composable
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -456,6 +457,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onRecordAnother() }
                 OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) }
                 OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
+                OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onPanopto() }
               }
             }
 

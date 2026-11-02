@@ -48,5 +48,19 @@ object MoodleMatch {
         return Regex("""(?<!\d)0?$d[./\-]0?$m(?!\d)""").containsMatchIn(fileName)
     }
 
+    /**
+     * Does a Moodle file look like the slides for a Panopto recording ("Lecture 3" → "lecture3.pdf", "Lec_03 slides.pptx", "שיעור 3")?
+     * Same number, not the opposite class kind, and (if the name has an extension) a PDF/PPT(X).
+     */
+    fun matchesRecording(fileName: String, recordingTitle: String?): Boolean {
+        val n = recordingTitle?.let { Regex("""\d{1,2}""").find(it)?.value?.toInt() } ?: return false
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        if (ext.isNotEmpty() && ext.length <= 4 && ext !in setOf("pdf", "ppt", "pptx")) return false
+        val recKind = kindFromTitle(recordingTitle); val fileKind = kindFromTitle(fileName)
+        if (recKind != ClassKind.UNKNOWN && fileKind != ClassKind.UNKNOWN && recKind != fileKind) return false
+        val nums = Regex("""\d+""").findAll(fileName.substringBeforeLast('.')).map { it.value }.filter { it.length <= 2 }.map { it.toInt() }
+        return n in nums.toList()
+    }
+
     private fun norm(s: String) = s.lowercase().replace(Regex("""[\s\p{Punct}״׳"'–—]+"""), " ").trim()
 }

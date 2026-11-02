@@ -54,6 +54,8 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     val dayMonth = Regex("""(\d{1,2})\.(\d{1,2})\.\d{4}""").find(lecture.title)?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
     var state by remember { mutableStateOf<MState>(MState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
+    var pickAny by remember { mutableStateOf(false) }
+    val recTitle = remember { store.lectureRecording(lectureId) }
     val scope = rememberCoroutineScope()
 
     suspend fun openCourse(c: MoodleCourse) {
@@ -67,6 +69,8 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
         state = MState.Loading
         val res = withContext(Dispatchers.IO) { runCatching { client.courses() } }
         val courses = res.getOrElse { state = if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error"); return@LaunchedEffect }
+        // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped "Change course".
+        if (!pickAny) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         val ranked = MoodleMatch.rank(courses, course?.courseNumber, kind, course?.name)
         val pick = MoodleMatch.confident(ranked)
@@ -75,7 +79,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     }
 
     AppScaffold("Attach from Moodle", onBack = onBack, actions = {
-        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
+        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); pickAny = true; reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
@@ -94,7 +98,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                         }
                     }
                 }
-                is MState.Files -> FilePicker(s, store, dayMonth, client) { files ->
+                is MState.Files -> FilePicker(s, store, dayMonth, client, recTitle) { files ->
                     addSlides(app, lectureId, files.map { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) })
                     Toast.makeText(ctx, "Attached ${files.size} file(s)", Toast.LENGTH_SHORT).show(); onBack()
                 }
@@ -104,10 +108,13 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, Int>?, client: MoodleClient, onAttach: (List<java.io.File>) -> Unit) {
+private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, Int>?, client: MoodleClient, recTitle: String? = null, onAttach: (List<java.io.File>) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sel = remember { mutableStateListOf<Long>() }
+    // Pre-select PDF/PPTX that match the imported Panopto recording (e.g. "Lecture 3" → lecture3.pdf).
+    val sel = remember(s) { mutableStateListOf<Long>().apply {
+        addAll(s.sections.flatMap { it.files }.filter { !store.isUsed(it.cmid) && MoodleMatch.matchesRecording(it.name, recTitle) }.map { it.cmid })
+    } }
     var busy by remember { mutableStateOf(false) }
     // Show the actual Moodle file name (e.g. "Lecture3_genetics.pdf"), not the activity/section title.
     val fileNames = remember(s) { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
@@ -152,7 +159,8 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     val fn = fileNames[f.cmid] ?: store.cached(f.cmid)?.name?.substringAfter('_')
                     val type = MoodleFileType.of(fn ?: f.name, f.module)
                     val selected = f.cmid in sel
-                    val suggested = !used && !cached && (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth))
+                    val suggested = !used && !cached && (MoodleMatch.suggested(fileNames[f.cmid] ?: f.name, dayMonth) || MoodleMatch.suggested(f.name, dayMonth)
+                        || MoodleMatch.matchesRecording(fileNames[f.cmid] ?: f.name, recTitle))
                     val toggle = { if (selected) sel.remove(f.cmid) else sel.add(f.cmid); Unit }
                     Surface(onClick = toggle, shape = RoundedCornerShape(16.dp),
                         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
@@ -216,27 +224,54 @@ private fun FileBadge(text: String, bg: androidx.compose.ui.graphics.Color, fg: 
         style = MaterialTheme.typography.labelSmall, color = fg, fontWeight = FontWeight.Medium, maxLines = 1)
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+/**
+ * Moodle (or Panopto) sign-in WebView with autofill:
+ *  - remembered university username (MoodleStore.username, prefs; never the password) is injected into the IdP form if empty;
+ *  - the username typed on submit is captured and remembered;
+ *  - WebView is marked important-for-autofill so Android Autofill / Google Password Manager can save + fill the password.
+ */
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
-private fun MoodleLoginView(base: String, onLoggedIn: () -> Unit) {
+internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index.php",
+                             isDone: (String) -> Boolean = { url -> android.net.Uri.parse(url).host == android.net.Uri.parse(base).host && !url.contains("/login") && !url.contains("saml2") },
+                             onLoggedIn: () -> Unit) {
+    val ctx = LocalContext.current
+    val store = remember { MoodleStore(ctx.applicationContext) }
     var done by remember { mutableStateOf(false) }
+    var user by remember { mutableStateOf(store.username.orEmpty()) }
     Column(Modifier.fillMaxSize()) {
-        Text("Sign in to Moodle (TAU). The app keeps only the session cookie — never your password.",
-            Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+        Text("Sign in to Moodle (TAU). The app remembers only your username + session cookie; your password is saved by Android Autofill, not the app.",
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(user, { user = it; store.username = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            singleLine = true, label = { Text("University username · שם משתמש") })
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { c ->
             WebView(c).apply {
                 settings.javaScriptEnabled = true; settings.domStorageEnabled = true
+                importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                 CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                addJavascriptInterface(object {
+                    @android.webkit.JavascriptInterface fun username(u: String) { if (u.isNotBlank()) store.username = u }
+                }, "LsAndroid")
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(v: WebView, url: String) {
-                        val host = android.net.Uri.parse(base).host
-                        if (!done && android.net.Uri.parse(url).host == host && !url.contains("/login") && !url.contains("saml2")) {
-                            CookieManager.getInstance().flush(); done = true; onLoggedIn()
-                        }
+                        if (!done && isDone(url)) { CookieManager.getInstance().flush(); done = true; onLoggedIn(); return }
+                        val u = org.json.JSONObject.quote(store.username.orEmpty())
+                        v.evaluateJavascript(LOGIN_JS.replace("__USER__", u), null)
                     }
                 }
-                loadUrl("$base/login/index.php")
+                loadUrl(startUrl)
             }
         })
     }
 }
+
+/** Fill the IdP username field if empty; remember what the user submits. Password is never touched. */
+private const val LOGIN_JS = """(function(){var u=__USER__;
+var f=document.querySelector('input[name=username],input[name=user],input[name=j_username],input[id*=user i],input[autocomplete=username]')
+ ||document.querySelector('input[type=text],input[type=email]');
+if(!f)return; f.setAttribute('autocomplete','username');
+var p=document.querySelector('input[type=password]'); if(p)p.setAttribute('autocomplete','current-password');
+if(u&&!f.value){f.value=u;f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));}
+var form=f.form; if(form&&!form.__ls){form.__ls=1;form.addEventListener('submit',function(){try{LsAndroid.username(f.value)}catch(e){}});}
+})();"""

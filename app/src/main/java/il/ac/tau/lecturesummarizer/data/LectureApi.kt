@@ -17,6 +17,11 @@ interface LectureApi {
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
     /** [live]: transcribe parts as they upload (server waits for more audio); a later call without it finalizes. */
     suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false): String
+    /**
+     * POST /v1/lectures/{id}/transcript/import — external timed transcript (e.g. Panopto captions) instead of ASR.
+     * Returns the job id if the server started one, else null (caller then calls [startProcessing]).
+     */
+    suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String?
     suspend fun jobStatus(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
     suspend fun retryJob(jobId: String): JobStatus
