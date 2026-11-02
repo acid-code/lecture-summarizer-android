@@ -32,12 +32,26 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val outFile = File(app.filesDir, "panopto/$id.m4a")
         // Finished extraction (duration recorded) → just (re)upload. Partial runs restart extraction from scratch.
         if (l.panoptoDurationMs > 0 && l.segments.isNotEmpty() && l.segments.all { File(it.path).exists() }) { UploadWorker.enqueue(app, id); return Result.success() }
+        val allowCell = inputData.getBoolean(KEY_ALLOW_CELL, false)
+        if (!allowCell && onCellular(app)) { askCellular(app, id); return Result.retry() } // constraint says UNMETERED; belt & braces
+        cancelPrompt(app, id)
+        // Watch the network while we run: Wi‑Fi → cellular without consent → prompt; WorkManager (UNMETERED) stops us,
+        // completed ~10 min parts are kept, and the work resumes by itself when Wi‑Fi returns.
+        val cm = app.getSystemService(ConnectivityManager::class.java)
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(n: android.net.Network, caps: NetworkCapabilities) {
+                if (!allowCell && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) askCellular(app, id)
+            }
+        }
+        runCatching { cm?.registerDefaultNetworkCallback(cb) }
         try { setForeground(info("Downloading Panopto audio…", 0)) } catch (_: Exception) {}
         status[id] = "0"
         repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stageDetail = "Downloading Panopto audio…", progress = 0) }
         val tmpDir = File(app.cacheDir, "panopto-$id").apply { deleteRecursively(); mkdirs() }
         var tx: AudioTranscoder? = null
-        repo.updateLecture(id) { it.copy(segments = emptyList(), panoptoDurationMs = 0) }
+        // Resume: keep the contiguous run of already-extracted parts (0..k-1) whose files still exist.
+        val kept = l.segments.sortedBy { it.seq }.withIndex().takeWhile { (i, sg) -> sg.seq == i && File(sg.path).exists() && sg.path.endsWith("$id-$i.m4a") }.map { it.value }
+        repo.updateLecture(id) { it.copy(segments = kept, panoptoDurationMs = 0) }
         extracting[id] = true
         return try {
             val client = MoodleClient.of(MoodleStore(app).baseUrl)
@@ -68,8 +82,10 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 val wins = PanoptoMedia.windows(media.segments)
                 parts[id] = wins.size
                 t.abort(); tx = null // HLS: one .m4a per ~10 min slice, each uploaded as soon as it's ready (ASR starts mid-download)
-                var doneSec = 0.0
+                var doneSec = kept.sumOf { it.durationMs } / 1000.0
+                if (kept.isNotEmpty()) report(doneSec)
                 for ((wi, win) in wins.withIndex()) {
+                    if (wi < kept.size) continue // already extracted before a pause
                     if (isStopped) throw CancellationException()
                     val slice = File(tmpDir, "w$wi.bin")
                     slice.outputStream().buffered().use { os ->
@@ -112,15 +128,21 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
             UploadWorker.enqueue(app, id) // final (non-live) run: uploads any remaining parts and finalizes the job
             Result.success()
         } catch (e: CancellationException) {
-            tx?.abort(); status.remove(id); extracting.remove(id); throw e
+            tx?.abort(); extracting.remove(id)
+            if (status[id] != WAIT_WIFI) status.remove(id)
+            throw e
         } catch (e: Exception) {
             tx?.abort(); extracting.remove(id)
+            if (isStopped || (!allowCell && onCellular(app))) { // network change, not a real failure → keep parts, resume later
+                if (!allowCell && onCellular(app)) askCellular(app, id)
+                return Result.retry()
+            }
             val msg = if (e is PanoptoAuthRequired) AUTH_MSG else "Panopto audio failed: ${e.message}"
             status[id] = "error:$msg"
             repo.updateLecture(id) { it.copy(error = msg) }
             if (e !is PanoptoAuthRequired && runAttemptCount < 3) Result.retry()
             else { repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }; Result.failure() }
-        } finally { tmpDir.deleteRecursively() }
+        } finally { tmpDir.deleteRecursively(); runCatching { cm?.unregisterNetworkCallback(cb) } }
     }
 
     private fun <T> retry(n: Int = 4, block: () -> T): T {
@@ -152,6 +174,30 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         /** Lectures whose Panopto audio is still being extracted (live part uploads allowed). */
         val extracting = mutableStateMapOf<String, Boolean>()
 
+        const val KEY_ALLOW_CELL = "allowCell"
+        /** status value: paused on mobile data, waiting for Wi‑Fi (or the user's OK to use mobile data). */
+        const val WAIT_WIFI = "wait-wifi"
+        const val ACTION_USE_CELL = "il.ac.tau.lecturesummarizer.PANOPTO_USE_CELL"
+        const val ACTION_WAIT_WIFI = "il.ac.tau.lecturesummarizer.PANOPTO_WAIT_WIFI"
+        private fun promptId(id: String) = 0x31000 + (id.hashCode() and 0xFFFF)
+
+        /** Pause + ask: "continue on mobile data" vs "wait for Wi‑Fi" (notification + in-app card on the lecture). */
+        fun askCellular(ctx: Context, id: String) {
+            if (status[id] == WAIT_WIFI) return
+            status[id] = WAIT_WIFI
+            fun pi(action: String, rc: Int) = android.app.PendingIntent.getBroadcast(ctx, promptId(id) + rc,
+                android.content.Intent(ctx, CellularChoiceReceiver::class.java).setAction(action).putExtra(KEY_LECTURE, id),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
+                .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Panopto download paused — mobile data")
+                .setContentText("Continue on mobile data (~300 MB/hour) or wait for Wi‑Fi? · להמשיך בסלולר?")
+                .setAutoCancel(true)
+                .addAction(0, "Use mobile data", pi(ACTION_USE_CELL, 1))
+                .addAction(0, "Wait for Wi‑Fi", pi(ACTION_WAIT_WIFI, 2)).build()
+            runCatching { androidx.core.app.NotificationManagerCompat.from(ctx).notify(promptId(id), n) }
+        }
+        fun cancelPrompt(ctx: Context, id: String) = androidx.core.app.NotificationManagerCompat.from(ctx).cancel(promptId(id))
+
         fun onCellular(ctx: Context): Boolean {
             val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return false
             val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
@@ -162,11 +208,22 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         /** [wifiOnly]: wait for an unmetered network (default); false = user accepted cellular. */
         fun enqueue(ctx: Context, lectureId: String, wifiOnly: Boolean = true) {
             status[lectureId] = "0"
+            if (!wifiOnly) cancelPrompt(ctx, lectureId)
             val req = OneTimeWorkRequestBuilder<PanoptoAudioWorker>()
-                .setInputData(workDataOf(KEY_LECTURE to lectureId))
+                .setInputData(workDataOf(KEY_LECTURE to lectureId, KEY_ALLOW_CELL to !wifiOnly))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
             WorkManager.getInstance(ctx).enqueueUniqueWork("panopto-audio-$lectureId", ExistingWorkPolicy.REPLACE, req)
+            if (wifiOnly && onCellular(ctx)) askCellular(ctx, lectureId) // starts on cellular → ask, don't burn data
         }
     }
 }
+
+/** Notification actions: mobile data → re-enqueue with CONNECTED (parts resume); wait → keep the UNMETERED work queued. */
+class CellularChoiceReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: android.content.Intent) {
+        val id = intent.getStringExtra(PanoptoAudioWorker.KEY_LECTURE) ?: return
+        PanoptoAudioWorker.cancelPrompt(ctx, id)
+        if (intent.action == PanoptoAudioWorker.ACTION_USE_CELL) PanoptoAudioWorker.enqueue(ctx, id, wifiOnly = false)
+        }
+    }

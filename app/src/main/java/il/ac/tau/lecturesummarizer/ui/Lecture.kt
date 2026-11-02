@@ -91,7 +91,7 @@ fun materialsOf(ctx: android.content.Context, l: Lecture): List<Material> {
     val audio = l.segments.sortedBy { it.seq }.mapNotNull { seg ->
         val f = File(seg.path); if (!f.exists()) return@mapNotNull null
         Material("seg-${seg.seq}", "Audio part ${seg.seq + 1}", "${formatElapsed(seg.durationMs)} · ${if (seg.uploaded) "uploaded" else "not uploaded yet"}",
-            Icons.Default.GraphicEq, FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f), audioMime(f), false)
+            Icons.Default.GraphicEq, runCatching { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f) }.getOrNull() ?: return@mapNotNull null, audioMime(f), false)
     }
     return docs + audio
 }
@@ -296,12 +296,17 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     l.panoptoAudio && ast != null && ast.startsWith("error:") -> {
                         ErrorText(ast.removePrefix("error:"))
                         if (ast.contains("sign-in")) OutlineAction("Sign in to Panopto", Icons.Default.Login, Modifier.fillMaxWidth()) { onPanoptoLogin() }
-                        OutlineAction("Retry audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = false) }
+                        OutlineAction("Retry audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = true) }
+                    }
+                    l.panoptoAudio && ast == il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.WAIT_WIFI -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("⏸ Paused — you're on mobile data. Continue on mobile data (~300 MB/hour), or wait: it resumes automatically on Wi‑Fi. ${l.stageDetail ?: ""}", style = MaterialTheme.typography.bodySmall)
+                        OutlineAction("Continue on mobile data · המשך בסלולר", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = false) }
+                        OutlineAction("Wait for Wi‑Fi · המתן ל-Wi‑Fi", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.cancelPrompt(ctx.applicationContext, lectureId) }
                     }
                     l.panoptoAudio -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("🔊 No captions — downloading audio (Wi‑Fi preferred)… ${l.stageDetail ?: ""}", style = MaterialTheme.typography.bodySmall)
                         LinearProgressIndicator(progress = { (ast?.toIntOrNull() ?: l.progress) / 100f }, modifier = Modifier.fillMaxWidth())
-                        if (ast == null) OutlineAction("Start audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = false) }
+                        if (ast == null) OutlineAction("Start audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = true) }
                     }
                     srtReady -> Text("✓ Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
                     st == PanoptoFetch.AUTH -> {

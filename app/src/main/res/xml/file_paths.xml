@@ -4,4 +4,5 @@
     <files-path name="recordings" path="recordings/" />
     <files-path name="shared" path="shared/" />
     <files-path name="moodle" path="moodle/" />
+    <files-path name="panopto" path="panopto/" />
 </paths>
