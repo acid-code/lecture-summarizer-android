@@ -451,7 +451,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     }
                     if (processing) {
                         LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text((if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
+                        Text((if (l.segments.isEmpty() && l.fromPanopto) (if (l.allSlides.isNotEmpty()) "Panopto captions + slides summary" else "Summary from Panopto captions") else if (l.segments.isEmpty()) "Slides-only summary" else "Uploaded audio parts: ${l.segments.count { it.uploaded }} / ${l.segments.size}") + " · you'll get a notification when it's done.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     l.error?.let { ErrorText(it) }
@@ -544,7 +544,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                         UploadWorker.enqueue(ctx, lectureId, retry = true) }
                 }
                 if (canResummarize) {
-                    TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
+                    TonalAction(if (reprocessing) "Reprocessing…" else if (l.segments.isEmpty() && l.fromPanopto) "Reprocess summary from captions" else if (l.segments.isEmpty()) "Reprocess summary from slides" else "Reprocess audio & summary", Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
                         reprocessing = true
                         scope.launch(Dispatchers.IO) {
                             val api = ApiProvider.get(app.settings)
