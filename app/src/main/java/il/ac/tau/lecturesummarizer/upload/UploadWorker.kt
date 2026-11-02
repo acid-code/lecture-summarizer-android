@@ -39,7 +39,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val id = inputData.getString(KEY_LECTURE) ?: return Result.failure()
         // Live = mid-recording: upload finished parts and keep a server job transcribing them; no state/UI changes.
         val live = inputData.getBoolean(KEY_LIVE, false)
-        if (live && repo.lecture(id)?.state != LectureState.RECORDING) return Result.success()
+        if (live && repo.lecture(id)?.state != LectureState.RECORDING && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.extracting[id] != true) return Result.success()
 
         try { setForeground(getForegroundInfo()) } catch (_: Exception) { /* best effort (e.g. FGS start not allowed) */ }
 

@@ -30,12 +30,15 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val l = repo.lecture(id) ?: return Result.failure()
         val pid = l.panoptoId ?: return Result.failure()
         val outFile = File(app.filesDir, "panopto/$id.m4a")
-        if (l.segments.isNotEmpty() && l.segments.all { File(it.path).exists() }) { UploadWorker.enqueue(app, id); return Result.success() }
+        // Finished extraction (duration recorded) → just (re)upload. Partial runs restart extraction from scratch.
+        if (l.panoptoDurationMs > 0 && l.segments.isNotEmpty() && l.segments.all { File(it.path).exists() }) { UploadWorker.enqueue(app, id); return Result.success() }
         try { setForeground(info("Downloading Panopto audio…", 0)) } catch (_: Exception) {}
         status[id] = "0"
         repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stageDetail = "Downloading Panopto audio…", progress = 0) }
         val tmpDir = File(app.cacheDir, "panopto-$id").apply { deleteRecursively(); mkdirs() }
         var tx: AudioTranscoder? = null
+        repo.updateLecture(id) { it.copy(segments = emptyList(), panoptoDurationMs = 0) }
+        extracting[id] = true
         return try {
             val client = MoodleClient.of(MoodleStore(app).baseUrl)
             val rec = PanoptoRecording(pid, l.panoptoTitle ?: "", l.panoptoUrl ?: Panopto.HOST)
@@ -62,7 +65,11 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 val media = PanoptoMedia.parseMedia(client.mediaText(mediaUrl), mediaUrl)
                 if (media.segments.isEmpty()) error("Panopto playlist is empty")
                 val init = media.initUrl?.let { u -> retry { client.openMedia(u, media.initRange) { it.readBytes() } } }
-                for ((wi, win) in PanoptoMedia.windows(media.segments).withIndex()) {
+                val wins = PanoptoMedia.windows(media.segments)
+                parts[id] = wins.size
+                t.abort(); tx = null // HLS: one .m4a per ~10 min slice, each uploaded as soon as it's ready (ASR starts mid-download)
+                var doneSec = 0.0
+                for ((wi, win) in wins.withIndex()) {
                     if (isStopped) throw CancellationException()
                     val slice = File(tmpDir, "w$wi.bin")
                     slice.outputStream().buffered().use { os ->
@@ -72,10 +79,20 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                         if (merged != null) retry { client.openMedia(win[0].url, merged) { it.copyTo(os) } }
                         else for (seg in win) retry { client.openMedia(seg.url, seg.range) { it.copyTo(os) } }
                     }
-                    t.appendSlice(slice)
-                    slice.delete()
-                    report(t.writtenSec)
+                    val partFile = File(app.filesDir, "panopto/$id-$wi.m4a")
+                    val pt = AudioTranscoder(partFile).also { tx = it }
+                    pt.appendSlice(slice); slice.delete()
+                    val d = pt.finish(); tx = null
+                    if (d >= 1) {
+                        val startMs = l.recordedAtMs + (doneSec * 1000).toLong()
+                        repo.updateLecture(id) { it.copy(segments = it.segments + Segment(wi, partFile.absolutePath, startMs, (d * 1000).toLong())) }
+                        UploadWorker.enqueue(app, id, live = true) // upload this part now; server live job transcribes it
+                    } else partFile.delete()
+                    doneSec += d
+                    report(doneSec)
                 }
+                if (doneSec < 5) error("Extracted audio is empty")
+                repo.updateLecture(id) { it.copy(panoptoDurationMs = (doneSec * 1000).toLong(), progress = 0, stageDetail = null) }
             } else {
                 // Podcast MP4 has moov at the end → must be fully downloaded before demuxing.
                 val url = di.podcastUrl ?: error("This recording has no downloadable stream")
@@ -84,17 +101,20 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 t.appendSlice(f)
                 f.delete()
             }
-            val dur = t.finish(); tx = null
-            if (dur < 5) error("Extracted audio is empty")
-            repo.updateLecture(id) { it.copy(segments = listOf(Segment(0, outFile.absolutePath, it.recordedAtMs, (dur * 1000).toLong())),
-                panoptoDurationMs = (dur * 1000).toLong(), progress = 0, stageDetail = null) }
+            tx?.let { t2 ->
+                val dur = t2.finish(); tx = null
+                if (dur < 5) error("Extracted audio is empty")
+                repo.updateLecture(id) { it.copy(segments = listOf(Segment(0, outFile.absolutePath, it.recordedAtMs, (dur * 1000).toLong())),
+                    panoptoDurationMs = (dur * 1000).toLong(), progress = 0, stageDetail = null) }
+            }
             status[id] = DONE
-            UploadWorker.enqueue(app, id, retry = true)
+            extracting.remove(id)
+            UploadWorker.enqueue(app, id) // final (non-live) run: uploads any remaining parts and finalizes the job
             Result.success()
         } catch (e: CancellationException) {
-            tx?.abort(); status.remove(id); throw e
+            tx?.abort(); status.remove(id); extracting.remove(id); throw e
         } catch (e: Exception) {
-            tx?.abort()
+            tx?.abort(); extracting.remove(id)
             val msg = if (e is PanoptoAuthRequired) AUTH_MSG else "Panopto audio failed: ${e.message}"
             status[id] = "error:$msg"
             repo.updateLecture(id) { it.copy(error = msg) }
@@ -127,6 +147,10 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         const val AUTH_MSG = "Panopto sign-in required — open the lecture and tap Sign in to Panopto, then Retry"
         /** lectureId → "0".."99" progress, [DONE], or "error:…" (UI). */
         val status = mutableStateMapOf<String, String>()
+        /** lectureId → total ~10 min audio parts being extracted (UI "parts X / Y"). */
+        val parts = mutableStateMapOf<String, Int>()
+        /** Lectures whose Panopto audio is still being extracted (live part uploads allowed). */
+        val extracting = mutableStateMapOf<String, Boolean>()
 
         fun onCellular(ctx: Context): Boolean {
             val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return false

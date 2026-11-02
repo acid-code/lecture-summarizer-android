@@ -456,7 +456,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
                             modifier = Modifier.height(28.dp))
-                        (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${l.segments.size}" else (l.stageDetail ?: l.stage))
+                        (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${maxOf(l.segments.size, il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.parts[l.id] ?: 0)}" +
+                            (if (il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.extracting[l.id] == true) " · extracting ${l.segments.size}/${il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.parts[l.id] ?: "?"}" else "") else (l.stageDetail ?: l.stage))
                             ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it)) }?.let {
                             Text(if (l.stageDetail != null || l.state == LectureState.UPLOADING) it else "Stage: $it", modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
