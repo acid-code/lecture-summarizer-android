@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -234,28 +236,41 @@ private fun FileBadge(text: String, bg: androidx.compose.ui.graphics.Color, fg: 
 @Composable
 internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index.php",
                              isDone: (String) -> Boolean = { url -> android.net.Uri.parse(url).host == android.net.Uri.parse(base).host && !url.contains("/login") && !url.contains("saml2") },
+                             /** Extra signed-in probe (e.g. Panopto auth cookie present) checked on every navigation and periodically. */
+                             sessionReady: (() -> Boolean)? = null,
                              onLoggedIn: () -> Unit) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
     var done by remember { mutableStateOf(false) }
-    var user by remember { mutableStateOf(store.username.orEmpty()) }
+    val finish = { if (!done) { CookieManager.getInstance().flush(); done = true; onLoggedIn() } }
+    if (sessionReady != null) LaunchedEffect(Unit) {
+        while (!done) { if (runCatching { sessionReady() }.getOrDefault(false)) finish(); kotlinx.coroutines.delay(1500) }
+    }
     Column(Modifier.fillMaxSize()) {
-        Text("Sign in to Moodle (TAU). The app remembers only your username + session cookie; your password is saved by Android Autofill, not the app.",
+        Text("Sign in with your TAU username and password on the page below (Android Autofill can fill the password). The app keeps only the session cookie.",
             Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(user, { user = it; store.username = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            singleLine = true, label = { Text("University username · שם משתמש") })
-        AndroidView(modifier = Modifier.fillMaxSize(), factory = { c ->
+        if (sessionReady != null) TextButton(onClick = { finish() }, Modifier.padding(horizontal = 4.dp)) { Text("I'm signed in — continue · המשך") }
+        AndroidView(modifier = Modifier.fillMaxWidth().weight(1f), factory = { c ->
             WebView(c).apply {
                 settings.javaScriptEnabled = true; settings.domStorageEnabled = true
+                settings.javaScriptCanOpenWindowsAutomatically = true
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 addJavascriptInterface(object {
                     @android.webkit.JavascriptInterface fun username(u: String) { if (u.isNotBlank()) store.username = u }
                 }, "LsAndroid")
+                fun check(url: String?): Boolean {
+                    if (done || url == null) return done
+                    if (isDone(url) || (sessionReady?.let { runCatching { it() }.getOrDefault(false) } == true)) { post { finish() }; return true }
+                    return false
+                }
                 webViewClient = object : WebViewClient() {
+                    override fun doUpdateVisitedHistory(v: WebView, url: String?, isReload: Boolean) { check(url) }
                     override fun onPageFinished(v: WebView, url: String) {
-                        if (!done && isDone(url)) { CookieManager.getInstance().flush(); done = true; onLoggedIn(); return }
+                        if (check(url)) return
+                        // Only touch IdP/Moodle login forms — never inject into Panopto pages (it filled the Viewer search box).
+                        if (url.contains("panopto", true)) return
                         val u = org.json.JSONObject.quote(store.username.orEmpty())
                         v.evaluateJavascript(LOGIN_JS.replace("__USER__", u), null)
                     }

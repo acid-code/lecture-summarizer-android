@@ -81,7 +81,8 @@ fun PanoptoLoginScreen(app: LectureApp, lectureId: String, onDone: () -> Unit) {
     AppScaffold("Sign in to Panopto", onBack = onDone) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl, startUrl = l.panoptoUrl ?: Panopto.HOST,
-                isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) {
+                isDone = { u -> u.contains("panopto", true) && (u.contains("Viewer.aspx", true) || u.contains("Embed.aspx", true) || u.contains("/Sessions/List.aspx", true)) },
+                sessionReady = { Panopto.hasSessionCookie() }) {
                 PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId); onDone()
             }
         }

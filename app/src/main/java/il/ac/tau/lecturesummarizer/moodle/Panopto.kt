@@ -9,6 +9,12 @@ data class PanoptoRecording(val deliveryId: String, val title: String, val viewe
 /** Pure parsing helpers (no Android deps → unit-testable). */
 object Panopto {
     const val HOST = "https://tau.cloud.panopto.eu"
+
+    /** True when the WebView already holds a Panopto forms-auth session (Viewer loaded = signed in). */
+    fun hasSessionCookie(): Boolean {
+        val c = android.webkit.CookieManager.getInstance().getCookie(HOST) ?: return false
+        return c.split(';').any { val n = it.substringBefore('=').trim(); n.equals(".ASPXAUTH", true) }
+    }
     const val BLOCK_TITLE = "הקלטות הקורס בשרת הוידאו Panopto"
     private val GUID = """[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"""
 
