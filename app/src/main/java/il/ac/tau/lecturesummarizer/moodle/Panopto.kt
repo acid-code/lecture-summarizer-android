@@ -39,8 +39,21 @@ object Panopto {
     }
 
     /** Block still shows its async placeholder ("מאחזר תוכן…" / loading_text) and no recording links yet. */
-    fun isLoadingPlaceholder(html: String): Boolean =
-        extractRecordings(html).isEmpty() && (html.contains("loading_text") || html.contains("מאחזר תוכן") || html.contains("block_panopto/asyncload"))
+    fun isLoadingPlaceholder(html: String): Boolean {
+        if (extractRecordings(html).isNotEmpty()) return false
+        // Only look inside the Panopto block: "loading_text" etc. also appear in unrelated blocks on full course pages,
+        // which made courses without a Panopto block (e.g. a recitation course) fail with "didn't finish loading" + Retry.
+        val start = listOf(html.indexOf(BLOCK_TITLE), html.indexOf("block_panopto")).filter { it >= 0 }.minOrNull()
+        val scope = when {
+            start != null -> html.substring(start, minOf(html.length, start + 4000))
+            html.length < 4000 -> html // bare WS fragment
+            else -> return false        // full page with no Panopto block at all → nothing is loading
+        }
+        return scope.contains("loading_text") || scope.contains("מאחזר תוכן") || scope.contains("block_panopto/asyncload")
+    }
+
+    /** block_panopto answer that is a real (possibly empty) list, not an error/placeholder — no point retrying. */
+    fun isFinalBlockAnswer(html: String): Boolean = html.isNotBlank() && !isLoadingPlaceholder(html)
 
     /** "he" when any cue has Hebrew letters, else "en". */
     fun languageOf(segs: List<CaptionSegment>): String =
@@ -67,4 +80,12 @@ object Panopto {
             CaptionSegment(sec(times[0]), sec(times[1]), text.trim(), speaker)
         }
     }
+}
+
+/** Tiny thread-safe TTL cache (injectable clock for tests). */
+class TtlCache<K, V>(private val ttlMs: Long, private val now: () -> Long = System::currentTimeMillis) {
+    private val m = java.util.concurrent.ConcurrentHashMap<K, Pair<Long, V>>()
+    fun get(k: K): V? = m[k]?.let { (exp, v) -> if (now() < exp) v else { m.remove(k); null } }
+    fun put(k: K, v: V, ttl: Long? = null) { m[k] = (now() + (ttl ?: ttlMs)) to v }
+    fun clear() = m.clear()
 }

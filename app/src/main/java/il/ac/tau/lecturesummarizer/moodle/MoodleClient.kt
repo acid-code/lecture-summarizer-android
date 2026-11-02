@@ -26,9 +26,20 @@ data class MoodleSection(val title: String, val files: List<MoodleFile>)
  * Prefers Moodle AJAX (/lib/ajax/service.php + sesskey); falls back to course page HTML.
  */
 class MoodleClient(private val base: String) {
-    private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-        .connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
-    private var sesskey: String? = null
+    // One OkHttp client (connection pool + TLS sessions) for the whole process, see [of].
+    private val http = SHARED_HTTP
+    @Volatile private var sesskey: String? = null
+
+    // In-memory caches (process lifetime): reopening the picker shows the last list instantly.
+    private val coursesCache = TtlCache<Unit, List<MoodleCourse>>(10 * 60_000L)
+    private val recCache = TtlCache<Long, List<PanoptoRecording>>(10 * 60_000L)
+    private val capCache = TtlCache<String, CaptionStatus>(6 * 60 * 60_000L)
+
+    /** Drop cached lists/caption status (Refresh / Retry). */
+    fun invalidate() { coursesCache.clear(); recCache.clear(); capCache.clear(); signedInCache = null }
+
+    /** Last known definite caption status (HAS / NONE) for a delivery, if still fresh. */
+    fun cachedCaptionStatus(deliveryId: String): CaptionStatus? = capCache.get(deliveryId)
 
     private fun cookie(url: String): String? = CookieManager.getInstance().getCookie(url)
 
@@ -83,7 +94,9 @@ class MoodleClient(private val base: String) {
         }
     }
 
-    fun courses(): List<MoodleCourse> {
+    fun courses(): List<MoodleCourse> = coursesCache.get(Unit) ?: fetchCourses().also { coursesCache.put(Unit, it) }
+
+    private fun fetchCourses(): List<MoodleCourse> {
         val d = ajax("core_course_get_enrolled_courses_by_timeline_classification",
             JSONObject().put("offset", 0).put("limit", 0).put("classification", "all").put("sort", "fullname")) as JSONObject
         val a = d.getJSONArray("courses")
@@ -125,15 +138,23 @@ class MoodleClient(private val base: String) {
     }
 
     /** Recordings listed in the course page's Panopto side block ("הקלטות הקורס בשרת הוידאו Panopto"). */
-    fun panoptoRecordings(courseId: Long): List<PanoptoRecording> {
+    fun panoptoRecordings(courseId: Long): List<PanoptoRecording> =
+        recCache.get(courseId) ?: fetchPanoptoRecordings(courseId).also { recCache.put(courseId, it) }
+
+    private fun fetchPanoptoRecordings(courseId: Long): List<PanoptoRecording> {
         // The block renders "מאחזר תוכן…" and loads its list via AJAX (block_panopto_get_content) — the course page HTML
-        // has no links. Call that web service directly (retrying: it hits Panopto's SOAP API and can be slow), then fall back to the page.
+        // has no links. Call that web service directly. Retry only on errors / placeholder answers (it hits Panopto's
+        // SOAP API and can be slow); a real answer with zero recordings is final — no sleeps, no course-page scrape.
         var lastErr: Throwable? = null
         repeat(3) { attempt ->
             runCatching { ajax("block_panopto_get_content", JSONObject().put("courseid", courseId)) as String }
-                .onSuccess { html -> Panopto.extractRecordings(html).let { if (it.isNotEmpty()) return it }; lastErr = null }
+                .onSuccess { html ->
+                    val recs = Panopto.extractRecordings(html)
+                    if (recs.isNotEmpty() || Panopto.isFinalBlockAnswer(html)) return recs
+                    lastErr = null
+                }
                 .onFailure { if (it is MoodleAuthRequired) throw it; lastErr = it }
-            if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
+            if (attempt < 2) Thread.sleep(1000L * (attempt + 1))
         }
         val (_, html) = getText("$base/course/view.php?id=$courseId")
         val recs = Panopto.extractRecordings(html)
@@ -172,13 +193,18 @@ class MoodleClient(private val base: String) {
     }
 
     @Volatile private var signedInCache: Boolean? = null
+    private val signedInLock = Any()
 
     /**
      * Cheap caption-availability probe: GETs GenerateSRT but reads at most 4 KB, then cancels the stream.
      * Panopto returns 200 + empty body both for "no captions" and "not signed in", so an empty answer is
      * disambiguated once (cached) via the viewer's sign-in redirect.
      */
-    fun captionStatus(rec: PanoptoRecording): CaptionStatus = runCatching {
+    fun captionStatus(rec: PanoptoRecording): CaptionStatus = capCache.get(rec.deliveryId) ?: probeCaptions(rec).also {
+        if (it == CaptionStatus.HAS || it == CaptionStatus.NONE) capCache.put(rec.deliveryId, it, if (it == CaptionStatus.NONE) 20 * 60_000L else null)
+    }
+
+    private fun probeCaptions(rec: PanoptoRecording): CaptionStatus = runCatching {
         http.newCall(req(Panopto.captionsUrl(rec.deliveryId)).build()).execute().use { r ->
             if (r.isRedirect) return@runCatching if (Panopto.isLoginRedirect(r.header("Location"))) CaptionStatus.AUTH else CaptionStatus.UNKNOWN
             if (r.code == 401 || r.code == 403) return@runCatching CaptionStatus.AUTH
@@ -188,7 +214,8 @@ class MoodleClient(private val base: String) {
                 "-->" in head -> CaptionStatus.HAS
                 head.contains("<html", true) -> CaptionStatus.AUTH
                 head.isBlank() -> {
-                    val ok = signedInCache ?: panoptoSignedIn(rec).also { signedInCache = it }
+                    // One sign-in check shared by all parallel probes (was: up to 6 concurrent Viewer.aspx hits).
+                    val ok = signedInCache ?: synchronized(signedInLock) { signedInCache ?: panoptoSignedIn(rec).also { signedInCache = it } }
                     if (ok) CaptionStatus.NONE else CaptionStatus.AUTH
                 }
                 else -> CaptionStatus.UNKNOWN
@@ -261,6 +288,11 @@ class MoodleClient(private val base: String) {
     }
 
     companion object {
+        private val SHARED_HTTP = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+            .connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+        private val instances = java.util.concurrent.ConcurrentHashMap<String, MoodleClient>()
+        /** Process-wide client per Moodle base: keeps sesskey (skips the /my/ page scrape), caches and pooled connections. */
+        fun of(base: String): MoodleClient = instances.getOrPut(base) { MoodleClient(base) }
         const val DEFAULT_BASE = "https://moodle.tau.ac.il"
         val FILE_MODULES = setOf("resource")
         fun safeName(s: String) = java.net.URLDecoder.decode(s, "UTF-8").replace(Regex("""[\\/:*?"<>|]"""), "_").take(120)

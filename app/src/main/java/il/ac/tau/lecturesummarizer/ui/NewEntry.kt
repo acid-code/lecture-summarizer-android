@@ -63,7 +63,7 @@ object PanoptoFetch {
         status[lectureId] = LOADING
         scope.launch {
             val r = runCatching {
-                val srt = MoodleClient(MoodleStore(app).baseUrl).downloadCaptions(PanoptoRecording(id, l.panoptoTitle ?: "", l.panoptoUrl ?: Panopto.HOST))
+                val srt = MoodleClient.of(MoodleStore(app).baseUrl).downloadCaptions(PanoptoRecording(id, l.panoptoTitle ?: "", l.panoptoUrl ?: Panopto.HOST))
                 if (Panopto.parseSrt(srt).isEmpty()) error("Captions are empty")
                 val f = File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srt) }
                 app.repo.updateLecture(lectureId) { it.copy(panoptoSrtPath = f.absolutePath) }

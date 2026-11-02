@@ -48,7 +48,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                         newEntry: Boolean = false, onRecordInstead: () -> Unit = {}) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
-    val client = remember { MoodleClient(store.baseUrl) }
+    val client = remember { MoodleClient.of(store.baseUrl) }
     val lecture = app.repo.lecture(lectureId) ?: return
     val course = app.repo.course(lecture.courseId)
     val kind = MoodleMatch.kindFromTitle(lecture.title)
@@ -105,10 +105,14 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     val recsKey = (state as? PState.Recordings)?.recs
     LaunchedEffect(recsKey) {
         val recs = recsKey ?: return@LaunchedEffect
+        // Known HAS/NONE answers show instantly; only unknown ones are probed.
+        recs.forEach { r -> client.cachedCaptionStatus(r.deliveryId)?.let { capStatus[r.deliveryId] = it } }
+        val todo = recs.filter { client.cachedCaptionStatus(it.deliveryId) == null }
+        if (todo.isEmpty()) return@LaunchedEffect
         client.resetPanoptoSession()
         val sem = Semaphore(6)
-        recs.forEach { r -> if (capStatus[r.deliveryId] != CaptionStatus.HAS) capStatus[r.deliveryId] = CaptionStatus.CHECKING }
-        recs.forEach { r ->
+        todo.forEach { r -> capStatus[r.deliveryId] = CaptionStatus.CHECKING }
+        todo.forEach { r ->
             launch(Dispatchers.IO) {
                 sem.withPermit {
                     capStatus[r.deliveryId] = withTimeoutOrNull(15_000) { client.captionStatus(r) } ?: CaptionStatus.UNKNOWN
@@ -141,7 +145,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 is PState.PanoptoLogin -> MoodleLoginView(store.baseUrl, startUrl = s.url,
                     isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ErrorText(s.msg); Button(onClick = { reload++ }) { Text("Retry") }
+                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
                     if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -164,7 +168,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Text("No Panopto recordings for this course · אין הקלטות Panopto לקורס הזה", style = MaterialTheme.typography.titleSmall)
                             Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
                             if (newEntry) Button(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
-                            OutlinedButton(onClick = { reload++ }) { Text("Refresh") }
+                            OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text("Refresh") }
                             TextButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Text("Wrong course? Pick another") }
                             TextButton(onClick = onBack) { Text("Back") }
                         }

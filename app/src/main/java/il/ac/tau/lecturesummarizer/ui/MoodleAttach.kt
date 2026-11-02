@@ -46,7 +46,7 @@ private sealed interface MState {
 fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
-    val client = remember { MoodleClient(store.baseUrl) }
+    val client = remember { MoodleClient.of(store.baseUrl) }
     val lecture = app.repo.lecture(lectureId) ?: return
     val course = app.repo.course(lecture.courseId)
     val kind = MoodleMatch.kindFromTitle(lecture.title)
@@ -86,7 +86,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                 MState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 MState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 is MState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ErrorText(s.msg); Button(onClick = { reload++ }) { Text("Retry") }
+                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
                 }
                 is MState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium)

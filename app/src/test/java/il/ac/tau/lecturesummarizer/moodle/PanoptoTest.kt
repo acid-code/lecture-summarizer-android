@@ -63,4 +63,22 @@ class PanoptoTest {
         org.junit.Assert.assertFalse(Panopto.isLoginRedirect("/Panopto/Pages/Viewer.aspx?id=x"))
         org.junit.Assert.assertFalse(Panopto.isLoginRedirect(null))
     }
+
+    @org.junit.Test fun blockAnswerFinality() {
+        org.junit.Assert.assertTrue(Panopto.isFinalBlockAnswer("<div class='block_panopto'>אין הקלטות</div>"))
+        org.junit.Assert.assertFalse(Panopto.isFinalBlockAnswer(""))
+        org.junit.Assert.assertFalse(Panopto.isFinalBlockAnswer("<div class='loading_text'>מאחזר תוכן…</div>"))
+        val page = "<html>" + "x".repeat(5000) + "<div class='block_calendar'><span class='loading_text'>…</span></div></html>"
+        org.junit.Assert.assertFalse("unrelated block spinner isn't a Panopto placeholder", Panopto.isLoadingPlaceholder(page))
+        org.junit.Assert.assertTrue(Panopto.isLoadingPlaceholder("<html>" + "x".repeat(5000) + "<section class='block_panopto'><div class='loading_text'>מאחזר תוכן…</div></section></html>"))
+    }
+
+    @org.junit.Test fun ttlCacheExpires() {
+        var t = 0L
+        val c = TtlCache<String, Int>(100) { t }
+        c.put("a", 1); c.put("b", 2, ttl = 10)
+        org.junit.Assert.assertEquals(1, c.get("a")); t = 50
+        org.junit.Assert.assertNull(c.get("b")); org.junit.Assert.assertEquals(1, c.get("a"))
+        t = 100; org.junit.Assert.assertNull(c.get("a"))
+    }
 }
