@@ -24,6 +24,11 @@ class Settings(context: Context) {
             prefs.edit().putString("deviceId", it).commit()
         }
 
+    /** Density levels to create on first summarize (multi-select; one summary per level). Default: standard. */
+    var summaryDensities: Set<String>
+        get() = prefs.getStringSet("summaryDensities", null)?.takeIf { it.isNotEmpty() } ?: setOf("standard")
+        set(v) = prefs.edit().putStringSet("summaryDensities", v.ifEmpty { setOf("standard") }).apply()
+
     /** Mock mode: no network, fake job progress and a locally generated placeholder PDF. */
     var mockMode: Boolean
         get() = prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK)

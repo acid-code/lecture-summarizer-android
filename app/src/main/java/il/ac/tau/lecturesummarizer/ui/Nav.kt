@@ -32,8 +32,12 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         composable("lectures/{courseId}") { e -> CourseTheme(app, e.arguments!!.getString("courseId")!!) {
             LecturesScreen(app, e.arguments!!.getString("courseId")!!, onBack = { nav.popBackStack() },
                 onRecord = { nav.navigate("record/$it") }, onNew = { nav.navigate("start/$it") }, onAttach = { nav.navigate("attach/$it") },
-                onJob = { nav.navigate("job/$it") }, onPanopto = { nav.navigate("panoptoNew/$it") })
+                onJob = { nav.navigate("job/$it") }, onPanopto = { nav.navigate("panoptoNew/$it") },
+                onMoodleCourse = { nav.navigate("moodleCourse/${e.arguments!!.getString("courseId")!!}") })
         }
+        }
+        composable("moodleCourse/{courseId}") { e -> CourseTheme(app, e.arguments!!.getString("courseId")!!) {
+            MoodleAttachScreen(app, "", onBack = { nav.popBackStack() }, courseId = e.arguments!!.getString("courseId")!!) }
         }
         composable("start/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
             NewEntryScreen(app, id, onBack = { nav.popBackStack() },

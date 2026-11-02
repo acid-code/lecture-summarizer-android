@@ -508,6 +508,21 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 if (pdf == null) Text(if (processing) "Being written… " + (l.stageDetail?.takeUnless { il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.let { "($it) " } ?: "") + "it appears here when ready." else if (l.state == LectureState.FAILED) "Not created — see the error above, then Retry job." else "Not ready yet.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else {
+                    var levels by remember(l.remoteId, l.pdfPath) { mutableStateOf(emptySet<String>()) }
+                    LaunchedEffect(l.remoteId, l.pdfPath) { l.remoteId?.let { levels = ApiProvider.get(app.settings).availableDensities(it) } }
+                    if (levels.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("רמה:", style = MaterialTheme.typography.bodyMedium)
+                        il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.filter { it.api in levels }.forEach { d ->
+                            FilterChip(selected = pdf.name.endsWith("-${d.api}.pdf"), onClick = {
+                                scope.launch(Dispatchers.IO) {
+                                    val dest = File(app.repo.pdfDir(), "$lectureId-${d.api}.pdf")
+                                    runCatching { ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!, dest, d.api) }
+                                        .onSuccess { app.repo.updateLecture(lectureId) { it.copy(pdfPath = dest.absolutePath) } }
+                                        .onFailure { e -> launch(Dispatchers.Main) { Toast.makeText(ctx, "Download failed: ${e.message}", Toast.LENGTH_LONG).show() } }
+                                }
+                            }, label = { Text(d.label.substringBefore(" (")) })
+                        }
+                    }
                     val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf)
                     val pdfName = summaryPdfName(app.repo.course(l.courseId)?.name, l.title)
                     PrimaryAction("Open study PDF", Icons.AutoMirrored.Filled.OpenInNew, Modifier.fillMaxWidth()) {
@@ -602,13 +617,24 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     }
                     Text("Reprocess redoes everything — transcription (ASR), term repair, summary and PDF — from the uploaded audio and materials. If the audio is gone it falls back to Re-summarize.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlineAction("Re-summarize", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) {
-                        scope.launch {
-                            runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).resummarizeJob(jid!!) }
-                                .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
-                                .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
-                        }
-                    }
+                    var pickDensity by remember { mutableStateOf(false) }
+                    OutlineAction("Re-summarize · סיכום מחדש", Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) { pickDensity = true }
+                    if (pickDensity) AlertDialog(onDismissRequest = { pickDensity = false },
+                        title = { Text("רמת סיכום") },
+                        text = { Column {
+                            il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
+                                TextButton(onClick = {
+                                    pickDensity = false
+                                    scope.launch {
+                                        runCatching { il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId); ApiProvider.get(app.settings).resummarizeJob(jid!!, d.api) }
+                                            .onSuccess { st -> app.repo.updateLecture(lectureId) { it.copy(jobId = st.jobId ?: it.jobId, state = LectureState.PROCESSING, stage = st.stage.takeUnless { st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }, stageDetail = null, progress = st.progress, error = null, pdfPath = null) }; JobPollWorker.enqueue(ctx, lectureId) }
+                                            .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = "Re-summarize failed: ${e.message}") } }
+                                    }
+                                }) { Text(d.label) }
+                            }
+                            Text("רמה אחרת מהנוכחית נשמרת כסיכום נוסף — הקיים לא נמחק.", style = MaterialTheme.typography.bodySmall)
+                        } },
+                        confirmButton = {}, dismissButton = { TextButton(onClick = { pickDensity = false }) { Text("ביטול") } })
                     Text("Re-summarize rewrites the summary + PDF from the existing transcript and current slides (no new transcription).",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

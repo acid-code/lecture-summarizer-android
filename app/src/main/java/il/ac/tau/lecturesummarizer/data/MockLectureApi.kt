@@ -22,7 +22,7 @@ class MockLectureApi : LectureApi {
     override suspend fun deleteCourse(courseRemoteId: String) {}
     override suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String? { delay(300); return startProcessing(lectureRemoteId, false) }
     override suspend fun deleteLecture(lectureRemoteId: String) { delay(200) }
-    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean): String {
+    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean, densities: Set<String>): String {
         val id = "mock-j-$lectureRemoteId"; jobStarts[id] = System.currentTimeMillis(); return id
     }
 
@@ -37,11 +37,11 @@ class MockLectureApi : LectureApi {
         jobStarts[jobId] = System.currentTimeMillis(); return JobStatus("running", stages[0], 0, null)
     }
 
-    override suspend fun resummarizeJob(jobId: String): JobStatus = retryJob(jobId)
+    override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus = retryJob(jobId)
     override suspend fun reprocessJob(jobId: String, fallback: Boolean) = ReprocessResult(retryJob(jobId), "full", false)
     override suspend fun transcript(lectureRemoteId: String): Transcript? = Transcript("mock", true,
         (0 until 12).map { TranscriptLine(it * 10.0, it * 10.0 + 10, "Mock line ${it + 1}: דיפ לרנינג → deep learning") })
-    override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) {
+    override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File, density: String?) {
         val doc = PdfDocument()
         val page = doc.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val p = Paint().apply { textSize = 18f }

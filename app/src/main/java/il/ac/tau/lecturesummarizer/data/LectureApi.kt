@@ -16,7 +16,7 @@ interface LectureApi {
     suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File)
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
     /** [live]: transcribe parts as they upload (server waits for more audio); a later call without it finalizes. */
-    suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false): String
+    suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false, densities: Set<String> = setOf("standard")): String
     /**
      * POST /v1/lectures/{id}/transcript/import — external timed transcript (e.g. Panopto captions) instead of ASR.
      * Returns the job id if the server started one, else null (caller then calls [startProcessing]).
@@ -26,7 +26,8 @@ interface LectureApi {
     /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
     suspend fun retryJob(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/resummarize — re-run summary+PDF only, keeping ASR/repair (no ASR quota). */
-    suspend fun resummarizeJob(jobId: String): JobStatus
+    /** [density]: a level different from the job's creates a NEW server job (returned in JobStatus.jobId); others are kept. */
+    suspend fun resummarizeJob(jobId: String, density: String? = null): JobStatus
     /** POST /v1/jobs/{id}/reprocess — full redo incl. ASR if server audio exists; fallback=true re-summarizes when audio is gone. */
     suspend fun reprocessJob(jobId: String, fallback: Boolean = false): ReprocessResult
     /** GET /v1/lectures/{id}/transcript — null when the server has no transcript yet (404). */
@@ -35,5 +36,7 @@ interface LectureApi {
     suspend fun deleteLecture(lectureRemoteId: String)
     /** DELETE /v1/courses/{id} — removes the course, its lectures and course files (idempotent; 404/405 = older server, ignored). */
     suspend fun deleteCourse(courseRemoteId: String)
-    suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File)
+    suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File, density: String? = null)
+    /** GET /v1/lectures/{id}/summaries — density levels that have a finished summary. Empty on older servers. */
+    suspend fun availableDensities(lectureRemoteId: String): Set<String> = emptySet()
 }

@@ -65,7 +65,12 @@ data class Lecture(
 
 val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
 
-data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?, val detail: String? = null)
+data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?, val detail: String? = null, val jobId: String? = null)
+/** Summary density levels (server: compact | standard | detailed). */
+enum class SummaryDensity(val api: String, val label: String) {
+    COMPACT("compact", "תמציתי"), STANDARD("standard", "רגיל (מומלץ)"), DETAILED("detailed", "מפורט");
+    companion object { fun of(s: String?) = entries.firstOrNull { it.api == s } }
+}
 /** Result of POST /v1/jobs/{id}/reprocess. status==null means refused (audioMissing → server no longer has the raw audio). */
 data class ReprocessResult(val status: JobStatus?, val mode: String?, val audioMissing: Boolean, val error: String? = null)
 

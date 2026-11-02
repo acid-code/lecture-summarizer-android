@@ -84,7 +84,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             if (live) {
                 // Don't hijack an older (non-live) job, e.g. "Record another" after a finished summary.
                 if (cur.jobId != null && !cur.liveJob) return Result.success()
-                val jobId = api.startProcessing(remote, live = true) // idempotent: server reuses the live job
+                val jobId = api.startProcessing(remote, live = true, densities = (applicationContext as il.ac.tau.lecturesummarizer.LectureApp).settings.summaryDensities) // idempotent: server reuses the live job
                 repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = true) }
                 JobPollWorker.enqueue(applicationContext, id)
                 return Result.success()
@@ -99,7 +99,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobKick.kick(id)
                 api.importTranscript(remote, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", cur.panoptoId!!, cur.panoptoTitle ?: cur.title,
                     il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: error("Server didn't start a captions job (transcript import returned no job id)")
-            } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote) } else cur.jobId
+            } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote, densities = (applicationContext as il.ac.tau.lecturesummarizer.LectureApp).settings.summaryDensities) } else cur.jobId
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()

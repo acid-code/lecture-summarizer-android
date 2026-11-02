@@ -175,7 +175,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
 @Composable
 fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
-    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord, onPanopto: (String) -> Unit = {},
+    onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord, onPanopto: (String) -> Unit = {}, onMoodleCourse: () -> Unit = {},
 ) {
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
@@ -225,6 +225,7 @@ fun LecturesScreen(
                         OutlineAction("Add PDF", Icons.Default.NoteAdd, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) {
                             subjectPicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
                         }
+                        OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) { onMoodleCourse() }
                         if (files.size >= MAX_COURSE_CONTEXT) Text("Maximum $MAX_COURSE_CONTEXT files — remove one to add another.",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -498,12 +499,27 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(mock, { mock = it }); Spacer(Modifier.width(12.dp)); Text("Mock mode (offline, fake processing)")
             }
+            SummaryDensitySection(app)
             CalendarSourceSection(app)
             Text("Privacy: recordings stay in app-private storage until you upload them to YOUR API above. " +
                 "The app talks to no other server and never calls an AI model directly.",
                 style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+@Composable
+private fun SummaryDensitySection(app: LectureApp) {
+    var sel by remember { mutableStateOf(app.settings.summaryDensities) }
+    HorizontalDivider()
+    Text("רמות סיכום ליצירה (אפשר לבחור כמה)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(d.api in sel, { on -> val v = if (on) sel + d.api else sel - d.api; if (v.isNotEmpty()) { sel = v; app.settings.summaryDensities = v } })
+            Text(d.label)
+        }
+    }
+    Text("כל רמה שנבחרה יוצרת סיכום PDF נפרד מאותו תמלול (ללא תמלול נוסף).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable

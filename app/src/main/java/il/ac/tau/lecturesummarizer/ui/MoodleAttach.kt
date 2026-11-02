@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import il.ac.tau.lecturesummarizer.data.MAX_COURSE_CONTEXT
+import il.ac.tau.lecturesummarizer.data.allContext
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import android.annotation.SuppressLint
@@ -45,19 +47,20 @@ private sealed interface MState {
 
 /** Attach from Moodle: WebView login (cookie session) → course (auto-matched from calendar number) → multi-select files → attach. */
 @Composable
-fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
+fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, courseId: String? = null) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
     val client = remember { MoodleClient.of(store.baseUrl) }
-    val lecture = app.repo.lecture(lectureId) ?: return
-    val course = app.repo.course(lecture.courseId)
-    val kind = MoodleMatch.kindFromTitle(lecture.title)
+    // courseId mode: attach course subject materials (syllabus/glossary…) instead of lecture slides.
+    val lecture = if (courseId == null) app.repo.lecture(lectureId) ?: return else null
+    val course = app.repo.course(courseId ?: lecture!!.courseId)
+    val kind = lecture?.let { MoodleMatch.kindFromTitle(it.title) } ?: il.ac.tau.lecturesummarizer.calendar.ClassKind.LECTURE
     val mapKey = "${course?.courseNumber ?: course?.id}:${kind.name}"
-    val dayMonth = Regex("""(\d{1,2})\.(\d{1,2})\.\d{4}""").find(lecture.title)?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+    val dayMonth = Regex("""(\d{1,2})\.(\d{1,2})\.\d{4}""").find(lecture?.title.orEmpty())?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
     var state by remember { mutableStateOf<MState>(MState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
     var pickAny by remember { mutableStateOf(false) }
-    val recTitle = remember { store.lectureRecording(lectureId) }
+    val recTitle = remember { if (lecture == null) null else store.lectureRecording(lectureId) }
     val scope = rememberCoroutineScope()
 
     suspend fun openCourse(c: MoodleCourse) {
@@ -72,7 +75,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
         val res = withContext(Dispatchers.IO) { runCatching { client.courses() } }
         val courses = res.getOrElse { state = if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error"); return@LaunchedEffect }
         // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped "Change course".
-        if (!pickAny) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
+        if (!pickAny && lecture != null) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         val ranked = MoodleMatch.rank(courses, course?.courseNumber, kind, course?.name)
         val pick = MoodleMatch.confident(ranked)
@@ -101,8 +104,19 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                     }
                 }
                 is MState.Files -> FilePicker(s, store, dayMonth, client, recTitle) { files ->
-                    addSlides(app, lectureId, files.map { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) })
-                    Toast.makeText(ctx, "Attached ${files.size} file(s)", Toast.LENGTH_SHORT).show(); onBack()
+                    val uris = files.map { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) }
+                    if (courseId != null) {
+                        var added = 0
+                        app.repo.updateCourse(courseId) { c ->
+                            val all = (c.allContext + uris.map { it.toString() }.filterNot { it in c.allContext }).take(MAX_COURSE_CONTEXT)
+                            added = all.size - c.allContext.size
+                            c.copy(contextPdfUri = all.firstOrNull(), extraContext = all.drop(1))
+                        }
+                        Toast.makeText(ctx, "Added $added course file(s)" + if (added < files.size) " (max $MAX_COURSE_CONTEXT)" else "", Toast.LENGTH_SHORT).show(); onBack()
+                    } else {
+                        addSlides(app, lectureId, uris)
+                        Toast.makeText(ctx, "Attached ${files.size} file(s)", Toast.LENGTH_SHORT).show(); onBack()
+                    }
                 }
             }
         }

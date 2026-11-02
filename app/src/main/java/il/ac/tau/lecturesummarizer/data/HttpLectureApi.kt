@@ -150,9 +150,11 @@ class HttpLectureApi(
         postJson("/v1/lectures/$lectureRemoteId/markers", arr)
     }
 
-    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean) =
+    override suspend fun startProcessing(lectureRemoteId: String, live: Boolean, densities: Set<String>) =
         postJson("/v1/lectures/$lectureRemoteId/process",
-            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live))
+            JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live)
+                .put("density", SummaryDensity.entries.map { it.api }.firstOrNull { it in densities } ?: "standard")
+                .put("densities", JSONArray(SummaryDensity.entries.map { it.api }.filter { it in densities })))
         ).getString("job_id")
 
     override suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String? {
@@ -186,11 +188,12 @@ class HttpLectureApi(
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
-    override suspend fun resummarizeJob(jobId: String): JobStatus {
+    override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus {
         // 409 = server thinks the job is mid-flight (e.g. stuck in summary with a stale "Done"); retry once with force.
-        val o = try { postJson("/v1/jobs/$jobId/resummarize", JSONObject()) }
-        catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/resummarize?force=1", JSONObject()) else throw e }
-        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+        val q = density?.let { "density=$it" }
+        val o = try { postJson("/v1/jobs/$jobId/resummarize" + (q?.let { "?$it" } ?: ""), JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/resummarize?force=1" + (q?.let { "&$it" } ?: ""), JSONObject()) else throw e }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"), jobId = o.optStringOrNull("job_id"))
     }
 
     override suspend fun reprocessJob(jobId: String, fallback: Boolean): ReprocessResult = withContext(Dispatchers.IO) {
@@ -218,8 +221,18 @@ class HttpLectureApi(
         }
     }
 
-    override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File) =
-        call(req("/v1/lectures/$lectureRemoteId/summary.pdf").get().build()) { resp ->
+    override suspend fun availableDensities(lectureRemoteId: String): Set<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.newCall(req("/v1/lectures/$lectureRemoteId/summaries").get().build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@use emptySet()
+                val d = JSONObject(resp.body!!.string()).optJSONObject("densities") ?: return@use emptySet()
+                d.keys().asSequence().filter { d.optJSONObject(it)?.optStringOrNull("done_job_id") != null }.toSet()
+            }
+        }.getOrDefault(emptySet())
+    }
+
+    override suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File, density: String?) =
+        call(req("/v1/lectures/$lectureRemoteId/summary.pdf" + (density?.let { "?density=$it" } ?: "")).get().build()) { resp ->
             val tmp = File(dest.parentFile, dest.name + ".part")
             tmp.outputStream().use { out -> resp.body!!.byteStream().copyTo(out) }
             tmp.renameTo(dest); Unit
