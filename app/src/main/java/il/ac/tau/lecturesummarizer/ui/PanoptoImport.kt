@@ -55,6 +55,9 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     val mapKey = "${course?.courseNumber ?: course?.id}:${kind.name}"
     var state by remember { mutableStateOf<PState>(PState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
+    var forcePick by remember { mutableStateOf(false) }
+    val recCounts = remember { mutableStateMapOf<Long, Int>() }
+    var siblings by remember { mutableStateOf<List<MoodleCourse>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val capStatus = remember { mutableStateMapOf<String, CaptionStatus>() }
     var onlyWithCaptions by remember { mutableStateOf(false) }
@@ -66,7 +69,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
 
     suspend fun openCourse(c: MoodleCourse) {
         state = PState.Loading
-        state = withContext(Dispatchers.IO) { runCatching { PState.Recordings(c, client.panoptoRecordings(c.id)) }.getOrElse(::fail) }
+        state = withContext(Dispatchers.IO) { runCatching { PState.Recordings(c, client.panoptoRecordings(c.id).also { recCounts[c.id] = it.size }) }.getOrElse(::fail) }
     }
 
     suspend fun import(course: MoodleCourse, rec: PanoptoRecording) {
@@ -124,15 +127,41 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     LaunchedEffect(reload) {
         state = PState.Loading
         val courses = withContext(Dispatchers.IO) { runCatching { client.courses() } }.getOrElse { state = fail(it); return@LaunchedEffect }
-        store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         val ranked = MoodleMatch.rank(courses, course?.courseNumber, kind, course?.name)
+        // All Moodle courses sharing the 8-digit prefix (…01 lecture, …09 recitation, …).
+        siblings = MoodleMatch.siblings(courses, course?.courseNumber)
+        val pickList = (siblings + ranked.map { it.course } + courses).distinctBy { it.id }
+        if (forcePick) {
+            forcePick = false
+            state = PState.PickCourse(pickList)
+            // Probe recording counts for the same-prefix siblings so the picker shows them.
+            siblings.filter { it.id !in recCounts }.forEach { c -> launch(Dispatchers.IO) { runCatching { client.panoptoRecordings(c.id).size }.getOrNull()?.let { recCounts[c.id] = it } } }
+            return@LaunchedEffect
+        }
+        // A course the user explicitly picked always wins.
+        store.mappedCourse("$mapKey:manual")?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
+        // Auto mappings are re-evaluated when sibling groups exist (an old auto pick may be the empty group).
+        if (siblings.size <= 1) store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
+        if (siblings.size > 1) {
+            // Several groups share the prefix: default to the one that actually has Panopto recordings,
+            // then the most recordings. Group suffixes differ per course, so no 01/09 assumption here.
+            val counts = withContext(Dispatchers.IO) {
+                siblings.map { c -> c to (runCatching { client.panoptoRecordings(c.id).size }.getOrNull() ?: -1) }
+            }
+            counts.forEach { (c, n) -> if (n >= 0) recCounts[c.id] = n }
+            val best = counts.sortedWith(compareByDescending<Pair<MoodleCourse, Int>> { it.second > 0 }
+                .thenByDescending { it.second }).first().first
+            store.mapCourse(mapKey, best.id); openCourse(best); return@LaunchedEffect
+        }
         val pick = MoodleMatch.confident(ranked)
         if (pick != null) { store.mapCourse(mapKey, pick.id); openCourse(pick) }
-        else state = PState.PickCourse(ranked.map { it.course } + courses.filterNot { c -> ranked.any { it.course.id == c.id } })
+        else state = PState.PickCourse(pickList)
     }
 
+    fun pickAnother() { store.mapCourse(mapKey, -1); store.mapCourse("$mapKey:manual", -1); forcePick = true; reload++ }
+
     AppScaffold(if (newEntry) "Choose Panopto recording" else "Import from Panopto", onBack = onBack, actions = {
-        if (state is PState.Recordings || state is PState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
+        if (state is PState.Recordings || state is PState.PickCourse) IconButton(onClick = { pickAnother() }) { Icon(Icons.Default.SwapHoriz, "Change course") }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
@@ -152,8 +181,12 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium) }
                     items(s.options, key = { it.id }) { c ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth().clickable { store.mapCourse(mapKey, c.id); scope.launch { openCourse(c) } }) {
-                            Column(Modifier.padding(12.dp)) { Text(c.fullname); Text(c.shortname, style = MaterialTheme.typography.bodySmall) }
+                            modifier = Modifier.fillMaxWidth().clickable { store.mapCourse(mapKey, c.id); store.mapCourse("$mapKey:manual", c.id); scope.launch { openCourse(c) } }) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(c.fullname)
+                                val n = recCounts[c.id]
+                                Text(c.shortname + (if (c in siblings) (if (n == null) " · checking…" else " · $n recordings") else ""), style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
@@ -161,6 +194,13 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     item {
                         Text(s.course.fullname, style = MaterialTheme.typography.titleMedium)
                         Text("${s.recs.size} recordings · ${Panopto.BLOCK_TITLE}", style = MaterialTheme.typography.bodySmall)
+                        if (siblings.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            siblings.forEach { c ->
+                                val n = recCounts[c.id]
+                                FilterChip(selected = c.id == s.course.id, onClick = { if (c.id != s.course.id) { store.mapCourse(mapKey, c.id); store.mapCourse("$mapKey:manual", c.id); scope.launch { openCourse(c) } } },
+                                    label = { Text(c.shortname.takeLast(12) + (n?.let { " · $it" } ?: "")) })
+                            }
+                        }
                     }
                     if (s.recs.isEmpty()) item {
                         Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -169,7 +209,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
                             if (newEntry) Button(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
                             OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text("Refresh") }
-                            TextButton(onClick = { store.mapCourse(mapKey, -1); reload++ }) { Text("Wrong course? Pick another") }
+                            TextButton(onClick = { pickAnother() }) { Text("Wrong course? Pick another") }
                             TextButton(onClick = onBack) { Text("Back") }
                         }
                     }

@@ -29,6 +29,12 @@ object MoodleMatch {
         }.filter { it.score > 0 }.sortedByDescending { it.score }
     }
 
+    /** Moodle courses (all groups) whose number starts with the calendar's 8-digit prefix, sorted by number. */
+    fun siblings(courses: List<MoodleCourse>, courseNumber: String?): List<MoodleCourse> {
+        val num = courseNumber?.filter(Char::isDigit)?.take(8)?.takeIf { it.length == 8 } ?: return emptyList()
+        return courses.filter { c -> digits(c).any { it.startsWith(num) } }.sortedBy { c -> digits(c).firstOrNull { it.startsWith(num) && it.length == 10 } ?: "zz" }
+    }
+
     /** Auto-pick only when one clear winner (number + suffix match, or unique number match). */
     fun confident(r: List<Ranked>): MoodleCourse? {
         val top = r.firstOrNull() ?: return null
