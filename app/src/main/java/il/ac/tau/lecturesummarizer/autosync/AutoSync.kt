@@ -70,6 +70,10 @@ object AutoSyncPlanner {
     fun lastCheck(st: String?): Long = st?.takeIf { it.startsWith("wait") || it.startsWith("notfound") }?.substringAfter(':', "0")?.toLongOrNull() ?: 0L
     data class Item(val cls: TauClass, val key: String, val live: Boolean)
 
+    /** Final guard right before creating a lecture: the class key must not be already done/skipped/claimed, and no notebook lecture may carry this Panopto delivery. */
+    fun mayCreate(status: String?, deliveryId: String, existingPanoptoIds: Collection<String?>): Boolean =
+        !(status != null && (status == "skip" || status.startsWith("done") || status.startsWith("claim"))) && existingPanoptoIds.none { it == deliveryId }
+
     fun plan(classes: List<TauClass>, nowMs: Long, retro: Boolean, live: Boolean, status: (String) -> String?,
              alreadyHave: (TauClass) -> Boolean): List<Item> {
         val liveFrom = nowMs - LIVE_WINDOW_DAYS * 86_400_000L
@@ -144,7 +148,9 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             return Result.success()
         }
         cancelPrompt(app)
-        return runCatching { pass(app, st, allowCell) }.fold({ status.value = it; st.lastRun = it; Result.success() }, { e ->
+        // One pass at a time per process: periodic + drain + Run now / Wi‑Fi resume can otherwise overlap and twin-create lectures.
+        if (!PASS_LOCK.tryLock()) { return Result.success() }
+        return runCatching { try { pass(app, st, allowCell) } finally { PASS_LOCK.unlock() } }.fold({ status.value = it; st.lastRun = it; Result.success() }, { e ->
             val msg = when (e) { is MoodleAuthRequired -> "Moodle sign-in needed"; is PanoptoAuthRequired -> "Panopto sign-in needed"; else -> e.message ?: "Error" }
             status.value = "Stopped: $msg"; st.lastRun = status.value
             if (e is MoodleAuthRequired || e is PanoptoAuthRequired) Result.success() else Result.retry()
@@ -205,10 +211,13 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
                 null
             } ?: continue
+            if (have(c) || !AutoSyncPlanner.mayCreate(st.status(it.key), rec.deliveryId, repo.lectures.value.map { l -> l.panoptoId })) { st.setStatus(it.key, "skip"); continue }
+            st.setStatus(it.key, "claim:$now")
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)
             val dm = RecordingMatcher.ymdOf(c.beginMs)
             val title = "${c.kind.he.ifEmpty { "שיעור" }} ${"%02d/%02d".format(dm.d, dm.m)}"
             val l = repo.addLecture(course.id, title)
+            st.setStatus(it.key, "done:${l.id}")
             repo.updateLecture(l.id) { x -> x.copy(recordedAtMs = c.beginMs, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl) }
             store.setLectureSource(l.id, mc.id, rec.title)
             // Very-high-confidence slides: attach before the summary job starts so they're folded in.
@@ -245,6 +254,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     private fun TauNorm(s: String) = il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)
 
     companion object {
+        private val PASS_LOCK = kotlinx.coroutines.sync.Mutex()
         const val MAX_ACTIVE = 2
         const val MAX_PER_RUN = 3
         const val MAX_DELIVERY_INFO_PER_RUN = 150
