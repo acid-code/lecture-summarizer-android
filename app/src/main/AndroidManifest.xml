@@ -54,6 +54,7 @@
 
         <receiver android:name=".panopto.CellularChoiceReceiver" android:exported="false" />
         <receiver android:name=".autosync.AutoSyncChoiceReceiver" android:exported="false" />
+        <receiver android:name=".autosync.QueueControlReceiver" android:exported="false" />
         <service
             android:name=".recording.RecorderService"
             android:exported="false"

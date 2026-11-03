@@ -41,7 +41,8 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val live = inputData.getBoolean(KEY_LIVE, false)
         if (live && repo.lecture(id)?.state != LectureState.RECORDING && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.extracting[id] != true) return Result.success()
 
-        try { setForeground(getForegroundInfo()) } catch (_: Exception) { /* best effort (e.g. FGS start not allowed) */ }
+        // Live part uploads ride under the Panopto queue notification (no duplicate per-part notifications).
+        if (!live) try { setForeground(getForegroundInfo()) } catch (_: Exception) { /* best effort (e.g. FGS start not allowed) */ }
 
         return try {
             var lecture = repo.lecture(id) ?: return Result.failure()
@@ -122,12 +123,13 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         return Result.retry()
     }
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = info("Uploading lecture…")
+    override suspend fun getForegroundInfo(): ForegroundInfo = info("Uploading for summary…")
 
     private fun info(text: String): ForegroundInfo {
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("Lecture Summarizer")
+            .setContentTitle(inputData.getString(KEY_LECTURE)?.let { id -> (applicationContext as LectureApp).repo.lecture(id)?.let { l ->
+                listOfNotNull(l.title, (applicationContext as LectureApp).repo.course(l.courseId)?.name).joinToString(" · ") } } ?: "Lecture Summarizer")
             .setContentText(text)
             .setOngoing(true).setOnlyAlertOnce(true).setProgress(0, 0, true)
             .build()

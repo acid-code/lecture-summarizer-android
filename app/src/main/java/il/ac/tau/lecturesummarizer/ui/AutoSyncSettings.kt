@@ -68,7 +68,16 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         val c = remember(runStatus) { st.counts() }
         Text("Imported ${c["done"] ?: 0} · already had ${c["skip"] ?: 0} · waiting ${c["wait"] ?: 0} · not found ${c["notfound"] ?: 0}", style = MaterialTheme.typography.bodySmall)
         (runStatus ?: st.lastRun)?.let { Text("Last run: $it", style = MaterialTheme.typography.bodySmall) }
+        val pausedLive by il.ac.tau.lecturesummarizer.autosync.QueueControl.paused
+        val isPaused = pausedLive ?: st.paused
+        val b = remember(runStatus) { il.ac.tau.lecturesummarizer.autosync.BatteryGate.read(ctx.applicationContext) }
+        Text("Battery: ${b.pct}%${if (b.charging) " (charging)" else ""} · asks below 75%, never runs below 30% unless charging", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row {
+            if (isPaused) Button(onClick = { il.ac.tau.lecturesummarizer.autosync.QueueControl.resume(ctx.applicationContext) }) { Text("Resume queue · המשך") }
+            else OutlinedButton(onClick = { il.ac.tau.lecturesummarizer.autosync.QueueControl.pause(ctx.applicationContext) }) { Text("Pause queue · השהה") }
+            Spacer(Modifier.width(8.dp))
+        }
+        if (!isPaused) Row {
             OutlinedButton(onClick = { AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Run now") }
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = { st.resetNotFound(); AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Retry not-found") }

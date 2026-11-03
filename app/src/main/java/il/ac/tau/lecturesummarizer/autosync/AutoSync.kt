@@ -29,6 +29,10 @@ class AutoSyncStore(ctx: Context) {
     var lookbackDays: Int get() = p.getInt("lookback", 120); set(v) = p.edit().putInt("lookback", v).apply()
     /** Last time we asked to run on mobile data (throttle: ≤1 ask / 6 h). */
     var lastCellAsk: Long get() = p.getLong("cellAsk", 0); set(v) = p.edit().putLong("cellAsk", v).apply()
+    var paused: Boolean get() = p.getBoolean("paused", false); set(v) = p.edit().putBoolean("paused", v).apply()
+    /** User said "run anyway" on battery until this time. */
+    var batteryOkUntil: Long get() = p.getLong("battOk", 0); set(v) = p.edit().putLong("battOk", v).apply()
+    var lastBatteryAsk: Long get() = p.getLong("battAsk", 0); set(v) = p.edit().putLong("battAsk", v).apply()
     var lastRun: String? get() = p.getString("lastRun", null); set(v) = p.edit().putString("lastRun", v).apply()
 
     /** eventKey → status: "done:<lectureId>" | "skip" | "notfound" | "wait" (live: recording not yet on Panopto). */
@@ -112,6 +116,13 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val ent = il.ac.tau.lecturesummarizer.data.Entitlements(app)
         if (!ent.isPro) { status.value = "Pro required"; return Result.success() }
         if (!st.retro && !st.live) return Result.success()
+        if (st.paused) { status.value = "Paused · מושהה"; return Result.success() }
+        if (BatteryGate.tooLow(app)) { status.value = "Battery below ${BatteryGate.HARD_MIN}% — waiting for charger"; return Result.success() }
+        if (BatteryGate.needsAsk(app)) {
+            if (System.currentTimeMillis() - st.lastBatteryAsk > 3 * 3600_000L) { st.lastBatteryAsk = System.currentTimeMillis(); BatteryGate.ask(app) }
+            status.value = "Battery below ${BatteryGate.ASK_BELOW}% — asked to confirm"
+            return Result.success()
+        }
         val allowCell = inputData.getBoolean(KEY_ALLOW_CELL, false)
         if (!allowCell && PanoptoAudioWorker.onCellular(app)) {
             // Metered: ask (throttled), and keep a Wi‑Fi-constrained run queued that auto-resumes.
@@ -148,6 +159,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val courses = client.courses()
         var started = 0; var waiting = 0; var missing = 0
         for (it in items) {
+            if (st.paused || BatteryGate.tooLow(app)) break
             val active = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
             if (active >= MAX_ACTIVE || started >= MAX_PER_RUN) break
             val c = it.cls

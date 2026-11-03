@@ -32,6 +32,8 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val outFile = File(app.filesDir, "panopto/$id.m4a")
         // Finished extraction (duration recorded) → just (re)upload. Partial runs restart extraction from scratch.
         if (l.panoptoDurationMs > 0 && l.segments.isNotEmpty() && l.segments.all { File(it.path).exists() }) { UploadWorker.enqueue(app, id); return Result.success() }
+        if (il.ac.tau.lecturesummarizer.autosync.QueueControl.isPaused(app)) return Result.success() // Resume re-enqueues
+        if (il.ac.tau.lecturesummarizer.autosync.BatteryGate.tooLow(app)) return Result.retry()
         val allowCell = inputData.getBoolean(KEY_ALLOW_CELL, false)
         if (!allowCell && onCellular(app)) { askCellular(app, id); return Result.retry() } // constraint says UNMETERED; belt & braces
         cancelPrompt(app, id)
@@ -44,7 +46,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
             }
         }
         runCatching { cm?.registerDefaultNetworkCallback(cb) }
-        try { setForeground(info("Downloading Panopto audio…", 0)) } catch (_: Exception) {}
+        try { setForeground(info("Starting audio download…", 0)) } catch (_: Exception) {}
         status[id] = "0"
         repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stageDetail = "Downloading Panopto audio…", progress = 0) }
         val tmpDir = File(app.cacheDir, "panopto-$id").apply { deleteRecursively(); mkdirs() }
@@ -65,7 +67,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 if (status[id] != pct.toString()) {
                     status[id] = pct.toString()
                     repo.updateLecture(id) { it.copy(progress = pct, stageDetail = "Panopto audio $pct% · ${fmt(done)} / ${fmt(total)}") }
-                    runCatching { setForeground(info("Panopto audio $pct%", pct)) }
+                    runCatching { setForeground(info("Downloading audio · part ${(parts[id] ?: 0).let { n -> if (n > 0) "${minOf(n, (pct * n / 100) + 1)}/$n · " else "" }}$pct% · ${fmt(done)} / ${fmt(total)}", pct)) }
                 }
             }
             val stream = PanoptoMedia.pickStream(di)
@@ -87,6 +89,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 for ((wi, win) in wins.withIndex()) {
                     if (wi < kept.size) continue // already extracted before a pause
                     if (isStopped) throw CancellationException()
+                    if (il.ac.tau.lecturesummarizer.autosync.BatteryGate.tooLow(app)) return Result.retry() // parts kept
                     val slice = File(tmpDir, "w$wi.bin")
                     slice.outputStream().buffered().use { os ->
                         init?.let(os::write)
@@ -153,18 +156,30 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     private fun fmt(s: Double) = "%d:%02d".format((s / 3600).toInt(), ((s % 3600) / 60).toInt())
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = info("Downloading Panopto audio…", 0)
+    override suspend fun getForegroundInfo(): ForegroundInfo = info("Starting audio download…", 0)
 
+    /** One shared queue notification: "<lecture> · <course>", this lecture's progress, and how many more are queued. */
     private fun info(text: String, pct: Int): ForegroundInfo {
+        val app = applicationContext as LectureApp
+        val id = inputData.getString(KEY_LECTURE)
+        val l = id?.let { app.repo.lecture(it) }
+        val course = l?.let { app.repo.course(it.courseId)?.name }
+        val title = listOfNotNull(l?.title, course).joinToString(" · ").ifEmpty { "Lecture Summarizer" }
+        val more = app.repo.lectures.value.count { it.id != id && it.panoptoAudio && it.panoptoDurationMs == 0L && it.state == LectureState.UPLOADING }
+        val sub = if (more > 0) "Auto-sync queue · $more more waiting" else "Auto-sync queue"
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)
-            .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Lecture Summarizer").setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(title).setContentText(text).setSubText(sub)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))
+            .addAction(0, "Pause queue", il.ac.tau.lecturesummarizer.autosync.QueueControl.pi(app, il.ac.tau.lecturesummarizer.autosync.QueueControl.ACTION_PAUSE, 1))
             .setOngoing(true).setOnlyAlertOnce(true).setProgress(100, pct, pct == 0).build()
-        val nid = 0x30000 + ((inputData.getString(KEY_LECTURE)?.hashCode() ?: 0) and 0xFFFF)
+        val nid = QUEUE_NID
         return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(nid, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else ForegroundInfo(nid, n)
     }
 
     companion object {
         const val KEY_LECTURE = "lecture"
+        /** Single ongoing notification shared by all queued Panopto downloads. */
+        const val QUEUE_NID = 0x30000
         const val DONE = "done"
         const val AUTH_MSG = "Panopto sign-in required — open the lecture and tap Sign in to Panopto, then Retry"
         /** lectureId → "0".."99" progress, [DONE], or "error:…" (UI). */
@@ -210,7 +225,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
             status[lectureId] = "0"
             if (!wifiOnly) cancelPrompt(ctx, lectureId)
             val req = OneTimeWorkRequestBuilder<PanoptoAudioWorker>()
-                .setInputData(workDataOf(KEY_LECTURE to lectureId, KEY_ALLOW_CELL to !wifiOnly))
+                .setInputData(workDataOf(KEY_LECTURE to lectureId, KEY_ALLOW_CELL to !wifiOnly)).addTag(il.ac.tau.lecturesummarizer.autosync.QueueControl.TAG)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
             WorkManager.getInstance(ctx).enqueueUniqueWork("panopto-audio-$lectureId", ExistingWorkPolicy.REPLACE, req)
