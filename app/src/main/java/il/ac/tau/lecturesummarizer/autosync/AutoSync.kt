@@ -32,6 +32,8 @@ class AutoSyncStore(ctx: Context) {
     var lastRun: String? get() = p.getString("lastRun", null); set(v) = p.edit().putString("lastRun", v).apply()
 
     /** eventKey → status: "done:<lectureId>" | "skip" | "notfound" | "wait" (live: recording not yet on Panopto). */
+    /** Auto-attach Moodle slides when the match is unambiguous (default on). */
+    var autoAttach: Boolean get() = p.getBoolean("autoAttach", true); set(v) { p.edit().putBoolean("autoAttach", v).apply() }
     fun status(key: String): String? = p.getString("st:$key", null)
     fun setStatus(key: String, v: String) = p.edit().putString("st:$key", v).apply()
     fun counts(): Map<String, Int> = p.all.filterKeys { it.startsWith("st:") }.values.groupingBy { (it as String).substringBefore(':') }.eachCount()
@@ -170,6 +172,8 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val l = repo.addLecture(course.id, title)
             repo.updateLecture(l.id) { x -> x.copy(recordedAtMs = c.beginMs, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl) }
             store.setLectureSource(l.id, mc.id, rec.title)
+            // Very-high-confidence slides: attach before the summary job starts so they're folded in.
+            if (st.autoAttach) runCatching { autoAttachSlides(app, l.id, client, store, mc, rec.title, dm.d to dm.m) }.onFailure { e -> if (e is MoodleAuthRequired) throw e }
             val caps = runCatching { client.captionStatus(rec) }.getOrDefault(CaptionStatus.UNKNOWN)
             if (caps == CaptionStatus.AUTH) throw PanoptoAuthRequired(rec.viewerUrl)
             val ok = if (caps == CaptionStatus.HAS) runCatching { PanoptoImporter.importCaptions(app, l.id, client, rec) }.onFailure { e -> if (e is PanoptoAuthRequired) throw e }.isSuccess else false
@@ -180,6 +184,18 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             st.setStatus(it.key, "done:${l.id}"); started++
         }
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
+    }
+
+    /** Reuses the manual attach path (MoodleMatch + MoodleStore cache/used + addSlides); only files whose Moodle title already matches are resolved. */
+    private fun autoAttachSlides(app: LectureApp, lectureId: String, client: MoodleClient, store: MoodleStore, mc: MoodleCourse, recTitle: String?, dayMonth: Pair<Int, Int>) {
+        val files = client.sections(mc.id).flatMap { it.files }.filter { !store.isUsed(it.cmid) }
+            .filter { f -> MoodleMatch.matchesRecording(f.name, recTitle) || MoodleMatch.suggested(f.name, dayMonth) }
+            .take(6).map { f -> f to (client.fileName(f) ?: f.name) }
+        val pick = MoodleMatch.autoPick(files, recTitle, dayMonth) ?: return
+        val file = store.cached(pick.cmid) ?: client.download(pick, store.cacheDir).also { store.putCached(pick.cmid, it) }
+        store.markUsed(pick.cmid)
+        val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", file)
+        app.repo.updateLecture(lectureId) { x -> if (x.slidesUri == null) x.copy(slidesUri = uri.toString()) else x.copy(extraSlides = (x.extraSlides + uri.toString()).distinct()) }
     }
 
     private fun TauNorm(s: String) = il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)

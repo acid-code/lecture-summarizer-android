@@ -68,5 +68,21 @@ object MoodleMatch {
         return n in nums.toList()
     }
 
+    /**
+     * Auto-attach pick (auto-sync): the single Moodle file that is almost certainly this recording's slides.
+     * [files] = (file, resolved file name). Candidates must be PDF/PPT(X) and either match the recording number+kind
+     * ([matchesRecording]) or — when the recording title has no number — the class date ([suggested]).
+     * Exactly one distinct stem must remain (a same-stem PDF+PPTX pair counts as one; PDF wins). Otherwise null → manual ⭐ suggest.
+     */
+    fun autoPick(files: List<Pair<MoodleFile, String>>, recordingTitle: String?, dayMonth: Pair<Int, Int>?): MoodleFile? {
+        val ok = files.filter { (_, n) -> n.substringAfterLast('.', "").lowercase() in setOf("pdf", "ppt", "pptx") }
+        val hasNum = recordingTitle?.let { Regex("""\d{1,2}""").containsMatchIn(it) } == true
+        val cands = if (hasNum) ok.filter { (_, n) -> matchesRecording(n, recordingTitle) } else ok.filter { (_, n) -> suggested(n, dayMonth) }
+        val byStem = cands.groupBy { (_, n) -> norm(n.substringBeforeLast('.')) }
+        if (byStem.size != 1) return null
+        val group = byStem.values.single()
+        return (group.firstOrNull { (_, n) -> n.endsWith(".pdf", true) } ?: group.first()).first
+    }
+
     private fun norm(s: String) = s.lowercase().replace(Regex("""[\s\p{Punct}״׳"'–—]+"""), " ").trim()
 }
