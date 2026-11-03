@@ -246,7 +246,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         const val MAX_PER_RUN = 3
         const val MAX_DELIVERY_INFO_PER_RUN = 150
         const val MAX_DRAIN_CHAIN = 30
-        const val DRAIN_DELAY_MIN = 20L
+        const val DRAIN_DELAY_MIN = 3L
         const val KEY_DRAIN = "drain"
 
         /** One-time follow-up pass; delayed so the ≤2 concurrent processing slots can free up. Wi‑Fi unless the user allowed cellular. */
@@ -269,7 +269,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val st = AutoSyncStore(ctx)
             val wm = WorkManager.getInstance(ctx)
             if ((!st.retro && !st.live) || !il.ac.tau.lecturesummarizer.data.Entitlements(ctx).isPro) { wm.cancelUniqueWork("autosync-periodic"); wm.cancelUniqueWork("autosync-wifi"); return }
-            val req = PeriodicWorkRequestBuilder<AutoSyncWorker>(3, TimeUnit.HOURS)
+            val req = PeriodicWorkRequestBuilder<AutoSyncWorker>(15, TimeUnit.MINUTES) // WorkManager minimum periodic interval
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build()).build()
             wm.enqueueUniquePeriodicWork("autosync-periodic", ExistingPeriodicWorkPolicy.UPDATE, req)
         }
