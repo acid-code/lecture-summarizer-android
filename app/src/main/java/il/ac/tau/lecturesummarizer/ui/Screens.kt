@@ -501,6 +501,7 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit) {
             }
             SummaryDensitySection(app)
             CalendarSourceSection(app)
+            il.ac.tau.lecturesummarizer.ui.AutoSyncSettingsSection(app)
             Text("Privacy: recordings stay in app-private storage until you upload them to YOUR API above. " +
                 "The app talks to no other server and never calls an AI model directly.",
                 style = MaterialTheme.typography.bodySmall)

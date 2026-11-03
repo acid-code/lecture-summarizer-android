@@ -42,6 +42,18 @@ object CalendarResolver {
         }.getOrDefault(emptyList())
     }
 
+    /** Timed classes (TAU scheme preferred) that began in [fromMs, toMs) — auto-sync retro/live scan. */
+    fun pastClasses(ctx: Context, calendarIds: Set<Long>, fromMs: Long, toMs: Long): List<TauClass> {
+        if (!hasPermission(ctx)) return emptyList()
+        return runCatching {
+            val parsed = query(ctx, fromMs, toMs, calendarIds).filter { it.endMs <= toMs }
+                .mapNotNull { TauEventParser.parse(it, requireClassHint = calendarIds.isEmpty()) }
+            val tau = parsed.filter { it.fromTauCalendar || it.courseNumber != null }
+            (if (calendarIds.isEmpty() && tau.isNotEmpty()) tau else parsed)
+                .distinctBy { Triple(it.courseName, it.kind, it.beginMs) }
+        }.getOrDefault(emptyList())
+    }
+
     private fun query(ctx: Context, from: Long, to: Long, ids: Set<Long>): List<CalEvent> {
         val b = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(b, from); ContentUris.appendId(b, to)

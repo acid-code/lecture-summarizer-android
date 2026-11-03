@@ -17,6 +17,7 @@ class LectureApp : Application() {
         settings = Settings(this)
         repo = Repository(this)
         settings.deviceId // create the stable per-install id once
+        il.ac.tau.lecturesummarizer.autosync.AutoSyncWorker.schedule(this)
         il.ac.tau.lecturesummarizer.data.ApiProvider.claimIds = { repo.courses.value.mapNotNull { it.remoteId } }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
