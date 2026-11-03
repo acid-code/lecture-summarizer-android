@@ -8,7 +8,8 @@ import java.util.TimeZone
 
 /**
  * Pure matching for auto-sync: which Panopto recording belongs to a past calendar class.
- * Signals: date in the recording title (required), class kind (not the opposite one), lecturer name tokens from the
+ * Signals: same Asia/Jerusalem calendar day via the date in the recording title OR the Panopto session start
+ * ([PanoptoRecording.startMs], from DeliveryInfo) — one of them is required; class kind (not the opposite one), lecturer name tokens from the
  * calendar event notes (מרצה:/מתרגל:) as a tie-breaker.
  */
 object RecordingMatcher {
@@ -46,14 +47,27 @@ object RecordingMatcher {
     fun score(rec: PanoptoRecording, beginMs: Long, kind: ClassKind, lecturer: String?): Int? {
         val want = ymdOf(beginMs)
         val dates = datesIn(rec.title)
-        if (dates.none { it.m == want.m && it.d == want.d && (it.y == null || it.y == want.y) }) return null
+        val titleHit = dates.any { it.m == want.m && it.d == want.d && (it.y == null || it.y == want.y) }
+        val sessionHit = rec.startMs?.let { sameDay(it, beginMs) } ?: false
         val rk = MoodleMatch.kindFromTitle(rec.title)
         if (kind != ClassKind.UNKNOWN && rk != ClassKind.UNKNOWN && rk != kind) return null
-        var s = 50
+        var s = when {
+            titleHit && sessionHit -> 60
+            titleHit -> if (rec.startMs != null) 40 else 50   // title says this day but Panopto session is another day (re-upload?) — weaker
+            sessionHit -> if (dates.isEmpty()) 48 else 35     // "Lecture 6" style titles; a title naming another date is suspicious
+            else -> return null
+        }
         if (rk == kind && kind != ClassKind.UNKNOWN) s += 20
         val t = rec.title.lowercase()
         if (nameTokens(lecturer).any { t.contains(it) }) s += 25
         return s
+    }
+
+    /** Title has no date for this class's day → session start is worth fetching (DeliveryInfo) to decide. */
+    fun needsSessionDate(rec: PanoptoRecording, beginMs: Long): Boolean {
+        if (rec.startMs != null) return false
+        val want = ymdOf(beginMs)
+        return datesIn(rec.title).none { it.m == want.m && it.d == want.d && (it.y == null || it.y == want.y) }
     }
 
     /** Best recording or null. With several same-day hits and no clear winner, prefer the lecturer match; else first. */

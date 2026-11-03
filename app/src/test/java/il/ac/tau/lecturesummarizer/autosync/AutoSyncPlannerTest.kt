@@ -35,4 +35,13 @@ class AutoSyncPlannerTest {
         val p = AutoSyncPlanner.plan(listOf(a, b, n), now, retro = false, live = true, status = { st[it] }, alreadyHave = { false })
         assertEquals(listOf(b), p.map { it.cls })   // a polled 2h ago, n older than live window and never enrolled
     }
+    @Test fun notFoundRetriedDaily() {
+        val a = c(10); val b = c(11); val legacy = c(12)
+        val st = mapOf(AutoSyncStore.key(a) to "notfound:${now - 2 * 3_600_000}", AutoSyncStore.key(b) to "notfound:${now - day}",
+            AutoSyncStore.key(legacy) to "notfound")
+        val p = AutoSyncPlanner.plan(listOf(a, b, legacy), now, retro = true, live = false, status = { st[it] }, alreadyHave = { false })
+        assertEquals(listOf(b, legacy), p.map { it.cls })
+        assertTrue(AutoSyncPlanner.plan(listOf(b), now, retro = false, live = false, status = { st[it] }, alreadyHave = { false }).isEmpty())
+        assertTrue(AutoSyncPlanner.plan(listOf(b), now, retro = true, live = false, status = { st[it] }, alreadyHave = { true }).isEmpty())
+    }
 }

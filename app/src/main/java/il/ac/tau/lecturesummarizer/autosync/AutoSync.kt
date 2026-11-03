@@ -41,7 +41,12 @@ class AutoSyncStore(ctx: Context) {
     fun status(key: String): String? = p.getString("st:$key", null)
     fun setStatus(key: String, v: String) = p.edit().putString("st:$key", v).apply()
     fun counts(): Map<String, Int> = p.all.filterKeys { it.startsWith("st:") }.values.groupingBy { (it as String).substringBefore(':') }.eachCount()
-    fun resetNotFound() { val e = p.edit(); p.all.filter { it.key.startsWith("st:") && it.value == "notfound" }.keys.forEach { e.remove(it) }; e.apply() }
+    /** Cached Panopto session start per delivery id (ms; -1 = DeliveryInfo had none). */
+    fun sessionStart(id: String): Long? = p.getLong("ss:$id", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
+    fun setSessionStart(id: String, ms: Long?) = p.edit().putLong("ss:$id", ms ?: -1L).apply()
+    /** Short "course dd/mm" sample of the last pass's not-found classes. */
+    var notFoundSample: String? get() = p.getString("nfSample", null); set(v) = p.edit().putString("nfSample", v).apply()
+    fun resetNotFound() { val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() }
 
     companion object {
         fun key(c: TauClass) = "${c.courseNumber ?: TauEventNorm(c.courseName)}|${c.kind}|${c.beginMs}"
@@ -57,7 +62,9 @@ object AutoSyncPlanner {
     const val PENDING_MAX_DAYS = 21
     /** After the live window, pending classes are polled once a day. */
     const val PENDING_POLL_MS = 20 * 3600_000L
-    fun lastCheck(st: String?): Long = st?.takeIf { it.startsWith("wait") }?.substringAfter(':', "0")?.toLongOrNull() ?: 0L
+    /** notfound classes are re-scanned this often (recordings get uploaded/renamed late; matching improves). */
+    const val NOTFOUND_RETRY_MS = 20 * 3600_000L
+    fun lastCheck(st: String?): Long = st?.takeIf { it.startsWith("wait") || it.startsWith("notfound") }?.substringAfter(':', "0")?.toLongOrNull() ?: 0L
     data class Item(val cls: TauClass, val key: String, val live: Boolean)
 
     fun plan(classes: List<TauClass>, nowMs: Long, retro: Boolean, live: Boolean, status: (String) -> String?,
@@ -69,9 +76,11 @@ object AutoSyncPlanner {
             val inLive = c.beginMs >= liveFrom
             val st = status(k)
             val waiting = st != null && st.startsWith("wait")
+            val notFound = st != null && st.startsWith("notfound")
             val pendingDue = live && waiting && c.beginMs >= pendingFrom && (inLive || nowMs - lastCheck(st) >= PENDING_POLL_MS)
             when {
-                st != null && !waiting -> null                 // done / skip / notfound are final
+                notFound -> if ((retro || (live && inLive)) && nowMs - lastCheck(st) >= NOTFOUND_RETRY_MS && !alreadyHave(c)) Item(c, k, inLive) else null
+                st != null && !waiting -> null                 // done / skip are final
                 waiting && !pendingDue -> null                 // watch off, expired, or polled today already
                 waiting -> Item(c, k, true)
                 !retro && !(live && inLive) -> null
@@ -157,7 +166,19 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val store = MoodleStore(app)
         val client = MoodleClient.of(store.baseUrl)
         val courses = client.courses()
-        var started = 0; var waiting = 0; var missing = 0
+        var started = 0; var waiting = 0; var missing = 0; var dIFetches = 0
+        val nfSample = mutableListOf<String>()
+        // Moodle's Panopto list carries no dates → fill session start from DeliveryInfo (cached per delivery id) for recordings whose title lacks the day.
+        fun withDates(recs: List<PanoptoRecording>, beginMs: Long): List<PanoptoRecording> = recs.map { r ->
+            if (!RecordingMatcher.needsSessionDate(r, beginMs)) return@map r
+            val cached = st.sessionStart(r.deliveryId)
+            if (cached != null) return@map if (cached > 0) r.copy(startMs = cached) else r
+            if (dIFetches >= MAX_DELIVERY_INFO_PER_RUN) return@map r
+            dIFetches++
+            val ms = runCatching { client.deliveryInfo(r).sessionStartMs }.getOrElse { e -> if (e is PanoptoAuthRequired) throw e; return@map r }
+            st.setSessionStart(r.deliveryId, ms)
+            if (ms != null) r.copy(startMs = ms) else r
+        }
         for (it in items) {
             if (st.paused || BatteryGate.tooLow(app)) break
             val active = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
@@ -170,12 +191,15 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             for (mc in pool) {
                 val recs = runCatching { client.panoptoRecordings(mc.id) }.getOrElse { e -> if (e is MoodleAuthRequired) throw e; emptyList() }
                 if (recs.any { r -> repo.lectures.value.any { l -> l.panoptoId == r.deliveryId } && RecordingMatcher.score(r, c.beginMs, c.kind, c.lecturer) != null }) { hit = null; st.setStatus(it.key, "skip"); break }
-                RecordingMatcher.best(recs, c.beginMs, c.kind, c.lecturer)?.let { r -> hit = mc to r }
+                (RecordingMatcher.best(recs, c.beginMs, c.kind, c.lecturer) ?: RecordingMatcher.best(withDates(recs, c.beginMs), c.beginMs, c.kind, c.lecturer))?.let { r -> hit = mc to r }
                 if (hit != null) break
             }
             if (st.status(it.key) == "skip") continue
             val (mc, rec) = hit ?: run {
-                if (st.live && it.live) { st.setStatus(it.key, "wait:$now"); waiting++ } else { st.setStatus(it.key, "notfound"); missing++ }
+                if (st.live && it.live) { st.setStatus(it.key, "wait:$now"); waiting++ } else {
+                    st.setStatus(it.key, "notfound:$now"); missing++
+                    if (nfSample.size < 6) RecordingMatcher.ymdOf(c.beginMs).let { d -> nfSample += "${c.courseName.take(24)} ${"%02d/%02d".format(d.d, d.m)}" }
+                }
                 null
             } ?: continue
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)
@@ -195,6 +219,11 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             st.setStatus(it.key, "done:${l.id}"); started++
         }
+        if (missing > 0 || nfSample.isNotEmpty()) st.notFoundSample = nfSample.joinToString(" · ").ifEmpty { null }
+        // Drain the retro backlog: a full batch → chain another pass soon instead of waiting for the 3 h periodic run.
+        // Stops when a pass makes no progress (started == 0) or after MAX_DRAIN_CHAIN passes; the worker re-checks pause/battery/Wi‑Fi each time.
+        val remaining = items.size - started - missing - waiting
+        if (started > 0 && remaining > 0 && !st.paused) enqueueDrain(app, allowCell, inputData.getInt(KEY_DRAIN, 0) + 1)
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
     }
 
@@ -215,6 +244,20 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         const val MAX_ACTIVE = 2
         const val MAX_PER_RUN = 3
+        const val MAX_DELIVERY_INFO_PER_RUN = 150
+        const val MAX_DRAIN_CHAIN = 30
+        const val DRAIN_DELAY_MIN = 20L
+        const val KEY_DRAIN = "drain"
+
+        /** One-time follow-up pass; delayed so the ≤2 concurrent processing slots can free up. Wi‑Fi unless the user allowed cellular. */
+        fun enqueueDrain(ctx: Context, allowCell: Boolean, n: Int) {
+            if (n > MAX_DRAIN_CHAIN) return
+            WorkManager.getInstance(ctx).enqueueUniqueWork("autosync-drain", ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<AutoSyncWorker>().setInitialDelay(DRAIN_DELAY_MIN, TimeUnit.MINUTES)
+                    .setInputData(workDataOf(KEY_ALLOW_CELL to allowCell, KEY_DRAIN to n))
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(if (allowCell) NetworkType.CONNECTED else NetworkType.UNMETERED)
+                        .setRequiresBatteryNotLow(true).build()).build())
+        }
         const val KEY_ALLOW_CELL = "allowCell"
         const val ACTION_USE_CELL = "il.ac.tau.lecturesummarizer.AUTOSYNC_USE_CELL"
         const val ACTION_WAIT_WIFI = "il.ac.tau.lecturesummarizer.AUTOSYNC_WAIT_WIFI"

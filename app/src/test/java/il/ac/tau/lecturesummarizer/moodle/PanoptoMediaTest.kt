@@ -74,4 +74,11 @@ class PanoptoMediaRealPlaylistTest {
         assertNotNull(PanoptoMedia.mergeRanges(w[1]))
         assertEquals(1422L, PanoptoMedia.mergeRanges(w[0])!!.first)
     }
+    @Test fun sessionStartFromWindowsEpochSeconds() {
+        val f = File("/workspace/panopto-deliveryinfo-algorithms.json")
+        val json = if (f.exists()) f.readText() else """{"Delivery":{"SessionStartTime":13436975295,"Streams":[]}}"""
+        assertEquals(1792501695000L, PanoptoMedia.parseDeliveryInfo(json).sessionStartMs)
+        assertEquals(1792501695000L, PanoptoMedia.parseDeliveryInfo("""{"Delivery":{"Streams":[{"Name":"x-20261020T130815Z20261020T160621Z.mp4"}]}}""").sessionStartMs)
+        assertEquals(1792501695000L, PanoptoMedia.parseDeliveryInfo("""{"Delivery":{"SessionStartTime":"/Date(1792501695000)/"}}""").sessionStartMs)
+    }
 }

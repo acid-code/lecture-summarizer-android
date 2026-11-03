@@ -67,6 +67,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         Text("Runs on Wi‑Fi in the background; on mobile data it asks first. Newest classes first, ≤2 summaries at a time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val c = remember(runStatus) { st.counts() }
         Text("Imported ${c["done"] ?: 0} · already had ${c["skip"] ?: 0} · waiting ${c["wait"] ?: 0} · not found ${c["notfound"] ?: 0}", style = MaterialTheme.typography.bodySmall)
+        remember(runStatus) { st.notFoundSample }?.let { Text("Not found e.g.: $it", style = MaterialTheme.typography.bodySmall) }
         (runStatus ?: st.lastRun)?.let { Text("Last run: $it", style = MaterialTheme.typography.bodySmall) }
         val pausedLive by il.ac.tau.lecturesummarizer.autosync.QueueControl.paused
         val isPaused = pausedLive ?: st.paused

@@ -4,7 +4,8 @@ package il.ac.tau.lecturesummarizer.moodle
 data class CaptionSegment(val t0: Double, val t1: Double, val text: String, val speaker: String? = null)
 
 /** A recording listed in the course's Panopto side block. */
-data class PanoptoRecording(val deliveryId: String, val title: String, val viewerUrl: String)
+/** [startMs]: Panopto session start (epoch ms) when known — from DeliveryInfo.Delivery.SessionStartTime; the Moodle list has no dates. */
+data class PanoptoRecording(val deliveryId: String, val title: String, val viewerUrl: String, val startMs: Long? = null)
 
 /** Pure parsing helpers (no Android deps → unit-testable). */
 object Panopto {

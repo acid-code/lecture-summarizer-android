@@ -5,7 +5,7 @@ import org.json.JSONObject
 /** One stream in DeliveryInfo.Delivery.Streams (HLS master in StreamUrl; Variants when Panopto lists them). */
 data class PanoptoStream(val url: String, val tag: String?, val variants: List<HlsVariant>)
 data class HlsVariant(val bandwidth: Long, val url: String, val codecs: String? = null)
-data class DeliveryInfo(val durationSec: Double, val hasCaptions: Boolean, val streams: List<PanoptoStream>, val podcastUrl: String?) {
+data class DeliveryInfo(val durationSec: Double, val hasCaptions: Boolean, val streams: List<PanoptoStream>, val podcastUrl: String?, val sessionStartMs: Long? = null) {
     val hasAudio get() = streams.isNotEmpty() || podcastUrl != null
 }
 data class HlsSegment(val url: String, val durationSec: Double, val range: LongRange? = null)
@@ -39,7 +39,40 @@ object PanoptoMedia {
         }
         val podcast = streams("PodcastStreams").firstOrNull()?.url
         return DeliveryInfo(d.optDouble("Duration", 0.0).let { if (it.isNaN()) 0.0 else it }, d.optBoolean("HasCaptions"),
-            streams("Streams").filter { isHls(it.url) || it.variants.isNotEmpty() }, podcast)
+            streams("Streams").filter { isHls(it.url) || it.variants.isNotEmpty() }, podcast, sessionStart(d))
+    }
+
+    /** Seconds between 1601-01-01 (Windows/.NET FILETIME epoch) and 1970-01-01. */
+    private const val WIN_EPOCH_OFFSET_SEC = 11_644_473_600L
+    private val STREAM_TS = Regex("""(20\d{2})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z""")
+
+    /**
+     * Session start (epoch ms). Verified on a real TAU DeliveryInfo: Delivery.SessionStartTime = 13436975295, i.e. *seconds since
+     * 1601* (= 2026-10-20 13:08:15Z, matching the stream file name "…-20261020T130815Z…"). Also accepts unix s/ms and "/Date(ms)/";
+     * falls back to the first stream AbsoluteStart, then a yyyyMMddTHHmmssZ stamp in a stream Name.
+     */
+    fun sessionStart(d: JSONObject): Long? {
+        fun conv(v: Any?): Long? = when (v) {
+            is Number -> v.toDouble().let { x -> when {
+                x <= 0 || x.isNaN() -> null
+                x > 1e11 && x < 1e14 -> x.toLong()                                        // unix ms
+                x > 1e10 -> ((x.toLong() - WIN_EPOCH_OFFSET_SEC) * 1000).takeIf { it > 0 } // seconds since 1601
+                x > 1e9 -> (x * 1000).toLong()                                           // unix seconds
+                else -> null } }
+            is String -> Regex("""/Date\((\d+)""").find(v)?.groupValues?.get(1)?.toLongOrNull() ?: v.toDoubleOrNull()?.let { conv(it) }
+            else -> null
+        }
+        conv(d.opt("SessionStartTime"))?.let { return it }
+        for (k in listOf("Streams", "PodcastStreams")) {
+            val a = d.optJSONArray(k) ?: continue
+            for (i in 0 until a.length()) { conv(a.optJSONObject(i)?.opt("AbsoluteStart"))?.let { return it } }
+            for (i in 0 until a.length()) {
+                val m = STREAM_TS.find(a.optJSONObject(i)?.optString("Name").orEmpty()) ?: continue
+                val (y, mo, dd, h, mi, s) = m.destructured
+                return java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { clear(); set(y.toInt(), mo.toInt() - 1, dd.toInt(), h.toInt(), mi.toInt(), s.toInt()) }.timeInMillis
+            }
+        }
+        return null
     }
 
     fun isHls(url: String) = url.substringBefore('?').let { it.contains(".hls/") || it.endsWith(".m3u8") || it.endsWith("master.panobf2") }
