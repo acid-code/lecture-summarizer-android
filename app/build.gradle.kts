@@ -27,7 +27,16 @@ android {
         buildConfigField("boolean", "DEFAULT_MOCK", prop("lecture.mock", "true"))
     }
     buildTypes {
-        release { isMinifyEnabled = false }
+        // Pro unlock for debug/beta: DEBUG_PRO=all debug installs; PRO_DEVICE_IDS=comma list of X-Device-Id (owner's phone).
+        debug {
+            buildConfigField("boolean", "DEBUG_PRO", prop("lecture.debugPro", "false"))
+            buildConfigField("String", "PRO_DEVICE_IDS", "\"${prop("lecture.proDeviceIds", "254c58f2-ea7f-44ad-919e-670f79ae5aa8")}\"")
+        }
+        release {
+            isMinifyEnabled = false
+            buildConfigField("boolean", "DEBUG_PRO", "false")
+            buildConfigField("String", "PRO_DEVICE_IDS", "\"\"")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

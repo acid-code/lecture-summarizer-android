@@ -58,7 +58,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(ProFeature.LIVE_RECORDINGS.he)
-            Text("Classes from the last 14 days whose recording isn't on Panopto yet are re-checked every ~3 h and imported when it appears.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("New classes from the last 2 days are checked every ~3 h; any whose recording isn't on Panopto yet stay on a pending watch, searched daily for up to 3 weeks, and are imported when it appears.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(live && pro, { on -> toggle(ProFeature.LIVE_RECORDINGS, on) { live = it; st.live = it } })
     }

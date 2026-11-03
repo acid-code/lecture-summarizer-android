@@ -17,7 +17,7 @@ class AutoSyncPlannerTest {
         assertTrue(p[0].live); assertFalse(p[2].live)
     }
     @Test fun liveOnlyKeepsWindow() {
-        val p = AutoSyncPlanner.plan(listOf(c(40), c(3)), now, retro = false, live = true, status = { null }, alreadyHave = { false })
+        val p = AutoSyncPlanner.plan(listOf(c(40), c(1)), now, retro = false, live = true, status = { null }, alreadyHave = { false })
         assertEquals(1, p.size)
     }
     @Test fun finalStatusesDropped() {
@@ -28,5 +28,11 @@ class AutoSyncPlannerTest {
     }
     @Test fun futureIgnored() {
         assertTrue(AutoSyncPlanner.plan(listOf(c(0).copy(endMs = now + 1)), now, true, true, { null }, { false }).isEmpty())
+    }
+    @Test fun pendingWatchPolledDaily() {
+        val a = c(6); val b = c(7); val n = c(5)
+        val st = mapOf(AutoSyncStore.key(a) to "wait:${now - 2 * 3_600_000}", AutoSyncStore.key(b) to "wait:${now - day}")
+        val p = AutoSyncPlanner.plan(listOf(a, b, n), now, retro = false, live = true, status = { st[it] }, alreadyHave = { false })
+        assertEquals(listOf(b), p.map { it.cls })   // a polled 2h ago, n older than live window and never enrolled
     }
 }

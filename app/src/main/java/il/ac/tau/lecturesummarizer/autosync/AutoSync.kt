@@ -45,19 +45,29 @@ class AutoSyncStore(ctx: Context) {
 
 /** Pure planning: which classes need work, newest first (rolling lectures beat the retro backlog). */
 object AutoSyncPlanner {
-    const val LIVE_WINDOW_DAYS = 14
+    /** New classes are picked up (and re-checked every pass) for this many days after they happen. */
+    const val LIVE_WINDOW_DAYS = 2
+    /** Once enrolled, a class whose recording isn't on Panopto yet stays on a pending watch this long (uploads take 24–48 h, sometimes more). */
+    const val PENDING_MAX_DAYS = 21
+    /** After the live window, pending classes are polled once a day. */
+    const val PENDING_POLL_MS = 20 * 3600_000L
+    fun lastCheck(st: String?): Long = st?.takeIf { it.startsWith("wait") }?.substringAfter(':', "0")?.toLongOrNull() ?: 0L
     data class Item(val cls: TauClass, val key: String, val live: Boolean)
 
     fun plan(classes: List<TauClass>, nowMs: Long, retro: Boolean, live: Boolean, status: (String) -> String?,
              alreadyHave: (TauClass) -> Boolean): List<Item> {
         val liveFrom = nowMs - LIVE_WINDOW_DAYS * 86_400_000L
+        val pendingFrom = nowMs - PENDING_MAX_DAYS * 86_400_000L
         return classes.filter { it.endMs <= nowMs }.mapNotNull { c ->
             val k = AutoSyncStore.key(c)
             val inLive = c.beginMs >= liveFrom
             val st = status(k)
+            val waiting = st != null && st.startsWith("wait")
+            val pendingDue = live && waiting && c.beginMs >= pendingFrom && (inLive || nowMs - lastCheck(st) >= PENDING_POLL_MS)
             when {
-                st != null && st != "wait" -> null            // done / skip / notfound are final
-                st == "wait" && !(live && inLive) -> null      // live watch off or expired
+                st != null && !waiting -> null                 // done / skip / notfound are final
+                waiting && !pendingDue -> null                 // watch off, expired, or polled today already
+                waiting -> Item(c, k, true)
                 !retro && !(live && inLive) -> null
                 alreadyHave(c) -> null
                 else -> Item(c, k, inLive)
@@ -118,7 +128,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private suspend fun pass(app: LectureApp, st: AutoSyncStore, allowCell: Boolean): String {
         val now = System.currentTimeMillis()
-        val from = now - (if (st.retro) st.lookbackDays else AutoSyncPlanner.LIVE_WINDOW_DAYS) * 86_400_000L
+        val from = now - maxOf(if (st.retro) st.lookbackDays else 0, if (st.live) AutoSyncPlanner.PENDING_MAX_DAYS else 0) * 86_400_000L
         val classes = CalendarResolver.pastClasses(app, app.settings.calendarIds, from, now)
         val repo = app.repo
         fun have(c: TauClass): Boolean {
@@ -151,7 +161,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             if (st.status(it.key) == "skip") continue
             val (mc, rec) = hit ?: run {
-                if (st.live && it.live) { st.setStatus(it.key, "wait"); waiting++ } else { st.setStatus(it.key, "notfound"); missing++ }
+                if (st.live && it.live) { st.setStatus(it.key, "wait:$now"); waiting++ } else { st.setStatus(it.key, "notfound"); missing++ }
                 null
             } ?: continue
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)

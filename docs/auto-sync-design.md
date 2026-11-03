@@ -5,6 +5,8 @@ Settings → **הורדה וסיכום אוטומטיים · Auto-download** (PR
 ## Pro gating (subscription from day one)
 - `Entitlements` is the single source of truth (`isPro`, `has(ProFeature)`, `source`). Checked in the UI **and** in `AutoSyncWorker`/`schedule()` so a lapsed sub stops background work.
 - Locked state: switches tap → "Upgrade to Pro" dialog. Debug/beta builds offer **Activate beta Pro** (`source=beta`). Release builds show "coming soon".
+- **Build grants (debug only)**: `BuildConfig.DEBUG_PRO` (`lecture.debugPro=true` in local.properties ⇒ every debug install is Pro) and `BuildConfig.PRO_DEVICE_IDS` (comma list of `X-Device-Id`; default = Asaf's phone `254c58f2-…5aa8`, the only device owning courses in the `lectures` DB). Source shows `allowlist`/`debug`; release builds hard-code both off.
+- Queues are **per user/device**: each install runs its own ordered list of *its* lectures (newest first, retro backlog after) with its own throttle; no global cross-user queue, so one user's backlog can't starve another (server jobs are already device-scoped).
 - Later: Play Billing (or server-verified entitlement) calls `setPro(true, "play:<order>")`; nothing else changes.
 
 ## Pipeline (per user/device, one WorkManager queue)
