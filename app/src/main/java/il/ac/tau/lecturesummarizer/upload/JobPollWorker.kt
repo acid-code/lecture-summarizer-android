@@ -46,12 +46,12 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
                         .onSuccess { app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100, error = null) } }
                         .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = "PDF download failed: ${e.message}") } }
-                    notify(id, "Study summary ready", l.title)
+                    notify(id, "Study summary ready", named(app, l))
                     return Result.success()
                 }
                 if (st.state == "failed") {
                     app.repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }
-                    notify(id, "Processing failed", (st.error ?: l.title).take(200))
+                    notify(id, "Processing failed · ${named(app, l)}", (st.error ?: named(app, l)).take(200))
                     return Result.success()
                 }
             }
@@ -60,6 +60,10 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         enqueue(applicationContext, id, replace = true)
         return Result.success()
     }
+
+    /** "<course> · <lecture>" so notifications identify which course finished. */
+    private fun named(app: LectureApp, l: il.ac.tau.lecturesummarizer.data.Lecture): String =
+        listOfNotNull(app.repo.course(l.courseId)?.name, l.title).joinToString(" · ")
 
     private fun notify(id: String, title: String, text: String) {
         val ctx = applicationContext

@@ -158,13 +158,13 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     override suspend fun getForegroundInfo(): ForegroundInfo = info("Starting audio download…", 0)
 
-    /** One shared queue notification: "<lecture> · <course>", this lecture's progress, and how many more are queued. */
+    /** One shared queue notification: "<course> · <lecture>", this lecture's progress, and how many more are queued. */
     private fun info(text: String, pct: Int): ForegroundInfo {
         val app = applicationContext as LectureApp
         val id = inputData.getString(KEY_LECTURE)
         val l = id?.let { app.repo.lecture(it) }
         val course = l?.let { app.repo.course(it.courseId)?.name }
-        val title = listOfNotNull(l?.title, course).joinToString(" · ").ifEmpty { "Lecture Summarizer" }
+        val title = listOfNotNull(course, l?.title).joinToString(" · ").ifEmpty { "Lecture Summarizer" }
         val more = app.repo.lectures.value.count { it.id != id && it.panoptoAudio && it.panoptoDurationMs == 0L && it.state == LectureState.UPLOADING }
         val sub = if (more > 0) "Auto-sync queue · $more more waiting" else "Auto-sync queue"
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)
