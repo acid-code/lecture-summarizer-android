@@ -43,7 +43,7 @@ object MoodleMatch {
     }
 
     fun kindFromTitle(t: String) = when {
-        t.startsWith("Recitation", true) || t.contains("תרגיל") || t.contains("תרגול") -> ClassKind.RECITATION
+        t.startsWith("Recitation", true) || Regex("""(?i)\btutorial""").containsMatchIn(t) || t.contains("תרגיל") || t.contains("תרגול") -> ClassKind.RECITATION
         t.startsWith("Lecture", true) || t.contains("שיעור") -> ClassKind.LECTURE
         else -> ClassKind.UNKNOWN
     }
@@ -59,7 +59,7 @@ object MoodleMatch {
      * Same number, not the opposite class kind, and (if the name has an extension) a PDF/PPT(X).
      */
     fun matchesRecording(fileName: String, recordingTitle: String?): Boolean {
-        val n = recordingTitle?.let { Regex("""\d{1,2}""").find(it)?.value?.toInt() } ?: return false
+        val n = recordingTitle?.let(::lectureIndex) ?: return false
         val ext = fileName.substringAfterLast('.', "").lowercase()
         if (ext.isNotEmpty() && ext.length <= 4 && ext !in setOf("pdf", "ppt", "pptx")) return false
         val recKind = kindFromTitle(recordingTitle); val fileKind = kindFromTitle(fileName)
@@ -76,12 +76,22 @@ object MoodleMatch {
      */
     fun autoPick(files: List<Pair<MoodleFile, String>>, recordingTitle: String?, dayMonth: Pair<Int, Int>?): MoodleFile? {
         val ok = files.filter { (_, n) -> n.substringAfterLast('.', "").lowercase() in setOf("pdf", "ppt", "pptx") }
-        val hasNum = recordingTitle?.let { Regex("""\d{1,2}""").containsMatchIn(it) } == true
+        val hasNum = recordingTitle?.let(::lectureIndex) != null
         val cands = if (hasNum) ok.filter { (_, n) -> matchesRecording(n, recordingTitle) } else ok.filter { (_, n) -> suggested(n, dayMonth) }
         val byStem = cands.groupBy { (_, n) -> norm(n.substringBeforeLast('.')) }
         if (byStem.size != 1) return null
         val group = byStem.values.single()
         return (group.firstOrNull { (_, n) -> n.endsWith(".pdf", true) } ?: group.first()).first
+    }
+
+    /**
+     * Lecture/recitation index from a recording title: prefers "תרגול N", "Tutorial N", "Lecture N", "Lec_N", "שיעור N"…;
+     * falls back to a standalone 1–2 digit number (never a slice of a long course id like 0455223701).
+     */
+    fun lectureIndex(title: String): Int? {
+        Regex("""(?i)(?:תרגול|תרגיל|שיעור|הרצאה|tutorial|recitation|lecture|lec)[\s_\-#.:]*0*(\d{1,2})(?!\d)""").find(title)
+            ?.let { return it.groupValues[1].toInt() }
+        return Regex("""(?<!\d)\d{1,2}(?!\d)""").find(title)?.value?.toInt()
     }
 
     private fun norm(s: String) = s.lowercase().replace(Regex("""[\s\p{Punct}״׳"'–—]+"""), " ").trim()
