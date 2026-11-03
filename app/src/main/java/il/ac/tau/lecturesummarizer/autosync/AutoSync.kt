@@ -32,6 +32,9 @@ class AutoSyncStore(ctx: Context) {
     var paused: Boolean get() = p.getBoolean("paused", false); set(v) = p.edit().putBoolean("paused", v).apply()
     /** User said "run anyway" on battery until this time. */
     var batteryOkUntil: Long get() = p.getLong("battOk", 0); set(v) = p.edit().putLong("battOk", v).apply()
+    /** Background sync stops below this battery % (not charging). User-chosen; default 30, clamped 15–60. */
+    var batteryHardMin: Int get() = p.getInt("battMin", BatteryGate.DEFAULT_MIN).coerceIn(BatteryGate.MIN_FLOOR, BatteryGate.MAX_FLOOR)
+        set(v) = p.edit().putInt("battMin", v.coerceIn(BatteryGate.MIN_FLOOR, BatteryGate.MAX_FLOOR)).apply()
     var lastBatteryAsk: Long get() = p.getLong("battAsk", 0); set(v) = p.edit().putLong("battAsk", v).apply()
     var lastRun: String? get() = p.getString("lastRun", null); set(v) = p.edit().putString("lastRun", v).apply()
 
@@ -126,7 +129,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         if (!ent.isPro) { status.value = "Pro required"; return Result.success() }
         if (!st.retro && !st.live) return Result.success()
         if (st.paused) { status.value = "Paused · מושהה"; return Result.success() }
-        if (BatteryGate.tooLow(app)) { status.value = "Battery below ${BatteryGate.HARD_MIN}% — waiting for charger"; return Result.success() }
+        if (BatteryGate.tooLow(app)) { status.value = "Battery below ${BatteryGate.floor(app)}% — waiting for charger"; return Result.success() }
         if (BatteryGate.needsAsk(app)) {
             if (System.currentTimeMillis() - st.lastBatteryAsk > 3 * 3600_000L) { st.lastBatteryAsk = System.currentTimeMillis(); BatteryGate.ask(app) }
             status.value = "Battery below ${BatteryGate.ASK_BELOW}% — asked to confirm"

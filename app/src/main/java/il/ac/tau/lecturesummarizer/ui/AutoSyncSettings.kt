@@ -71,8 +71,16 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         (runStatus ?: st.lastRun)?.let { Text("Last run: $it", style = MaterialTheme.typography.bodySmall) }
         val pausedLive by il.ac.tau.lecturesummarizer.autosync.QueueControl.paused
         val isPaused = pausedLive ?: st.paused
+        var floorPct by remember { mutableStateOf(st.batteryHardMin) }
         val b = remember(runStatus) { il.ac.tau.lecturesummarizer.autosync.BatteryGate.read(ctx.applicationContext) }
-        Text("Battery: ${b.pct}%${if (b.charging) " (charging)" else ""} · asks below 75%, never runs below 30% unless charging", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Battery: ${b.pct}%${if (b.charging) " (charging)" else ""} · asks below 75%, stops below ${floorPct}% unless charging", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Stop background sync below · עצור מתחת ל־", style = MaterialTheme.typography.bodySmall)
+        Row {
+            il.ac.tau.lecturesummarizer.autosync.BatteryGate.PRESETS.forEach { p ->
+                FilterChip(selected = floorPct == p, onClick = { floorPct = p; st.batteryHardMin = p }, label = { Text("$p%") })
+                Spacer(Modifier.width(6.dp))
+            }
+        }
         Row {
             if (isPaused) Button(onClick = { il.ac.tau.lecturesummarizer.autosync.QueueControl.resume(ctx.applicationContext) }) { Text("Resume queue · המשך") }
             else OutlinedButton(onClick = { il.ac.tau.lecturesummarizer.autosync.QueueControl.pause(ctx.applicationContext) }) { Text("Pause queue · השהה") }

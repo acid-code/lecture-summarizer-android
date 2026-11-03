@@ -14,9 +14,13 @@ import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.data.LectureState
 import il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker
 
-/** Battery policy for background auto-sync: <30% (not charging) never runs; <75% (not charging) asks first. */
+/** Battery policy for background auto-sync: below the user's floor (default 30%, not charging) never runs; <75% asks first. */
 object BatteryGate {
-    const val HARD_MIN = 30
+    const val DEFAULT_MIN = 30
+    const val MIN_FLOOR = 15
+    const val MAX_FLOOR = 60
+    val PRESETS = listOf(20, 30, 40, 50)
+    fun floor(ctx: Context) = AutoSyncStore(ctx).batteryHardMin
     const val ASK_BELOW = 75
     data class State(val pct: Int, val charging: Boolean)
     fun read(ctx: Context): State {
@@ -29,9 +33,9 @@ object BatteryGate {
         return State(pct, plug != 0 || st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL)
     }
     /** True → must not run at all. */
-    fun tooLow(ctx: Context) = read(ctx).let { !it.charging && it.pct < HARD_MIN }
+    fun tooLow(ctx: Context) = read(ctx).let { !it.charging && it.pct < floor(ctx) }
     /** True → needs the user's OK (valid for 12 h once given). */
-    fun needsAsk(ctx: Context) = read(ctx).let { !it.charging && it.pct < ASK_BELOW && it.pct >= HARD_MIN } &&
+    fun needsAsk(ctx: Context) = read(ctx).let { !it.charging && it.pct < ASK_BELOW && it.pct >= floor(ctx) } &&
         System.currentTimeMillis() > AutoSyncStore(ctx).batteryOkUntil
 
     private const val PROMPT_ID = 0x32002
@@ -39,16 +43,34 @@ object BatteryGate {
     const val ACTION_BATTERY_LATER = "il.ac.tau.lecturesummarizer.AUTOSYNC_BATTERY_LATER"
     fun ask(ctx: Context) {
         val b = read(ctx)
+        val f = floor(ctx)
+        val open = PendingIntent.getActivity(ctx, 0x32100 + 13,
+            Intent(ctx, BatteryFloorActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
             .setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
             .setContentTitle("Auto-sync lectures — battery ${b.pct}%")
-            .setContentText("Download & summarize new lectures now on battery, or wait until charging / above 75%? · להמשיך על סוללה?")
+            .setContentText("Keep syncing on battery until it drops below $f%? Tap to choose the stop %. · עד כמה אחוזים להמשיך?")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Background sync is on battery under 75%. Choose the % below which it stops (default 30%), or wait until charging. · בחר באיזה אחוז סוללה לעצור."))
+            .setContentIntent(open)
             .setAutoCancel(true)
-            .addAction(0, "Run anyway", QueueControl.pi(ctx, ACTION_BATTERY_OK, 11))
+            .addAction(0, "Choose stop %", open)
+            .addAction(0, "Run (stop <$f%)", QueueControl.pi(ctx, ACTION_BATTERY_OK, 11))
             .addAction(0, "Wait", QueueControl.pi(ctx, ACTION_BATTERY_LATER, 12)).build()
         runCatching { NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) }
     }
     fun cancelAsk(ctx: Context) = NotificationManagerCompat.from(ctx).cancel(PROMPT_ID)
+
+    /** Save chosen floor; continue (12 h OK, like Run anyway) only if the battery is still at/above it. */
+    fun chooseFloor(ctx: Context, pct: Int): Boolean {
+        cancelAsk(ctx)
+        val st = AutoSyncStore(ctx); st.batteryHardMin = pct
+        val b = read(ctx)
+        return if (b.charging || b.pct >= st.batteryHardMin) {
+            st.batteryOkUntil = System.currentTimeMillis() + 12 * 3600_000L
+            QueueControl.resume(ctx); true
+        } else { AutoSyncWorker.status.value = "Battery below ${st.batteryHardMin}% — waiting for charger"; false }
+    }
 }
 
 /** Pause / resume of the whole auto-sync queue (scans + Panopto audio downloads). */

@@ -54,6 +54,7 @@
 
         <receiver android:name=".panopto.CellularChoiceReceiver" android:exported="false" />
         <receiver android:name=".autosync.AutoSyncChoiceReceiver" android:exported="false" />
+        <activity android:name=".autosync.BatteryFloorActivity" android:exported="false" android:excludeFromRecents="true" android:taskAffinity="" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <receiver android:name=".autosync.QueueControlReceiver" android:exported="false" />
         <service
             android:name=".recording.RecorderService"
