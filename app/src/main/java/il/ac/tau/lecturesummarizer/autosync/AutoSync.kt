@@ -49,11 +49,27 @@ class AutoSyncStore(ctx: Context) {
     fun setSessionStart(id: String, ms: Long?) = p.edit().putLong("ss:$id", ms ?: -1L).apply()
     /** Short "course dd/mm" sample of the last pass's not-found classes. */
     var notFoundSample: String? get() = p.getString("nfSample", null); set(v) = p.edit().putString("nfSample", v).apply()
-    fun resetNotFound() { val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() }
+    /** Rolling list (newest first, capped [NF_MAX]) of individual not-found classes for the Settings disclosure. */
+    fun notFoundItems(): List<NotFoundItem> = (p.getString("nfItems", null) ?: "").lines().mapNotNull { NotFoundItem.decode(it) }
+    fun addNotFound(i: NotFoundItem) {
+        val list = listOf(i) + notFoundItems().filter { it.key != i.key }
+        p.edit().putString("nfItems", list.take(NF_MAX).joinToString("\n") { it.encode() }).apply()
+    }
+    fun dropNotFound(key: String) { val l = notFoundItems(); if (l.any { it.key == key }) p.edit().putString("nfItems", l.filter { it.key != key }.joinToString("\n") { it.encode() }).apply() }
+    fun resetNotFound() { p.edit().remove("nfItems").apply(); val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() }
 
     companion object {
+        const val NF_MAX = 40
         fun key(c: TauClass) = "${c.courseNumber ?: TauEventNorm(c.courseName)}|${c.kind}|${c.beginMs}"
         private fun TauEventNorm(s: String) = il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)
+    }
+}
+
+/** One class whose Panopto recording couldn't be found. */
+data class NotFoundItem(val key: String, val course: String, val kind: String, val classMs: Long, val checkedMs: Long) {
+    fun encode() = listOf(key, course, kind, classMs, checkedMs).joinToString("\t") { it.toString().replace('\t', ' ').replace('\n', ' ') }
+    companion object {
+        fun decode(s: String): NotFoundItem? = s.split('\t').takeIf { it.size == 5 }?.let { NotFoundItem(it[0], it[1], it[2], it[3].toLongOrNull() ?: 0, it[4].toLongOrNull() ?: 0) }
     }
 }
 
@@ -203,14 +219,16 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 (RecordingMatcher.best(recs, c.beginMs, c.kind, c.lecturer) ?: RecordingMatcher.best(withDates(recs, c.beginMs), c.beginMs, c.kind, c.lecturer))?.let { r -> hit = mc to r }
                 if (hit != null) break
             }
-            if (st.status(it.key) == "skip") continue
+            if (st.status(it.key) == "skip") { st.dropNotFound(it.key); continue }
             val (mc, rec) = hit ?: run {
                 if (st.live && it.live) { st.setStatus(it.key, "wait:$now"); waiting++ } else {
                     st.setStatus(it.key, "notfound:$now"); missing++
+                    st.addNotFound(NotFoundItem(it.key, c.courseName, c.kind.he, c.beginMs, now))
                     if (nfSample.size < 6) RecordingMatcher.ymdOf(c.beginMs).let { d -> nfSample += "${c.courseName.take(24)} ${"%02d/%02d".format(d.d, d.m)}" }
                 }
                 null
             } ?: continue
+            st.dropNotFound(it.key)
             if (have(c) || !AutoSyncPlanner.mayCreate(st.status(it.key), rec.deliveryId, repo.lectures.value.map { l -> l.panoptoId })) { st.setStatus(it.key, "skip"); continue }
             st.setStatus(it.key, "claim:$now")
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)
