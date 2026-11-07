@@ -54,6 +54,7 @@ fun ShareImportScreen(app: LectureApp, uris: List<Uri>, onCancel: () -> Unit, on
                         } else importAudio(app, lectureId, u, ctx)
                     }.onFailure { errs += "${displayName(ctx, u.toString())}: ${it.message}" }
                 }
+                if (docs.isNotEmpty()) il.ac.tau.lecturesummarizer.slides.SlideChoices(app).manual(lectureId)
                 if (docs.isNotEmpty()) app.repo.updateLecture(lectureId) { x ->
                     val new = docs.filterNot { it in x.allSlides }
                     if (x.slidesUri == null && new.isNotEmpty()) x.copy(slidesUri = new.first(), extraSlides = x.extraSlides + new.drop(1))

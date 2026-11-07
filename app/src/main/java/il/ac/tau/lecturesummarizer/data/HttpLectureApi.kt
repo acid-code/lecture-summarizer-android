@@ -216,6 +216,13 @@ class HttpLectureApi(
         }
     }
 
+    override suspend fun clearSlides(lectureRemoteId: String): Unit = withContext(Dispatchers.IO) {
+        val request = req("/v1/lectures/$lectureRemoteId/slides").delete().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Slides removal requires an updated server (HTTP ${response.code})")
+        }
+    }
+
     override suspend fun transcript(lectureRemoteId: String): Transcript? = withContext(Dispatchers.IO) {
         val r = req("/v1/lectures/$lectureRemoteId/transcript").get().build()
         client.newCall(r).execute().use { resp ->

@@ -110,7 +110,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         }
     }
     val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resolve() }
-    AppScaffold("Notebooks", logo = true,
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_notebooks), logo = true,
         actions = {
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
         },
@@ -118,14 +118,14 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ExtendedFloatingActionButton(onClick = { adding = true },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    icon = { Icon(Icons.Default.Add, null) }, text = { Text("New notebook") })
+                    icon = { Icon(Icons.Default.Add, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_new_notebook)) })
                 ExtendedFloatingActionButton(
                     onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) },
                     modifier = Modifier.height(72.dp),
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     icon = { Icon(Icons.Default.Mic, "הקלט את השיעור הנוכחי מהיומן", Modifier.size(32.dp)) },
-                    text = { Text("Record lecture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) })
+                    text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_lecture), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) })
             }
         }
     ) { pad ->
@@ -133,11 +133,15 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         if (courses.isEmpty()) Column(Modifier.padding(pad).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             if (!online) OfflineState(recheck)
             var calOk by remember { mutableStateOf(CalendarResolver.hasPermission(ctx)) }
-            val connect = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { calOk = it }
+            val connect = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                calOk = granted
+                if (granted) LectureActions.scope.launch(kotlinx.coroutines.Dispatchers.IO) { il.ac.tau.lecturesummarizer.calendar.CalendarCourses.import(app) }
+            }
             EmptyState(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_courses_title),
                 androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_courses_body)) {
-                if (!calOk) Button(onClick = { connect.launch(Manifest.permission.READ_CALENDAR) }) {
+                Button(onClick = { if (calOk) LectureActions.scope.launch(kotlinx.coroutines.Dispatchers.IO) { il.ac.tau.lecturesummarizer.calendar.CalendarCourses.import(app) } else connect.launch(Manifest.permission.READ_CALENDAR) }) {
                     Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_courses_cta)) }
+                TextButton(onClick = { adding = true }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.manual_course)) }
             }
         }
         else Column(Modifier.padding(pad)) {
@@ -152,12 +156,12 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 val newCount = all.count { it.courseId == c.id && it.id in unread }
                 Column {
                     Box(Modifier.fillMaxWidth()) {
-                    NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"}" else ""),
+                    NotebookCover(c.name, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, n) + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"}" else ""),
                         c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
                     if (newCount > 0) UnreadCountBadge(newCount, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
                     }
                     Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { editing = c }) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
+                        TextButton(onClick = { editing = c }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.customize), style = MaterialTheme.typography.labelMedium) }
                         IconButton(onClick = { deleting = c }) { Icon(Icons.Default.Delete, "Delete notebook", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
@@ -168,10 +172,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     if (adding) NotebookEditor(null, onDismiss = { adding = false }) { name, e, col, pat ->
         app.repo.addCourse(name, e, col, pat); adding = false
     }
-    if (picks.isNotEmpty()) AlertDialog(onDismissRequest = { picks = emptyList() }, title = { Text("איזה שיעור מקליטים?") },
+    if (picks.isNotEmpty()) AlertDialog(onDismissRequest = { picks = emptyList() }, title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_which_class_are_you_recording)) },
         text = { Column { picks.forEach { c -> TextButton(onClick = { startFor(c) }, modifier = Modifier.fillMaxWidth()) {
             Text(listOfNotNull(c.courseName, c.kind.he.ifEmpty { null }, c.room).joinToString(" · ")) } } } },
-        confirmButton = {}, dismissButton = { TextButton(onClick = { picks = emptyList() }) { Text("ביטול") } })
+        confirmButton = {}, dismissButton = { TextButton(onClick = { picks = emptyList() }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } })
     pendingNew?.let { (course, cls) -> NotebookEditor(course, onDismiss = {
         pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
     }) { name, e, col, pat ->
@@ -191,6 +195,7 @@ fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
     onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord, onPanopto: (String) -> Unit = {}, onMoodleCourse: () -> Unit = {},
 ) {
+    val retryScope = rememberCoroutineScope()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
     val unread by app.unread.ids.collectAsStateWithLifecycle()
@@ -214,21 +219,21 @@ fun LecturesScreen(
             // Panopto lives at course level: pick a recording → lecture is created and titled from the recording.
             ExtendedFloatingActionButton(onClick = { onPanopto(app.repo.addLecture(courseId, PANOPTO_PLACEHOLDER).id) },
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                icon = { Icon(Icons.Default.OndemandVideo, null) }, text = { Text("Import from Panopto") })
-            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text("Add lecture") })
+                icon = { Icon(Icons.Default.OndemandVideo, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.import_panopto)) })
+            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture)) })
         } }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            course?.let { c -> item { CourseHeader(c, "${lectures.size} lecture${if (lectures.size == 1) "" else "s"}") { editCover = true } } }
+            course?.let { c -> item { CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true } } }
             item {
                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         val files = course?.allContext.orEmpty()
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Course subject materials", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_course_background_materials), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                             Text("${files.size}/$MAX_COURSE_CONTEXT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text("Syllabus / glossary / previous summaries (up to $MAX_COURSE_CONTEXT PDFs or PPTX). All are sent with every lecture in this course as context.",
+                        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.context_body, MAX_COURSE_CONTEXT),
                             style = MaterialTheme.typography.bodySmall)
                         MaterialsList(files.map { s ->
                             val name = displayName(ctx, s); val u = Uri.parse(s)
@@ -237,11 +242,11 @@ fun LecturesScreen(
                         }, onSave = { download(it.uri, it.name, it.mime) }, onRemove = { m ->
                             app.repo.updateCourse(courseId) { c -> val rest = c.allContext - m.key; c.copy(contextPdfUri = rest.firstOrNull(), extraContext = rest.drop(1)) }
                         })
-                        OutlineAction("Add PDF", Icons.Default.NoteAdd, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) {
+                        OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add_pdf), Icons.Default.NoteAdd, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) {
                             subjectPicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
                         }
-                        OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) { onMoodleCourse() }
-                        if (files.size >= MAX_COURSE_CONTEXT) Text("Maximum $MAX_COURSE_CONTEXT files — remove one to add another.",
+                        OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_attach_from_moodle), Icons.Default.School, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) { onMoodleCourse() }
+                        if (files.size >= MAX_COURSE_CONTEXT) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.context_max, MAX_COURSE_CONTEXT),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -264,7 +269,7 @@ fun LecturesScreen(
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.displayDurationMs)}" +
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
-                    course?.coverColorValue() ?: coverColor(l.courseId), status = { LectureStatusChip(l, onRetry = { onJob(l.id) }) }, pattern = patternOf(course?.pattern), onDelete = { toDelete = l }, isNew = l.id in unread) {
+                    course?.coverColorValue() ?: coverColor(l.courseId), status = { LectureStatusChip(l, onRetry = { retryScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { il.ac.tau.lecturesummarizer.upload.retryLecture(app, l.id) }.onFailure { app.repo.updateLecture(l.id) { it.copy(error = app.getString(il.ac.tau.lecturesummarizer.R.string.retry_failed)) } } } }) }, pattern = patternOf(course?.pattern), onDelete = { toDelete = l }, isNew = l.id in unread) {
                     when (l.state) {
                         LectureState.DRAFT -> if (l.allSlides.isNotEmpty() || l.fromPanopto) onAttach(l.id) else onNew(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
@@ -335,10 +340,10 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
 
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     var moving by remember { mutableStateOf(false) }
-    if (moving && l != null) AlertDialog(onDismissRequest = { moving = false }, title = { Text("העבר למחברת") },
+    if (moving && l != null) AlertDialog(onDismissRequest = { moving = false }, title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_move_to_notebook)) },
         text = { Column { courses.forEach { c -> TextButton(onClick = { app.repo.moveLecture(l.id, c.id); moving = false }, modifier = Modifier.fillMaxWidth()) {
             Text((if (c.id == l.courseId) "✓ " else "") + c.name) } } } },
-        confirmButton = {}, dismissButton = { TextButton(onClick = { moving = false }) { Text("ביטול") } })
+        confirmButton = {}, dismissButton = { TextButton(onClick = { moving = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } })
     AppScaffold(l?.title ?: "Record", onBack = onBack) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().padding(24.dp),
@@ -351,21 +356,21 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             Text(if (paused) "⏸ Paused · ${l?.segments?.size ?: 0} segments saved · break time isn't recorded"
                  else if (active) "Recording · segment ${rec.segmentSeq + 1}"
                  else "Stopped · ${l?.segments?.size ?: 0} segments")
-            Text("Recording continues with the screen off. Parts are 45–50 min; audio is saved in 10-min segments.",
+            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_recording_continues_with_the_screen_off_audio_is_saved_in_10_minu),
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             l?.let { cur -> TextButton(onClick = { moving = true }) { Text("מחברת: ${courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"} · שינוי") } }
             if (l != null && !otherActive) {
                 val n = l.allSlides.size
-                Text("Materials · חומרים: $n file(s)", style = MaterialTheme.typography.labelLarge)
+                Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.materials_count, n), style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { livePicker.launch(SLIDE_MIMES) }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text("Files (PDF/PPTX)") }
+                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_files_pdf_pptx)) }
                     OutlinedButton(onClick = onMoodle, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Default.School, null); Spacer(Modifier.width(6.dp)); Text("Moodle") }
                 }
             }
-            if (otherActive) Text("Another lecture is recording. Stop it first.", color = MaterialTheme.colorScheme.error)
-            if (denied) Text("Microphone permission is required.", color = MaterialTheme.colorScheme.error)
+            if (otherActive) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_another_lecture_is_recording_stop_it_first), color = MaterialTheme.colorScheme.error)
+            if (denied) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
             if (!active) {
                 Button(enabled = !otherActive, onClick = {
@@ -375,22 +380,22 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                     Text(if ((l?.segments?.size ?: 0) > 0) "Resume recording" else "Start recording")
                 }
                 if ((l?.segments?.size ?: 0) > 0) OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
-                    Text("Next: add materials & upload")
-                } else TextButton(onClick = onDone) { Text("No recording? Add slides / PDFs or import audio →") }
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_next_add_materials_and_upload))
+                } else TextButton(onClick = onDone) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_no_recording_add_slides_or_import_audio)) }
             } else if (paused) {
                 Button(onClick = { RecorderService.resume(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
-                    Text("▶ Resume recording", fontSize = 22.sp)
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_resume_recording), fontSize = 22.sp)
                 }
                 OutlinedButton(onClick = { RecorderService.stop(ctx) }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                    Text("Stop (end lecture → ready to upload)")
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_end_lecture_and_prepare_upload))
                 }
             } else {
                 Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
-                    Text("⏸ Pause (break)", fontSize = 20.sp)
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_pause_for_a_break), fontSize = 20.sp)
                 }
                 Button(onClick = { RecorderService.stop(ctx) },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Stop") }
+                    modifier = Modifier.fillMaxWidth().height(56.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_stop)) }
             }
         }
     }
@@ -446,7 +451,7 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (isNew) NewDot(Modifier.padding(end = 8.dp))
                         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        if (isNew) Text("NEW · חדש", Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(UnreadRed).padding(horizontal = 8.dp, vertical = 2.dp),
+                        if (isNew) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_badge), Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(UnreadRed).padding(horizontal = 8.dp, vertical = 2.dp),
                             color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -542,16 +547,18 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit, onMoodle: () -> Unit = {
     var mock by remember { mutableStateOf(app.settings.mockMode) }
     var dev by remember { mutableStateOf(app.settings.showDeveloper) }
     var taps by remember { mutableIntStateOf(0) }
+    var emailFlag by remember { mutableStateOf(app.settings.emailRulesEnabled) }
     val save = { if (dev) { app.settings.baseUrl = url; app.settings.apiToken = token; if (il.ac.tau.lecturesummarizer.BuildConfig.DEBUG) app.settings.mockMode = mock } }
     androidx.activity.compose.BackHandler { save(); onBack() }
     AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.settings), onBack = { save(); onBack() }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LanguageSection()
-            SummaryDensitySection(app)
             ConnectionsSection(onMoodle, onPanopto)
+            SummaryDensitySection(app)
             CalendarSourceSection(app)
             il.ac.tau.lecturesummarizer.ui.AutoSyncSettingsSection(app)
             NotificationsSection()
+            LanguageSection()
+            EmailRulesSection(app, emailFlag)
             // About / version — 7 taps unlock the developer menu.
             HorizontalDivider()
             SectionTitle(il.ac.tau.lecturesummarizer.R.string.set_about)
@@ -569,6 +576,10 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit, onMoodle: () -> Unit = {
             if (dev) {
                 HorizontalDivider()
                 SectionTitle(il.ac.tau.lecturesummarizer.R.string.dev_title)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.email_flag), Modifier.weight(1f))
+                    Switch(emailFlag, { emailFlag = it; app.settings.emailRulesEnabled = it })
+                }
                 OutlinedTextField(url, { url = it }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.dev_base_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(token, { token = it }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.dev_token)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
@@ -613,13 +624,22 @@ private fun ConnectionsSection(onMoodle: () -> Unit, onPanopto: () -> Unit) {
     val ctx = LocalContext.current
     var cal by remember { mutableStateOf(Connections.calendar(ctx)) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { cal = it }
-    val moodle = remember { Connections.moodle(ctx) }
-    val panopto = remember { Connections.panopto() }
+    var tick by remember { mutableIntStateOf(0) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { cal = Connections.calendar(ctx); tick++ }
+    val moodle = remember(tick) { Connections.moodle(ctx) }
+    val panopto = remember(tick) { Connections.panopto() }
+    fun disconnect(host: String) {
+        val cm = android.webkit.CookieManager.getInstance()
+        cm.getCookie(host)?.split(';')?.forEach { cookie ->
+            cm.setCookie(host, cookie.substringBefore('=').trim() + "=; Max-Age=0; Path=/")
+        }
+        cm.flush(); tick++
+    }
     HorizontalDivider()
     SectionTitle(il.ac.tau.lecturesummarizer.R.string.set_connections)
-    ConnectionRow(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.conn_calendar), cal) { perm.launch(Manifest.permission.READ_CALENDAR) }
-    ConnectionRow("Moodle", moodle, onMoodle)
-    ConnectionRow("Panopto", panopto, onPanopto)
+    ConnectionRow(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.conn_calendar), cal, onDisconnect = { safeStart(ctx, Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName))) }) { perm.launch(Manifest.permission.READ_CALENDAR) }
+    ConnectionRow("Moodle", moodle, onDisconnect = { disconnect(il.ac.tau.lecturesummarizer.moodle.MoodleStore(ctx).baseUrl) }, onConnect = onMoodle)
+    ConnectionRow("Panopto", panopto, onDisconnect = { disconnect(il.ac.tau.lecturesummarizer.moodle.Panopto.HOST) }, onConnect = onPanopto)
 }
 
 @Composable
@@ -641,7 +661,7 @@ private fun SummaryDensitySection(app: LectureApp) {
     il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(d.api in sel, { on -> val v = if (on) sel + d.api else sel - d.api; if (v.isNotEmpty()) { sel = v; app.settings.summaryDensities = v } })
-            Text(d.label)
+            Text(androidx.compose.ui.res.stringResource(when (d.api) { "compact" -> il.ac.tau.lecturesummarizer.R.string.level_compact; "detailed" -> il.ac.tau.lecturesummarizer.R.string.level_detailed; else -> il.ac.tau.lecturesummarizer.R.string.level_standard }))
         }
     }
     Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_levels_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -655,12 +675,12 @@ private fun CalendarSourceSection(app: LectureApp) {
     var sel by remember { mutableStateOf(app.settings.calendarIds) }
     fun set(v: Set<Long>) { sel = v; app.settings.calendarIds = v }
     HorizontalDivider()
-    Text("יומן לזיהוי שיעור (כפתור המיקרופון)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-    if (!granted) { OutlinedButton(onClick = { perm.launch(Manifest.permission.READ_CALENDAR) }) { Text("אפשר גישה ליומן") }; return }
+    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_source), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    if (!granted) { OutlinedButton(onClick = { perm.launch(Manifest.permission.READ_CALENDAR) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_allow)) }; return }
     val cals = remember(granted) { CalendarResolver.listCalendars(ctx) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         RadioButton(sel.isEmpty(), { set(emptySet()) })
-        Text("אוטומטי (עדיפות ל-@mail.tau.ac.il, אחרת כל היומנים)")
+        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_auto))
     }
     cals.forEach { c ->
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -668,7 +688,7 @@ private fun CalendarSourceSection(app: LectureApp) {
             Column { Text(c.name); Text(c.account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
-    if (cals.isEmpty()) Text("לא נמצאו יומנים במכשיר", style = MaterialTheme.typography.bodySmall)
+    if (cals.isEmpty()) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_none), style = MaterialTheme.typography.bodySmall)
 }
 
 // ---------- helpers ----------
@@ -687,8 +707,8 @@ private fun NameDialog(title: String, label: String, onDismiss: () -> Unit, onOk
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { OutlinedTextField(text, { text = it }, label = { Text(label) }, singleLine = true) },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onOk(text.trim()) }) { Text("OK") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onOk(text.trim()) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_ok)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
     )
 }
 

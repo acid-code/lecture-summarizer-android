@@ -185,9 +185,9 @@ class RecorderService : Service() {
     }
 
     private fun updateNotification(elapsedMs: Long) {
-        runCatching {
+        try {
             androidx.core.app.NotificationManagerCompat.from(this).notify(NOTIF_ID, buildNotification(title, elapsedMs))
-        }
+        } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
     }
 
     private fun fmt(ms: Long): String { val s = ms / 1000

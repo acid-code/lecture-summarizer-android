@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,68 +46,60 @@ object Connections {
     fun panopto(): Boolean = runCatching { Panopto.hasSessionCookie() }.getOrDefault(false)
 }
 
-/** Connected / not-connected chip used in onboarding and Settings → Connections. */
+/** One semantic chip primitive for connection, queue, lecture and slide states. */
 @Composable
-fun ConnectionChip(connected: Boolean) {
-    AssistChip(onClick = {}, enabled = true,
-        label = { Text(stringResource(if (connected) R.string.connected else R.string.not_connected)) },
-        leadingIcon = if (connected) ({ Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp), tint = Green) }) else null,
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = if (connected) Green.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant))
+fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null) {
+    Column {
+        AssistChip(onClick = onClick ?: {}, label = { Text(text, style = MaterialTheme.typography.labelMedium) },
+            leadingIcon = if (offline) ({ Icon(Icons.Default.CloudOff, null, Modifier.size(16.dp)) })
+                else if (onClick != null) ({ Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }) else null,
+            colors = AssistChipDefaults.assistChipColors(containerColor = color.copy(alpha = 0.12f), labelColor = color, leadingIconContentColor = color))
+        if (progress != null) LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f }, modifier = Modifier.width(120.dp).height(3.dp), color = color)
+        else if (busy) LinearProgressIndicator(Modifier.width(120.dp).height(3.dp), color = color)
+    }
 }
 
-/** Row: title + connection chip + connect button (hidden once connected). */
 @Composable
-fun ConnectionRow(title: String, connected: Boolean, onConnect: () -> Unit) {
+fun ConnectionChip(connected: Boolean) = StatusChip(stringResource(if (connected) R.string.connected else R.string.not_connected),
+    if (connected) Green else MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+fun ConnectionRow(title: String, connected: Boolean, onDisconnect: (() -> Unit)? = null, onConnect: () -> Unit) {
     OutlinedCard(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            ConnectionChip(connected)
-            if (!connected) TextButton(onClick = onConnect) { Text(stringResource(R.string.connect)) }
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                ConnectionChip(connected)
+                if (!connected) TextButton(onClick = onConnect) { Text(stringResource(R.string.connect)) }
+                else if (onDisconnect != null) TextButton(onClick = onDisconnect) { Text(stringResource(R.string.disconnect)) }
+            }
         }
     }
 }
 
-// ---------- Lecture status chip (replaces emoji labels) ----------
-
-/**
- * ממתין להעלאה (grey) · מעלה 42% (blue progress) · בעיבוד (navy, indeterminate) · מוכן (green) ·
- * נכשל — נסה שוב (red, action) · הקלטה חלקית (amber).
- */
+/** Offline is orthogonal to the existing state; never masquerades as failure. */
 @Composable
 fun LectureStatusChip(l: Lecture, partial: Boolean = false, onRetry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
-    val uploadPct = if (l.segments.isEmpty()) l.progress.coerceIn(0, 100)
-        else (100 * l.segments.count { it.uploaded } / l.segments.size)
-    val (label, color) = when {
-        partial && l.state != LectureState.FAILED -> stringResource(R.string.st_partial) to Amber
+    val online = rememberOnline().first
+    val pct = if (l.segments.isEmpty()) l.progress.coerceIn(0, 100) else 100 * l.segments.count { it.uploaded } / l.segments.size
+    val processing = l.state == LectureState.PROCESSING
+    val (res, color) = when {
+        partial && l.state != LectureState.FAILED -> R.string.st_partial to Amber
         else -> when (l.state) {
-            LectureState.DRAFT -> stringResource(R.string.st_draft) to cs.onSurfaceVariant
-            LectureState.RECORDING -> stringResource(R.string.st_recording) to cs.error
-            LectureState.RECORDED -> stringResource(R.string.st_waiting) to cs.onSurfaceVariant
-            LectureState.UPLOADING -> stringResource(R.string.st_uploading, uploadPct) to Color(0xFF2B5BB5)
-            LectureState.PROCESSING -> stringResource(R.string.st_processing) to Navy
-            LectureState.DONE -> stringResource(R.string.st_done) to Green
-            LectureState.FAILED -> stringResource(R.string.st_failed) to cs.error
+            LectureState.DRAFT -> R.string.st_draft to cs.onSurfaceVariant
+            LectureState.RECORDING -> R.string.st_recording to cs.error
+            LectureState.RECORDED -> R.string.st_waiting to cs.onSurfaceVariant
+            LectureState.UPLOADING -> R.string.st_uploading to Color(0xFF2B5BB5)
+            LectureState.PROCESSING -> (if (l.stage in setOf("asr", "repair", "uploaded", "normalized", "transcribed", "queued", "asr_wait")) R.string.st_transcribing else R.string.st_summarizing) to cs.primary
+            LectureState.DONE -> R.string.st_done to Green
+            LectureState.FAILED -> R.string.st_failed to cs.error
         }
     }
-    Column(modifier.width(IntrinsicSize.Max)) {
-        val chipColors = AssistChipDefaults.assistChipColors(containerColor = color.copy(alpha = 0.12f), labelColor = color,
-            leadingIconContentColor = color)
-        if (l.state == LectureState.FAILED && onRetry != null)
-            AssistChip(onClick = onRetry, label = { Text(label, style = MaterialTheme.typography.labelMedium) }, modifier = Modifier.height(28.dp),
-                leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }, colors = chipColors)
-        else
-            SuggestionChip(onClick = {}, label = { Text(label, style = MaterialTheme.typography.labelMedium) }, modifier = Modifier.height(28.dp),
-                icon = if (l.state == LectureState.FAILED) ({ Icon(Icons.Default.ErrorOutline, null, Modifier.size(16.dp)) }) else null,
-                colors = SuggestionChipDefaults.suggestionChipColors(containerColor = color.copy(alpha = 0.12f), labelColor = color, iconContentColor = color))
-        when (l.state) {
-            LectureState.UPLOADING -> LinearProgressIndicator(progress = { uploadPct / 100f }, Modifier.fillMaxWidth().height(3.dp), color = color)
-            LectureState.PROCESSING -> LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = Navy)
-            else -> {}
-        }
-    }
+    Box(modifier) { StatusChip(if (l.state == LectureState.UPLOADING) stringResource(res, pct) else stringResource(res), color,
+        progress = pct.takeIf { l.state == LectureState.UPLOADING }, busy = processing && online, offline = !online,
+        onClick = onRetry.takeIf { l.state == LectureState.FAILED && online }) }
 }
 
 // ---------- Empty states ----------
@@ -145,17 +138,23 @@ fun PracticeEmptyState(modifier: Modifier = Modifier) =
 
 /** "אין חיבור" banner/empty state with retry. */
 @Composable
-fun OfflineState(onRetry: () -> Unit, modifier: Modifier = Modifier) =
-    EmptyState(stringResource(R.string.es_offline_title), stringResource(R.string.es_offline_body), modifier) {
-        Button(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+fun OfflineState(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedCard(modifier.fillMaxWidth().padding(12.dp)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Default.CloudOff, stringResource(R.string.es_offline_title))
+            Text(stringResource(R.string.es_offline_title) + ". " + stringResource(R.string.es_offline_body),
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+        }
     }
+}
 
 // ---------- Connectivity ----------
 
 private fun isOnlineNow(ctx: Context): Boolean {
     val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return true
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 
 /** Live online state; second value re-checks immediately (for "נסה שוב"). */
@@ -166,7 +165,8 @@ fun rememberOnline(): Pair<Boolean, () -> Unit> {
     DisposableEffect(Unit) {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { online = true }
+            override fun onAvailable(network: Network) { online = isOnlineNow(ctx) }
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) { online = isOnlineNow(ctx) }
             override fun onLost(network: Network) { online = isOnlineNow(ctx) }
         }
         runCatching { cm?.registerDefaultNetworkCallback(cb) }

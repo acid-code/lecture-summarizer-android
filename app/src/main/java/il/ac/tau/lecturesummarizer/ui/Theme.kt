@@ -18,13 +18,13 @@ import androidx.compose.ui.unit.sp
 // Brand: navy + yellow accent (ui-language.md). Course tints below stay dynamic.
 private val Light = lightColorScheme(
     primary = Color(0xFF1E3A8A), onPrimary = Color.White, primaryContainer = Color(0xFFDCE3F7), onPrimaryContainer = Color(0xFF0F1F4D),
-    secondary = Color(0xFFF2B705), onSecondary = Color(0xFF0F1F4D), secondaryContainer = Color(0xFFFFEFB8), onSecondaryContainer = Color(0xFF0F1F4D),
+    secondary = Color(0xFF52618A), onSecondary = Color.White, secondaryContainer = Color(0xFFFFEFB8), onSecondaryContainer = Color(0xFF0F1F4D),
     tertiary = Color(0xFFF2B705), onTertiary = Color(0xFF0F1F4D), tertiaryContainer = Color(0xFFFFEFB8), onTertiaryContainer = Color(0xFF0F1F4D),
     background = Color(0xFFF7F7FA), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFEDEEF3), outlineVariant = Color(0xFFDADCE3),
 )
 private val Dark = darkColorScheme(
     primary = Color(0xFFAFC2FF), onPrimary = Color(0xFF0F1F4D), primaryContainer = Color(0xFF1E3A8A), onPrimaryContainer = Color(0xFFDCE3F7),
-    secondary = Color(0xFFF2B705), onSecondary = Color(0xFF0F1F4D), tertiary = Color(0xFFF2B705), onTertiary = Color(0xFF0F1F4D),
+    secondary = Color(0xFF52618A), onSecondary = Color.White, tertiary = Color(0xFFF2B705), onTertiary = Color(0xFF0F1F4D),
     background = Color(0xFF111216), surface = Color(0xFF17181D), surfaceVariant = Color(0xFF24262D),
 )
 
@@ -57,14 +57,10 @@ fun CourseTheme(app: il.ac.tau.lecturesummarizer.LectureApp, courseId: String?, 
     val c = course.coverColorValue()
     val dark = isSystemInDarkTheme()
     val base = MaterialTheme.colorScheme
-    val onC = if (c.luminance() > 0.5f) Color(0xFF1B1B1F) else Color.White
+    // Notebook color accents surfaces/covers, never replaces the brand's primary action/status palette.
     val scheme = if (dark) base.copy(
-        primary = lerp(c, Color.White, 0.35f), onPrimary = Color(0xFF111216),
-        primaryContainer = lerp(c, Color.Black, 0.45f), onPrimaryContainer = lerp(c, Color.White, 0.85f),
-        secondaryContainer = lerp(c, Color.Black, 0.6f), surfaceTint = c,
+        secondaryContainer = lerp(c, Color.Black, 0.6f), onSecondaryContainer = lerp(c, Color.White, 0.85f), surfaceTint = c,
     ) else base.copy(
-        primary = c, onPrimary = onC,
-        primaryContainer = lerp(c, Color.White, 0.8f), onPrimaryContainer = lerp(c, Color.Black, 0.6f),
         secondaryContainer = lerp(c, Color.White, 0.85f), onSecondaryContainer = lerp(c, Color.Black, 0.6f), surfaceTint = c,
     )
     MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes, content = content)

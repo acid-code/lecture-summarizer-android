@@ -131,7 +131,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
             confirmButton = { TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = true) }) { Text(if (cell) "On Wi‑Fi · ב-Wi‑Fi" else "Download audio · הורד") } },
             dismissButton = { Row {
                 if (cell) TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = false) }) { Text("Use mobile data") }
-                TextButton(onClick = { confirmAudio = null }) { Text("Cancel") }
+                TextButton(onClick = { confirmAudio = null }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) }
             } })
     }
 
@@ -217,7 +217,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
-                    if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text("Record instead · הקלט במקום") }
+                    if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium) }
@@ -249,7 +249,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Text("📭", style = MaterialTheme.typography.displaySmall)
                             Text("No Panopto recordings for this course · אין הקלטות Panopto לקורס הזה", style = MaterialTheme.typography.titleSmall)
                             Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
-                            if (newEntry) Button(onClick = onRecordInstead) { Text("Record instead · הקלט במקום") }
+                            if (newEntry) Button(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }
                             OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text("Refresh") }
                             TextButton(onClick = { pickAnother() }) { Text("Wrong course? Pick another") }
                             TextButton(onClick = onBack) { Text("Back") }
@@ -260,7 +260,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                         val has = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.HAS }
                         if (s.recs.any { capStatus[it.deliveryId] == CaptionStatus.AUTH }) Column {
                             Text("Sign in to Panopto to check captions · התחבר ל-Panopto כדי לבדוק כתוביות", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { scope.launch { import(s.course, s.recs.first { capStatus[it.deliveryId] == CaptionStatus.AUTH }) } }) { Text("Sign in to Panopto") }
+                            TextButton(onClick = { scope.launch { import(s.course, s.recs.first { capStatus[it.deliveryId] == CaptionStatus.AUTH }) } }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_sign_in_to_panopto)) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Switch(checked = onlyWithCaptions, onCheckedChange = { onlyWithCaptions = it })

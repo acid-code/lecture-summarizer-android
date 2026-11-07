@@ -46,6 +46,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
                         .onSuccess { app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100, error = null) } }
                         .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = "PDF download failed: ${e.message}") } }
+                    il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app, id)
                     notify(id, "Study summary ready", named(app, l))
                     return Result.success()
                 }

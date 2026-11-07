@@ -338,7 +338,7 @@ class MoodleClient(private val base: String) {
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /** Download a mod/resource into [dir]. Returns the file, or throws if it is not PDF/PPTX. */
-    fun download(f: MoodleFile, dir: File): File {
+    fun download(f: MoodleFile, dir: File, maxBytes: Long = Long.MAX_VALUE): File {
         var u = if (f.module == FOLDER_FILE) f.url else "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
         repeat(8) {
             http.newCall(req(u).build()).execute().use { r ->
@@ -362,7 +362,16 @@ class MoodleClient(private val base: String) {
                 if (ext !in setOf("pdf", "pptx", "ppt") && !type.contains("pdf") && !type.contains("presentation"))
                     error("Not a PDF/PPTX: $name")
                 val out = File(dir.apply { mkdirs() }, "${f.cmid}_$name")
-                r.body!!.byteStream().use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+                try {
+                    r.body!!.byteStream().use { input -> out.outputStream().use { output ->
+                        val buffer = ByteArray(8192); var total = 0L
+                        while (true) {
+                            val n = input.read(buffer); if (n < 0) break
+                            total += n; require(total <= maxBytes) { "File exceeds matching download limit" }
+                            output.write(buffer, 0, n)
+                        }
+                    } }
+                } catch (e: Exception) { out.delete(); throw e }
                 return out
             }
         }

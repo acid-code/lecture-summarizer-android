@@ -26,14 +26,14 @@ import java.io.File
 @Composable
 fun NewEntryScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onRecord: () -> Unit, onUpload: () -> Unit) {
     val l = app.repo.lecture(lectureId) ?: return
-    AppScaffold("Add lecture · הוספת שיעור", onBack = onBack) { pad ->
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add_lecture), onBack = onBack) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text("Where does this lecture come from? · מאיפה השיעור?", style = MaterialTheme.typography.bodyMedium)
+            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_where_is_this_lecture_from), style = MaterialTheme.typography.bodyMedium)
             ChoiceCard(Icons.Default.Mic, "Record · הקלטה", "Record now in class (or import an audio file later).", onRecord)
             ChoiceCard(Icons.Default.UploadFile, "Upload summaries / presentations · העלאת קבצים",
                 "Summarize slides, PDFs or notes (file or Moodle) without a recording. Panopto: use “Import from Panopto” on the course screen.", onUpload)
-            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) }
         }
     }
 }
@@ -79,7 +79,7 @@ object PanoptoFetch {
 fun PanoptoLoginScreen(app: LectureApp, lectureId: String, onDone: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val l = app.repo.lecture(lectureId) ?: return
-    AppScaffold("Sign in to Panopto", onBack = onDone) { pad ->
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_sign_in_to_panopto), onBack = onDone) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl, startUrl = l.panoptoUrl ?: Panopto.HOST,
                 isDone = { u -> u.contains("panopto", true) && (u.contains("Viewer.aspx", true) || u.contains("Embed.aspx", true) || u.contains("/Sessions/List.aspx", true)) },

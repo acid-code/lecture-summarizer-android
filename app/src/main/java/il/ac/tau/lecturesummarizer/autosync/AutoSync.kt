@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import androidx.work.*
+import il.ac.tau.lecturesummarizer.data.allSlides
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.calendar.CalendarResolver
 import il.ac.tau.lecturesummarizer.calendar.ClassKind
@@ -277,12 +278,15 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
     /** Reuses the manual attach path (MoodleMatch + MoodleStore cache/used + addSlides); only files whose Moodle title already matches are resolved. */
     private fun autoAttachSlides(app: LectureApp, lectureId: String, client: MoodleClient, store: MoodleStore, mc: MoodleCourse, recTitle: String?, dayMonth: Pair<Int, Int>) {
-        val files = client.sections(mc.id).flatMap { it.files }.filter { !store.isUsed(it.cmid) }
-            .filter { f -> MoodleMatch.matchesRecording(f.name, recTitle) || MoodleMatch.suggested(f.name, dayMonth) }
-            .take(6).map { f -> f to (client.fileName(f) ?: f.name) }
-        val pick = MoodleMatch.autoPick(files, recTitle, dayMonth) ?: return
+        val files = client.sections(mc.id).flatMap { it.files }.distinctBy { it.cmid }
+        val names = files.map { it to (client.fileName(it) ?: it.name) }.filter { it.second.substringAfterLast('.', "").lowercase() in setOf("pdf", "pptx") }
+        val id = il.ac.tau.lecturesummarizer.slides.SlideMatcher.early(names.map { it.first.cmid to it.second }, recTitle.orEmpty()) ?: return
+        val pick = files.single { it.cmid == id }
         val file = store.cached(pick.cmid) ?: client.download(pick, store.cacheDir).also { store.putCached(pick.cmid, it) }
+        if (il.ac.tau.lecturesummarizer.slides.SlideChoices(app).isManual(lectureId) || app.repo.lecture(lectureId)?.allSlides?.isNotEmpty() != false) return
         store.markUsed(pick.cmid)
+        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).auto(lectureId, file.name, listOf("same_course", "lecture_number"))
+        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).phase(lectureId, "done")
         val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", file)
         app.repo.updateLecture(lectureId) { x -> if (x.slidesUri == null) x.copy(slidesUri = uri.toString()) else x.copy(extraSlides = (x.extraSlides + uri.toString()).distinct()) }
     }
@@ -341,7 +345,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 .setAutoCancel(true)
                 .addAction(0, "Use mobile data", pi(ACTION_USE_CELL, 1))
                 .addAction(0, "Wait for Wi‑Fi", pi(ACTION_WAIT_WIFI, 2)).build()
-            runCatching { androidx.core.app.NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) }
+            try { androidx.core.app.NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
         }
         fun cancelPrompt(ctx: Context) = androidx.core.app.NotificationManagerCompat.from(ctx).cancel(PROMPT_ID)
     }

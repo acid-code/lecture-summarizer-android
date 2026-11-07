@@ -4,6 +4,8 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -14,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.data.SummaryDensity
@@ -36,7 +39,7 @@ fun OnboardingScreen(app: LectureApp, onMoodle: () -> Unit, onPanopto: () -> Uni
                 repeat(3) { i -> Surface(Modifier.size(if (i == step) 24.dp else 8.dp, 8.dp), shape = MaterialTheme.shapes.small,
                     color = if (i == step) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant) {} }
             }
-            Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 when (step) {
                     0 -> CalendarStep(onNext = { step = 1 })
                     1 -> ConnectStep(ctx, onMoodle, onPanopto, onNext = { step = 2 })
@@ -59,9 +62,10 @@ private fun Title(text: String, body: String?) {
 @Composable
 private fun ColumnScope.CalendarStep(onNext: () -> Unit) {
     val ctx = LocalContext.current
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onNext() }
+    fun importCourses() { LectureActions.scope.launch(kotlinx.coroutines.Dispatchers.IO) { il.ac.tau.lecturesummarizer.calendar.CalendarCourses.import(ctx.applicationContext as LectureApp) } }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) importCourses(); onNext() }
     Title(stringResource(R.string.ob1_title), stringResource(R.string.ob1_body))
-    Button(onClick = { if (Connections.calendar(ctx)) onNext() else perm.launch(Manifest.permission.READ_CALENDAR) },
+    Button(onClick = { if (Connections.calendar(ctx)) { importCourses(); onNext() } else perm.launch(Manifest.permission.READ_CALENDAR) },
         Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.ob1_cta)) }
     TextButton(onClick = onNext) { Text(stringResource(R.string.skip)) }
     Spacer(Modifier.height(8.dp))
@@ -71,17 +75,21 @@ private fun ColumnScope.CalendarStep(onNext: () -> Unit) {
 @Composable
 private fun ColumnScope.ConnectStep(ctx: android.content.Context, onMoodle: () -> Unit, onPanopto: () -> Unit, onNext: () -> Unit) {
     // Re-read when we come back from a login route (this destination is recomposed on return).
-    val moodle = remember { Connections.moodle(ctx) }
-    val panopto = remember { Connections.panopto() }
+    var tick by remember { mutableIntStateOf(0) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { tick++ }
+    val moodle = remember(tick) { Connections.moodle(ctx) }
+    val panopto = remember(tick) { Connections.panopto() }
     Title(stringResource(R.string.ob2_title), stringResource(R.string.ob2_body))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ConnectionRow(stringResource(R.string.ob2_moodle), moodle, onMoodle)
-        ConnectionRow(stringResource(R.string.ob2_panopto), panopto, onPanopto)
+        ConnectionRow(stringResource(R.string.ob2_moodle), moodle, onConnect = onMoodle)
+        ConnectionRow(stringResource(R.string.ob2_panopto), panopto, onConnect = onPanopto)
     }
+    if (tick > 1 && (!moodle || !panopto)) Text(stringResource(R.string.connection_pending), color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.ob2_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(20.dp))
     Button(onClick = onNext, Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.continue_)) }
+    TextButton(onClick = onNext) { Text(stringResource(R.string.skip)) }
 }
 
 @Composable
@@ -99,6 +107,7 @@ private fun ColumnScope.LevelsStep(app: LectureApp, onFinish: () -> Unit) {
         app.settings.summaryDensities = buildSet { if (full) add(SummaryDensity.DETAILED.api); if (regular) add(SummaryDensity.STANDARD.api) }
         onFinish()
     }, Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.ob3_cta)) }
+    TextButton(onClick = { app.settings.summaryDensities = setOf("standard", "detailed"); onFinish() }) { Text(stringResource(R.string.skip)) }
 }
 
 /** Standalone Moodle sign-in (same WebView cookie login as Attach from Moodle). */

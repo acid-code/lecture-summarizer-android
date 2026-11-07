@@ -209,7 +209,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 .setAutoCancel(true)
                 .addAction(0, "Use mobile data", pi(ACTION_USE_CELL, 1))
                 .addAction(0, "Wait for Wi‑Fi", pi(ACTION_WAIT_WIFI, 2)).build()
-            runCatching { androidx.core.app.NotificationManagerCompat.from(ctx).notify(promptId(id), n) }
+            try { androidx.core.app.NotificationManagerCompat.from(ctx).notify(promptId(id), n) } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
         }
         fun cancelPrompt(ctx: Context, id: String) = androidx.core.app.NotificationManagerCompat.from(ctx).cancel(promptId(id))
 

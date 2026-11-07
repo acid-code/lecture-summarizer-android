@@ -57,7 +57,7 @@ object BatteryGate {
             .addAction(0, "Choose stop %", open)
             .addAction(0, "Run (stop <$f%)", QueueControl.pi(ctx, ACTION_BATTERY_OK, 11))
             .addAction(0, "Wait", QueueControl.pi(ctx, ACTION_BATTERY_LATER, 12)).build()
-        runCatching { NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) }
+        try { NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
     }
     fun cancelAsk(ctx: Context) = NotificationManagerCompat.from(ctx).cancel(PROMPT_ID)
 

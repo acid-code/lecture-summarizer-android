@@ -26,19 +26,24 @@ class Settings(context: Context) {
 
     /** Density levels to create on first summarize (multi-select; one summary per level). Default: standard. */
     var summaryDensities: Set<String>
-        get() = prefs.getStringSet("summaryDensities", null)?.takeIf { it.isNotEmpty() } ?: setOf("standard")
+        get() = prefs.getStringSet("summaryDensities", null)?.takeIf { it.isNotEmpty() } ?: setOf("standard", "detailed")
         set(v) = prefs.edit().putStringSet("summaryDensities", v.ifEmpty { setOf("standard") }).apply()
 
     /** Mock mode: no network, fake job progress and a locally generated placeholder PDF. */
     /** Forced false in release builds (here, not only in the UI) so a stale pref can never enable it. */
     var mockMode: Boolean
-        get() = BuildConfig.DEBUG && prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK)
+        get() = effectiveMockMode(BuildConfig.DEBUG, prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK))
         set(v) = prefs.edit().putBoolean("mock", v).apply()
 
     /** Calendar-arm source calendars (CalendarContract IDs). Empty = Auto (prefer @mail.tau.ac.il, else any). */
     var calendarIds: Set<Long>
         get() = prefs.getStringSet("calendarIds", emptySet())!!.mapNotNull { it.toLongOrNull() }.toSet()
         set(v) = prefs.edit().putStringSet("calendarIds", v.map { it.toString() }.toSet()).apply()
+
+    /** Experimental, deliberately off until a secure mail provider is implemented. */
+    var emailRulesEnabled: Boolean
+        get() = prefs.getBoolean("emailRulesEnabled", false)
+        set(v) = prefs.edit().putBoolean("emailRulesEnabled", v).apply()
 
     /** First-launch onboarding (3 screens) finished or skipped through to the end. */
     var onboardingDone: Boolean

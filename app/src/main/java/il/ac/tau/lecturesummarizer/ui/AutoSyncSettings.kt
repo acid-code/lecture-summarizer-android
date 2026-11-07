@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.stringResource
+import il.ac.tau.lecturesummarizer.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,7 +40,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
     val QC = il.ac.tau.lecturesummarizer.autosync.QueueControl
     HorizontalDivider(Modifier.padding(vertical = 8.dp))
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-        Text("הורדה וסיכום אוטומטיים · Auto-download", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_automatic_sync), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         ProBadge()
     }
     fun toggle(f: ProFeature, on: Boolean, set: (Boolean) -> Unit) {
@@ -48,103 +50,102 @@ fun AutoSyncSettingsSection(app: LectureApp) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── 1. Last run / results (read-only status) ──
-        if (pro && (retro || live)) SyncCard("סטטוס וריצה אחרונה · Last run") {
+        if (pro && (retro || live)) SyncCard(stringResource(R.string.sync_last_run)) {
             val pausedLive by QC.paused
             val isPaused = pausedLive ?: st.paused
             var cTick by remember { mutableStateOf(0) }
             val c = remember(runStatus, cTick) { st.counts() }
             var nfTick by remember { mutableStateOf(0) }
             val nf = remember(runStatus, nfTick) { st.notFoundItems() }
-            if (!CalendarResolver.hasPermission(ctx)) Text("נדרשת גישה ליומן", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            if (!CalendarResolver.hasPermission(ctx)) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_calendar_access_required), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Queue:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
-                StatusChip(if (isPaused) "Paused · מושהה" else if (runStatus != null && runStatus!!.startsWith("Stopped")) "Stopped · נעצר" else "Active · פעיל",
+                Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_queue), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
+                StatusChip(stringResource(if (isPaused) R.string.sync_paused else if (runStatus?.startsWith("Stopped") == true) R.string.sync_stopped else R.string.sync_active),
                     if (isPaused) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer)
             }
-            (runStatus ?: st.lastRun)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (app.settings.showDeveloper) (runStatus ?: st.lastRun)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip("Imported · יובאו ${c["done"] ?: 0}")
-                StatusChip("Already had · קיימים ${c["skip"] ?: 0}")
-                StatusChip("Waiting · ממתינים ${c["wait"] ?: 0}")
-                StatusChip("Not found · לא נמצאו ${c["notfound"] ?: 0}", if ((c["notfound"] ?: 0) > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant)
+                StatusChip(stringResource(R.string.sync_imported, c["done"] ?: 0))
+                StatusChip(stringResource(R.string.sync_existing, c["skip"] ?: 0))
+                StatusChip(stringResource(R.string.sync_waiting, c["wait"] ?: 0))
+                StatusChip(stringResource(R.string.sync_missing, c["notfound"] ?: 0), if ((c["notfound"] ?: 0) > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant)
             }
             NotFoundList(nf, c["notfound"] ?: 0, legacy = remember(runStatus) { st.notFoundSample },
                 onDismiss = { k -> st.dismissNotFound(k); nfTick++; cTick++ })
             (c["dismissed"] ?: 0).takeIf { it > 0 }?.let { n ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Dismissed forever · הוסרו לצמיתות: $n", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { st.undismissAll(); cTick++ }) { Text("Restore · שחזר") }
+                    Text(stringResource(R.string.sync_dismissed, n), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { st.undismissAll(); cTick++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_restore)) }
                 }
             }
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (isPaused) Button(onClick = { QC.resume(ctx.applicationContext) }) { Text("Resume · המשך") }
+                if (isPaused) Button(onClick = { QC.resume(ctx.applicationContext) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_resume)) }
                 else {
-                    Button(onClick = { AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Run now · הרץ עכשיו") }
-                    OutlinedButton(onClick = { QC.pause(ctx.applicationContext) }) { Text("Pause · השהה") }
-                    if ((c["notfound"] ?: 0) > 0) TextButton(onClick = { st.resetNotFound(); AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Retry not found · נסה שוב") }
+                    Button(onClick = { AutoSyncWorker.runNow(ctx.applicationContext) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_run_now)) }
+                    OutlinedButton(onClick = { QC.pause(ctx.applicationContext) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_pause)) }
+                    if ((c["notfound"] ?: 0) > 0) TextButton(onClick = { st.resetNotFound(); AutoSyncWorker.runNow(ctx.applicationContext) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_search_again)) }
                 }
             }
         }
         // ── 2. Live / rolling ──
-        SyncCard("עדכונים שוטפים · Rolling updates") {
-            ToggleRow(ProFeature.LIVE_RECORDINGS.he,
-                "New classes are checked every ~3 h for 2 days, then daily up to 10 days after the class (some courses upload late). Recordings not on Panopto yet stay on a pending watch (daily, up to 3 weeks) and are imported when they appear.",
+        SyncCard(stringResource(R.string.sync_rolling)) {
+            ToggleRow(stringResource(R.string.sync_live),
+                stringResource(R.string.sync_live_body),
                 live && pro) { on -> toggle(ProFeature.LIVE_RECORDINGS, on) { live = it; st.live = it } }
         }
         // ── 2b. Whitelist ──
-        if (pro && (retro || live)) SyncCard("מה לייבא · What to import") {
+        if (pro && (retro || live)) SyncCard(stringResource(R.string.sync_what)) {
             var wlMode by remember { mutableStateOf(st.whitelistMode) }
             var wl by remember { mutableStateOf(st.whitelist) }
             var draft by remember { mutableStateOf("") }
-            ToggleRow("Only whitelisted courses · רק קורסים מרשימה",
-                "Off: every class in your calendar is imported. On: only calendar items whose course name or number contains one of the entries below.",
+            ToggleRow(stringResource(R.string.sync_allowlist),
+                stringResource(R.string.sync_allowlist_body),
                 wlMode) { wlMode = it; st.whitelistMode = it; AutoSyncWorker.runNow(ctx.applicationContext) }
             if (wlMode) {
-                if (wl.isEmpty()) Text("⚠️ Whitelist is empty — nothing will be imported.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (wl.isEmpty()) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_the_allowlist_is_empty_nothing_will_be_imported), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     wl.forEach { w -> InputChip(selected = false, onClick = { wl = wl - w; st.whitelist = wl }, label = { Text("$w  ✕") }) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), singleLine = true, label = { Text("Course name or number") })
-                    TextButton(enabled = draft.isNotBlank(), onClick = { wl = (wl + draft.trim()).distinct(); st.whitelist = wl; draft = ""; AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Add") }
+                    OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), singleLine = true, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_course_name_or_number)) })
+                    TextButton(enabled = draft.isNotBlank(), onClick = { wl = (wl + draft.trim()).distinct(); st.whitelist = wl; draft = ""; AutoSyncWorker.runNow(ctx.applicationContext) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add)) }
                 }
             }
         }
         // ── 3. Historical / retro ──
-        SyncCard("הרצאות קודמות · Historical lectures") {
-            ToggleRow(ProFeature.RETRO_SUMMARIZER.he,
-                "Past calendar lectures/recitations missing from the notebook → find the Panopto recording, import + summarize.",
+        SyncCard(stringResource(R.string.sync_history)) {
+            ToggleRow(stringResource(R.string.sync_retro),
+                stringResource(R.string.sync_retro_body),
                 retro && pro) { on -> toggle(ProFeature.RETRO_SUMMARIZER, on) { retro = it; st.retro = it } }
             if (retro && pro) {
-                Text("Look back · כמה אחורה", style = MaterialTheme.typography.bodyMedium)
+                Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_look_back_range), style = MaterialTheme.typography.bodyMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(30, 60, 120, 180).forEach { d -> FilterChip(lookback == d, { lookback = d; st.lookbackDays = d }, label = { Text("${d}d") }) }
+                    listOf(30, 60, 120, 180).forEach { d -> FilterChip(lookback == d, { lookback = d; st.lookbackDays = d }, label = { Text(stringResource(R.string.sync_days, d)) }) }
                 }
             }
         }
         // ── 4. Power & network ──
-        if (pro && (retro || live)) SyncCard("סוללה ורשת · Battery & network") {
+        if (pro && (retro || live)) SyncCard(stringResource(R.string.sync_power)) {
             var floorPct by remember { mutableStateOf(st.batteryHardMin) }
             val b = remember(runStatus) { il.ac.tau.lecturesummarizer.autosync.BatteryGate.read(ctx.applicationContext) }
-            Text("Runs on Wi‑Fi in the background; on mobile data it asks first. Newest classes first, ≤2 summaries at a time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Battery now: ${b.pct}%${if (b.charging) " (charging)" else ""} · asks below 75%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Stop background sync below · עצור מתחת ל־", style = MaterialTheme.typography.bodyMedium)
+            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_runs_in_the_background_on_wi_fi_asks_before_using_mobile_data_new), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.sync_battery, b.pct), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_pause_sync_when_battery_is_below), style = MaterialTheme.typography.bodyMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 il.ac.tau.lecturesummarizer.autosync.BatteryGate.PRESETS.forEach { p ->
-                    FilterChip(selected = floorPct == p, onClick = { floorPct = p; st.batteryHardMin = p }, label = { Text("$p%") })
+                    FilterChip(selected = floorPct == p, onClick = { floorPct = p; st.batteryHardMin = p }, label = { Text(stringResource(R.string.sync_percent, p)) })
                 }
             }
         }
-        if (!pro) OutlinedButton(onClick = { upgrade = true }) { Text("Upgrade to Pro · שדרג") }
-        else ent.source?.let { Text("Pro active ($it)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (!pro) OutlinedButton(onClick = { upgrade = true }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_upgrade_to_pro)) }
+        else ent.source?.let { Text(stringResource(R.string.sync_pro_active), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
     if (upgrade) AlertDialog(onDismissRequest = { upgrade = false },
         title = { Row(verticalAlignment = Alignment.CenterVertically) { Text("Lecture Summarizer Pro  "); ProBadge() } },
-        text = { Text("Pro automatically downloads and summarizes your Panopto lectures:\n\n• ${ProFeature.RETRO_SUMMARIZER.title} — catch up on every past class in your calendar\n• ${ProFeature.LIVE_RECORDINGS.title} — new recordings are summarized as soon as they're posted\n\n" +
-            if (ent.canSelfActivate) "Store subscriptions aren't live yet — this beta build can activate Pro for testing." else "Subscriptions are coming soon.") },
-        confirmButton = { if (ent.canSelfActivate) TextButton(onClick = { ent.setPro(true, "beta"); pro = true; upgrade = false }) { Text("Activate beta Pro") } },
-        dismissButton = { TextButton(onClick = { upgrade = false }) { Text("Not now") } })
+        text = { Text(stringResource(R.string.sync_pro_body) + "\n\n" + stringResource(if (ent.canSelfActivate) R.string.sync_beta else R.string.sync_soon)) },
+        confirmButton = { if (ent.canSelfActivate) TextButton(onClick = { ent.setPro(true, "beta"); pro = true; upgrade = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_activate_beta_pro)) } },
+        dismissButton = { TextButton(onClick = { upgrade = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_later)) } })
 }
 
 @Composable
@@ -166,12 +167,6 @@ private fun ToggleRow(title: String, desc: String, checked: Boolean, onChange: (
         Switch(checked, onChange)
     }
 
-@Composable
-private fun StatusChip(text: String, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceVariant) =
-    Surface(color = color, shape = RoundedCornerShape(8.dp)) {
-        Text(text, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
-    }
-
 /** Expandable list of individual classes whose recording wasn't found. */
 @Composable
 private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFoundItem>, total: Int, legacy: String?, onDismiss: (String) -> Unit) {
@@ -180,10 +175,10 @@ private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFou
     val fmt = remember { java.text.SimpleDateFormat("EEE dd/MM HH:mm", java.util.Locale.getDefault()) }
     Column {
         TextButton(onClick = { open = !open }, contentPadding = PaddingValues(horizontal = 0.dp)) {
-            Text((if (open) "▾ " else "▸ ") + "What wasn't found · מה לא נמצא (${items.size.takeIf { it > 0 } ?: total})")
+            Text((if (open) "▾ " else "▸ ") + stringResource(R.string.sync_found_missing, items.size.takeIf { it > 0 } ?: total))
         }
         if (open) {
-            if (items.isEmpty()) Text(legacy?.let { "From last pass: $it\n(Details appear after the next run.)" } ?: "Details appear after the next run.",
+            if (items.isEmpty()) Text(stringResource(R.string.sync_missing_detail),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items.forEach { i ->
@@ -193,10 +188,10 @@ private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFou
                             Text(listOfNotNull(i.kind.ifEmpty { null }, fmt.format(java.util.Date(i.classMs))).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { onDismiss(i.key) }) { Text("Dismiss forever · הסר") }
+                        TextButton(onClick = { onDismiss(i.key) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_dismiss_forever)) }
                     }
                 }
-                if (total > items.size) Text("Showing latest ${items.size} of $total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (total > items.size) Text(stringResource(R.string.sync_showing, items.size, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
