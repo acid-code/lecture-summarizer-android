@@ -157,7 +157,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     }
                 }
             }
-            if (s.sections.isEmpty()) item { Text("📭  No files in this course.", Modifier.padding(top = 12.dp)) }
+            if (s.sections.isEmpty()) item { Text("No files in this course.", Modifier.padding(top = 12.dp)) }
             s.sections.forEach { sec ->
                 item(key = "h:" + sec.title + sec.files.firstOrNull()?.cmid) {
                     Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -193,7 +193,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                                 Spacer(Modifier.height(4.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     FileBadge(type.label, type.color.copy(alpha = 0.15f), type.color)
-                                    if (used) FileBadge("✓ Used", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                                    if (used) FileBadge("Used", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
                                     if (cached) FileBadge("💾 Cached", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (suggested) FileBadge("⭐ Suggested", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
                                 }
@@ -227,7 +227,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     }
                 }) {
                     if (busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text("Downloading…") }
-                    else Text(if (sel.isEmpty()) "Select files · בחר קבצים" else "📎 Attach ${sel.size} · צרף")
+                    else Text(if (sel.isEmpty()) "Select files · בחר קבצים" else "Attach ${sel.size} · צרף")
                 }
             }
         }

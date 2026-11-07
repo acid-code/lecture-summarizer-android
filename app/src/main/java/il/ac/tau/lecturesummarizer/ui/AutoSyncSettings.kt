@@ -55,7 +55,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
             val c = remember(runStatus, cTick) { st.counts() }
             var nfTick by remember { mutableStateOf(0) }
             val nf = remember(runStatus, nfTick) { st.notFoundItems() }
-            if (!CalendarResolver.hasPermission(ctx)) Text("⚠️ Needs calendar access (above).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            if (!CalendarResolver.hasPermission(ctx)) Text("נדרשת גישה ליומן", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Queue:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
                 StatusChip(if (isPaused) "Paused · מושהה" else if (runStatus != null && runStatus!!.startsWith("Stopped")) "Stopped · נעצר" else "Active · פעיל",

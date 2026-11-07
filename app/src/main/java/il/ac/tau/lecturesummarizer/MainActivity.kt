@@ -4,14 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
 import il.ac.tau.lecturesummarizer.ui.AppNav
 import il.ac.tau.lecturesummarizer.ui.AppTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.appcompat.app.AppCompatActivity() {
     /** URIs received from the Android share sheet; non-empty → share import wizard. */
     val shared = mutableStateOf<List<Uri>>(emptyList())
     /** Lecture id from a tapped 'summary ready' notification → deep-link to its lecture screen. */

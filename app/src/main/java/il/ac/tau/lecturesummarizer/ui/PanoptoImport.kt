@@ -126,7 +126,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
         AlertDialog(onDismissRequest = { confirmAudio = null },
             title = { Text("No captions — use audio? · אין כתוביות") },
             text = { Text("The phone downloads the lowest-quality video (~300 MB per hour of lecture), keeps only the audio (~15 MB/hour) and sends it for transcription + summary." +
-                (if (cell) "\n\n⚠️ You're on mobile data. Wait for Wi‑Fi, or use mobile data anyway." else "") +
+                (if (cell) "\n\nYou're on mobile data. Wait for Wi‑Fi, or use mobile data anyway." else "") +
                 "\n\nהטלפון יוריד את הווידאו באיכות הנמוכה, ישמור רק את השמע וישלח לתמלול.") },
             confirmButton = { TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = true) }) { Text(if (cell) "On Wi‑Fi · ב-Wi‑Fi" else "Download audio · הורד") } },
             dismissButton = { Row {
@@ -217,7 +217,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
-                    if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
+                    if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text("Record instead · הקלט במקום") }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium) }
@@ -249,7 +249,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Text("📭", style = MaterialTheme.typography.displaySmall)
                             Text("No Panopto recordings for this course · אין הקלטות Panopto לקורס הזה", style = MaterialTheme.typography.titleSmall)
                             Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
-                            if (newEntry) Button(onClick = onRecordInstead) { Text("🎙 Record instead · הקלט במקום") }
+                            if (newEntry) Button(onClick = onRecordInstead) { Text("Record instead · הקלט במקום") }
                             OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text("Refresh") }
                             TextButton(onClick = { pickAnother() }) { Text("Wrong course? Pick another") }
                             TextButton(onClick = onBack) { Text("Back") }

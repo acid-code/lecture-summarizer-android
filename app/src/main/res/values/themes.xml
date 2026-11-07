@@ -1,3 +1,4 @@
 <resources>
-    <style name="Theme.LectureSummarizer" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- AppCompat parent: required for AppCompatDelegate.setApplicationLocales (in-app language picker) on API < 33. -->
+    <style name="Theme.LectureSummarizer" parent="Theme.AppCompat.DayNight.NoActionBar" />
 </resources>

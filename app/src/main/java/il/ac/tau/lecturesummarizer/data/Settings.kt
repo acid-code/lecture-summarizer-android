@@ -30,12 +30,24 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putStringSet("summaryDensities", v.ifEmpty { setOf("standard") }).apply()
 
     /** Mock mode: no network, fake job progress and a locally generated placeholder PDF. */
+    /** Forced false in release builds (here, not only in the UI) so a stale pref can never enable it. */
     var mockMode: Boolean
-        get() = prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK)
+        get() = BuildConfig.DEBUG && prefs.getBoolean("mock", BuildConfig.DEFAULT_MOCK)
         set(v) = prefs.edit().putBoolean("mock", v).apply()
 
     /** Calendar-arm source calendars (CalendarContract IDs). Empty = Auto (prefer @mail.tau.ac.il, else any). */
     var calendarIds: Set<Long>
         get() = prefs.getStringSet("calendarIds", emptySet())!!.mapNotNull { it.toLongOrNull() }.toSet()
         set(v) = prefs.edit().putStringSet("calendarIds", v.map { it.toString() }.toSet()).apply()
+
+    /** First-launch onboarding (3 screens) finished or skipped through to the end. */
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean("onboardingDone", false)
+        set(v) = prefs.edit().putBoolean("onboardingDone", v).apply()
+
+    /** Developer menu unlocked by tapping the version row 7×. Always visible in debug builds. */
+    var devUnlocked: Boolean
+        get() = prefs.getBoolean("devUnlocked", false)
+        set(v) = prefs.edit().putBoolean("devUnlocked", v).apply()
+    val showDeveloper: Boolean get() = BuildConfig.DEBUG || devUnlocked
 }

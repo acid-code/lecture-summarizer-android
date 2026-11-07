@@ -1,4 +1,82 @@
 <resources>
-    <string name="app_name">Lecture Summarizer</string>
-    <string name="recording_channel">Lecture recording</string>
+    <string name="app_name" translatable="false">Lecture Summarizer</string>
+    <string name="recording_channel">הקלטת הרצאה</string>
+
+    <!-- Common -->
+    <string name="skip">דלג</string>
+    <string name="continue_">המשך</string>
+    <string name="back">חזרה</string>
+    <string name="connected">מחובר</string>
+    <string name="not_connected">לא מחובר</string>
+    <string name="connect">התחברות</string>
+    <string name="retry">נסה שוב</string>
+
+    <!-- Onboarding -->
+    <string name="ob1_title">הקורסים שלך, מסוכמים לבד</string>
+    <string name="ob1_body">חבר/י את לוח השנה של האוניברסיטה כדי שנזהה מתי יש שיעור.</string>
+    <string name="ob1_cta">חיבור לוח שנה</string>
+    <string name="ob1_small">אנחנו קוראים רק אירועי קורסים</string>
+    <string name="ob2_title">הקלטות ושקפים</string>
+    <string name="ob2_body">התחברות ל-Moodle (שקפים) ול-Panopto (הקלטות).</string>
+    <string name="ob2_moodle">Moodle · שקפים</string>
+    <string name="ob2_panopto">Panopto · הקלטות</string>
+    <string name="ob2_note">בלי Panopto אפשר גם להקליט בטלפון</string>
+    <string name="ob3_title">איזה סיכום מתאים לך?</string>
+    <string name="ob3_full">מלא (מפורט, למבחן)</string>
+    <string name="ob3_regular">רגיל (פרוזה קצרה לקריאה)</string>
+    <string name="ob3_cta">סיום — הצג את הקורסים שלי</string>
+    <string name="moodle_sign_in">התחברות ל-Moodle</string>
+    <string name="panopto_sign_in">התחברות ל-Panopto</string>
+
+    <!-- Settings -->
+    <string name="settings">הגדרות</string>
+    <string name="set_language">שפה</string>
+    <string name="lang_system">ברירת מחדל של המכשיר</string>
+    <string name="lang_he">עברית</string>
+    <string name="lang_en">English</string>
+    <string name="set_levels">רמות סיכום</string>
+    <string name="set_levels_hint">כל רמה שנבחרה יוצרת סיכום PDF נפרד מאותו תמלול.</string>
+    <string name="set_connections">חיבורים</string>
+    <string name="conn_calendar">לוח שנה</string>
+    <string name="set_notifications">התראות</string>
+    <string name="set_notifications_body">סיכום מוכן, העלאות וסנכרון אוטומטי</string>
+    <string name="set_notifications_open">פתח הגדרות התראות</string>
+    <string name="set_about">אודות</string>
+    <string name="set_version">גרסה %1$s</string>
+    <string name="set_privacy">ההקלטות נשמרות באחסון הפרטי של האפליקציה עד שמעלים אותן לשרת. האפליקציה לא פונה לאף שרת אחר ולא קוראת למודל AI ישירות.</string>
+    <string name="dev_unlocked">תפריט מפתחים נפתח</string>
+    <string name="dev_taps_left">עוד %1$d הקשות לתפריט מפתחים</string>
+    <string name="dev_title">מפתחים</string>
+    <string name="dev_base_url">כתובת שרת (BASE_URL)</string>
+    <string name="dev_token">API token (אופציונלי)</string>
+    <string name="dev_device">מזהה מכשיר: %1$s…</string>
+    <string name="dev_copy">העתק</string>
+    <string name="dev_mock">מצב Mock (ללא רשת, עיבוד מדומה)</string>
+    <string name="dev_hide">הסתר תפריט מפתחים</string>
+
+    <!-- Lecture status -->
+    <string name="st_draft">טיוטה</string>
+    <string name="st_recording">מקליט</string>
+    <string name="st_waiting">ממתין להעלאה</string>
+    <string name="st_uploading">מעלה %1$d%%</string>
+    <string name="st_processing">בעיבוד</string>
+    <string name="st_done">מוכן</string>
+    <string name="st_failed">נכשל — נסה שוב</string>
+    <string name="st_partial">הקלטה חלקית</string>
+
+    <!-- Empty states -->
+    <string name="es_courses_title">עדיין אין קורסים</string>
+    <string name="es_courses_body">חבר/י לוח שנה ונזהה את הקורסים שלך אוטומטית</string>
+    <string name="es_courses_cta">חיבור לוח שנה</string>
+    <string name="es_lectures_title">עוד לא היו שיעורים</string>
+    <string name="es_lectures_body">אחרי השיעור הבא הסיכום יופיע כאן מעצמו</string>
+    <string name="es_lectures_panopto">ייבוא מ-Panopto</string>
+    <string name="es_lectures_record">הקלטה עכשיו</string>
+    <string name="es_processing_title">מסכמים את ההרצאה…</string>
+    <string name="es_processing_body">בדרך כלל לוקח כמה דקות. נודיע כשמוכן</string>
+    <string name="es_processing_cta">חזרה לקורס</string>
+    <string name="es_practice_title">התרגול בדרך</string>
+    <string name="es_practice_body">נוצר אוטומטית אחרי שהסיכום מוכן</string>
+    <string name="es_offline_title">אין חיבור</string>
+    <string name="es_offline_body">ההקלטות נשמרות ויועלו כשהחיבור יחזור</string>
 </resources>

@@ -308,7 +308,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                         LinearProgressIndicator(progress = { (ast?.toIntOrNull() ?: l.progress) / 100f }, modifier = Modifier.fillMaxWidth())
                         if (ast == null) OutlineAction("Start audio download", Icons.Default.Refresh, Modifier.fillMaxWidth()) { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = true) }
                     }
-                    srtReady -> Text("✓ Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
+                    srtReady -> Text("Captions imported — used instead of a recording.", style = MaterialTheme.typography.bodySmall)
                     st == PanoptoFetch.AUTH -> {
                         Text("Panopto needs you to sign in once.", style = MaterialTheme.typography.bodySmall)
                         OutlineAction("Sign in to Panopto", Icons.Default.Login, Modifier.fillMaxWidth()) { onPanoptoLogin() }
@@ -316,7 +316,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     st != null && st.startsWith("error:") -> {
                         ErrorText(st.removePrefix("error:"))
                         if (st.removePrefix("error:") == il.ac.tau.lecturesummarizer.moodle.Panopto.NO_CAPTIONS)
-                            OutlineAction("🎙 Record instead · הקלט במקום", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecord() }
+                            OutlineAction("Record instead · הקלט במקום", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecord() }
                         OutlineAction("Retry captions", Icons.Default.Refresh, Modifier.fillMaxWidth()) { PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId) }
                     }
                     else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -335,7 +335,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                     OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.weight(1f)) { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }
                 }
                 if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING)
-                    OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
+                    OutlineAction("Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
                 PrimaryAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
                 if (!l.fromPanopto) OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, "Listen to recording") }
@@ -449,6 +449,12 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     AppScaffold("Lecture", onBack = onBack, actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Delete lecture") } }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Processing empty state (empty-states.md) until the summary PDF exists.
+            if (l.state == LectureState.PROCESSING && l.pdfPath == null)
+                EmptyState(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_processing_title),
+                    androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_processing_body)) {
+                    OutlinedButton(onClick = onBack) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_processing_cta)) }
+                }
             // 1) Notebook header + status
             val course = app.repo.course(l.courseId)
             ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
@@ -466,8 +472,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     }
                     // Status row spans the full card width: compact chip + detail filling the remaining space.
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SuggestionChip(onClick = {}, label = { Text(stateLabel(l.state), style = MaterialTheme.typography.labelMedium) },
-                            modifier = Modifier.height(28.dp))
+                        LectureStatusChip(l)
                         (if (l.state == LectureState.UPLOADING) "Uploading audio parts ${l.segments.count { it.uploaded }} / ${maxOf(l.segments.size, il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.parts[l.id] ?: 0)}" +
                             (if (il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.extracting[l.id] == true) " · extracting ${l.segments.size}/${il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.parts[l.id] ?: "?"}" else "") else (l.stageDetail ?: l.stage))
                             ?.takeIf { (processing || l.liveJob) && !(l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it)) }?.let {
@@ -508,7 +513,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
                 if (l.remoteId != null) OutlineAction(if (uploading) "Uploading…" else "Upload slides", Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
                 if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction("Share audio", Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
-                OutlineAction("🎙 Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onRecordAnother() }
+                OutlineAction("Record another (adds to this lecture)", Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onRecordAnother() }
                 OutlineAction("Import audio", Icons.Default.LibraryMusic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) }
                 OutlineAction("Attach from Moodle · צרף ממודל", Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
                 OutlineAction("Import from Panopto · ייבוא מפנופטו", Icons.Default.OndemandVideo, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onPanopto() }
@@ -673,8 +678,8 @@ internal fun summaryPdfName(course: String?, title: String?): String {
 @Composable
 internal fun PanoptoStatusLines(l: Lecture, srtReady: Boolean) {
     val c = MaterialTheme.colorScheme.onSurfaceVariant
-    Text(if (srtReady) "✓ Captions imported" else "… Captions not downloaded yet", style = MaterialTheme.typography.bodySmall, color = c)
-    Text(if (l.allSlides.isNotEmpty()) "✓ Slides attached (${l.allSlides.size})" else "○ No slides attached (optional)", style = MaterialTheme.typography.bodySmall, color = c)
+    Text(if (srtReady) "Captions imported" else "Captions not downloaded yet", style = MaterialTheme.typography.bodySmall, color = c)
+    Text(if (l.allSlides.isNotEmpty()) "Slides attached (${l.allSlides.size})" else "No slides attached (optional)", style = MaterialTheme.typography.bodySmall, color = c)
     Text("Job source: " + if (l.segments.isEmpty()) "panopto captions" else "recorded audio", style = MaterialTheme.typography.bodySmall, color = c)
 }
 

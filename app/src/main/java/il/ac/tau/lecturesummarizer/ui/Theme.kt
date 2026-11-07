@@ -15,13 +15,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+// Brand: navy + yellow accent (ui-language.md). Course tints below stay dynamic.
 private val Light = lightColorScheme(
-    primary = Color(0xFF2B5BB5), onPrimary = Color.White, primaryContainer = Color(0xFFDCE6FF), onPrimaryContainer = Color(0xFF0B1E47),
-    secondary = Color(0xFF5B6378), tertiary = Color(0xFFB4651C),
+    primary = Color(0xFF1E3A8A), onPrimary = Color.White, primaryContainer = Color(0xFFDCE3F7), onPrimaryContainer = Color(0xFF0F1F4D),
+    secondary = Color(0xFFF2B705), onSecondary = Color(0xFF0F1F4D), secondaryContainer = Color(0xFFFFEFB8), onSecondaryContainer = Color(0xFF0F1F4D),
+    tertiary = Color(0xFFF2B705), onTertiary = Color(0xFF0F1F4D), tertiaryContainer = Color(0xFFFFEFB8), onTertiaryContainer = Color(0xFF0F1F4D),
     background = Color(0xFFF7F7FA), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFEDEEF3), outlineVariant = Color(0xFFDADCE3),
 )
 private val Dark = darkColorScheme(
-    primary = Color(0xFFAFC6FF), primaryContainer = Color(0xFF1F3F7D), secondary = Color(0xFFC2C7DB), tertiary = Color(0xFFFFB77A),
+    primary = Color(0xFFAFC2FF), onPrimary = Color(0xFF0F1F4D), primaryContainer = Color(0xFF1E3A8A), onPrimaryContainer = Color(0xFFDCE3F7),
+    secondary = Color(0xFFF2B705), onSecondary = Color(0xFF0F1F4D), tertiary = Color(0xFFF2B705), onTertiary = Color(0xFF0F1F4D),
     background = Color(0xFF111216), surface = Color(0xFF17181D), surfaceVariant = Color(0xFF24262D),
 )
 
@@ -40,12 +43,8 @@ private val AppShapes = Shapes(
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val ctx = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-        dark -> Dark
-        else -> Light
-    }
+    // Brand navy/yellow everywhere (wallpaper dynamic color would hide it on API 31+); per-course tints still come from CourseTheme.
+    val scheme = if (dark) Dark else Light
     MaterialTheme(colorScheme = scheme, typography = AppTypography, shapes = AppShapes, content = content)
 }
 

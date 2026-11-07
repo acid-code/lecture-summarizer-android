@@ -24,7 +24,15 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         nav.navigate("job/$id")
     }
     LaunchedEffect(shared.value) { if (shared.value.isNotEmpty()) nav.navigate("share") { launchSingleTop = true } }
-    NavHost(nav, startDestination = "courses") {
+    // Existing installs that already have notebooks skip onboarding.
+    val start = androidx.compose.runtime.remember { if (app.settings.onboardingDone || app.repo.courses.value.isNotEmpty()) "courses" else "onboarding" }
+    NavHost(nav, startDestination = start) {
+        composable("onboarding") {
+            OnboardingScreen(app, onMoodle = { nav.navigate("moodleConnect") }, onPanopto = { nav.navigate("panoptoConnect") },
+                onFinish = { nav.navigate("courses") { popUpTo("onboarding") { inclusive = true } } })
+        }
+        composable("moodleConnect") { MoodleConnectScreen(onDone = { nav.popBackStack() }) }
+        composable("panoptoConnect") { PanoptoConnectScreen(onDone = { nav.popBackStack() }) }
         composable("courses") {
             CoursesScreen(app, onOpen = { nav.navigate("lectures/$it") }, onSettings = { nav.navigate("settings") },
                 onRecordLecture = { nav.navigate("record/$it") })
@@ -83,6 +91,7 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
             ShareImportScreen(app, uris, onCancel = { shared.value = emptyList(); nav.popBackStack() },
                 onDone = { id -> shared.value = emptyList(); nav.navigate("job/$id") { popUpTo("share") { inclusive = true } } })
         }
-        composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() }) }
+        composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() },
+            onMoodle = { nav.navigate("moodleConnect") }, onPanopto = { nav.navigate("panoptoConnect") }) }
     }
 }
