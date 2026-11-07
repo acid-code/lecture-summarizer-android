@@ -64,6 +64,9 @@ object MoodleMatch {
         if (ext.isNotEmpty() && ext.length <= 4 && ext !in setOf("pdf", "ppt", "pptx")) return false
         val recKind = kindFromTitle(recordingTitle); val fileKind = kindFromTitle(fileName)
         if (recKind != ClassKind.UNKNOWN && fileKind != ClassKind.UNKNOWN && recKind != fileKind) return false
+        // Folder files ("תירגולים / תרגול 02 / alg2 BFS.pdf"): an explicitly numbered folder decides.
+        val dirs = fileName.split(" / ").dropLast(1)
+        dirs.asReversed().firstNotNullOfOrNull { d -> KEYED.find(d)?.groupValues?.get(1)?.toInt() }?.let { return it == n }
         val nums = Regex("""\d+""").findAll(fileName.substringBeforeLast('.')).map { it.value }.filter { it.length <= 2 }.map { it.toInt() }
         return n in nums.toList()
     }
@@ -89,10 +92,12 @@ object MoodleMatch {
      * falls back to a standalone 1–2 digit number (never a slice of a long course id like 0455223701).
      */
     fun lectureIndex(title: String): Int? {
-        Regex("""(?i)(?:תרגול|תרגיל|שיעור|הרצאה|tutorial|recitation|lecture|lec)[\s_\-#.:]*0*(\d{1,2})(?!\d)""").find(title)
+        KEYED.find(title)
             ?.let { return it.groupValues[1].toInt() }
         return Regex("""(?<!\d)\d{1,2}(?!\d)""").find(title)?.value?.toInt()
     }
+
+    private val KEYED = Regex("""(?i)(?:תרגול|תרגיל|שיעור|הרצאה|tutorial|recitation|lecture|lec)[\s_\-#.:]*0*(\d{1,2})(?!\d)""")
 
     private fun norm(s: String) = s.lowercase().replace(Regex("""[\s\p{Punct}״׳"'–—]+"""), " ").trim()
 }

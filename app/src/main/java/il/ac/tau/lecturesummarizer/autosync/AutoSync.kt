@@ -56,6 +56,17 @@ class AutoSyncStore(ctx: Context) {
         p.edit().putString("nfItems", list.take(NF_MAX).joinToString("\n") { it.encode() }).apply()
     }
     fun dropNotFound(key: String) { val l = notFoundItems(); if (l.any { it.key == key }) p.edit().putString("nfItems", l.filter { it.key != key }.joinToString("\n") { it.encode() }).apply() }
+    /** Permanently dismiss one not-found class: final status, never retried (also survives "Retry not found"). */
+    fun dismissNotFound(key: String) { setStatus(key, "dismissed"); dropNotFound(key) }
+    fun undismissAll() { val e = p.edit(); p.all.filter { it.key.startsWith("st:") && it.value == "dismissed" }.keys.forEach { e.remove(it) }; e.apply() }
+
+    /** Whitelist mode: only calendar classes matching one of [whitelist] (course name / number substring, case-insensitive) are imported. */
+    var whitelistMode: Boolean get() = p.getBoolean("wlMode", false); set(v) = p.edit().putBoolean("wlMode", v).apply()
+    var whitelist: List<String>
+        get() = (p.getString("wl", null) ?: "").lines().map { it.trim() }.filter { it.isNotEmpty() }
+        set(v) = p.edit().putString("wl", v.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")).apply()
+    fun allowed(c: TauClass): Boolean = !whitelistMode || AutoSyncPlanner.whitelisted(c, whitelist)
+
     fun resetNotFound() { p.edit().remove("nfItems").apply(); val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() }
 
     companion object {
@@ -75,8 +86,14 @@ data class NotFoundItem(val key: String, val course: String, val kind: String, v
 
 /** Pure planning: which classes need work, newest first (rolling lectures beat the retro backlog). */
 object AutoSyncPlanner {
-    /** New classes are picked up (and re-checked every pass) for this many days after they happen. */
-    const val LIVE_WINDOW_DAYS = 2
+    /** New classes are picked up by the live watch for this many days after they happen (some courses upload ~10 days late). */
+    const val LIVE_WINDOW_DAYS = 10
+    /** Within this many days a live class is re-checked every pass (~3 h); after that, once a day until [LIVE_WINDOW_DAYS]. */
+    const val LIVE_FRESH_DAYS = 2
+
+    fun whitelisted(c: TauClass, patterns: List<String>): Boolean = patterns.any { p ->
+        val q = p.trim().lowercase(); q.isNotEmpty() && (c.courseName.lowercase().contains(q) || (c.courseNumber?.replace("-", "")?.contains(q.replace("-", "")) == true))
+    }
     /** Once enrolled, a class whose recording isn't on Panopto yet stays on a pending watch this long (uploads take 24–48 h, sometimes more). */
     const val PENDING_MAX_DAYS = 21
     /** After the live window, pending classes are polled once a day. */
@@ -93,6 +110,7 @@ object AutoSyncPlanner {
     fun plan(classes: List<TauClass>, nowMs: Long, retro: Boolean, live: Boolean, status: (String) -> String?,
              alreadyHave: (TauClass) -> Boolean): List<Item> {
         val liveFrom = nowMs - LIVE_WINDOW_DAYS * 86_400_000L
+        val freshFrom = nowMs - LIVE_FRESH_DAYS * 86_400_000L
         val pendingFrom = nowMs - PENDING_MAX_DAYS * 86_400_000L
         return classes.filter { it.endMs <= nowMs }.mapNotNull { c ->
             val k = AutoSyncStore.key(c)
@@ -100,7 +118,7 @@ object AutoSyncPlanner {
             val st = status(k)
             val waiting = st != null && st.startsWith("wait")
             val notFound = st != null && st.startsWith("notfound")
-            val pendingDue = live && waiting && c.beginMs >= pendingFrom && (inLive || nowMs - lastCheck(st) >= PENDING_POLL_MS)
+            val pendingDue = live && waiting && c.beginMs >= pendingFrom && (c.beginMs >= freshFrom || nowMs - lastCheck(st) >= PENDING_POLL_MS)
             when {
                 notFound -> if ((retro || (live && inLive)) && nowMs - lastCheck(st) >= NOTFOUND_RETRY_MS && !alreadyHave(c)) Item(c, k, inLive) else null
                 st != null && !waiting -> null                 // done / skip are final
@@ -176,7 +194,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     private suspend fun pass(app: LectureApp, st: AutoSyncStore, allowCell: Boolean): String {
         val now = System.currentTimeMillis()
         val from = now - maxOf(if (st.retro) st.lookbackDays else 0, if (st.live) AutoSyncPlanner.PENDING_MAX_DAYS else 0) * 86_400_000L
-        val classes = CalendarResolver.pastClasses(app, app.settings.calendarIds, from, now)
+        val classes = CalendarResolver.pastClasses(app, app.settings.calendarIds, from, now).filter(st::allowed)
         val repo = app.repo
         fun have(c: TauClass): Boolean {
             val course = repo.courses.value.firstOrNull { c.courseNumber != null && it.courseNumber == c.courseNumber }

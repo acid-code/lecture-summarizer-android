@@ -108,7 +108,17 @@ class MoodleClient(private val base: String) {
     /** Sections as the course itself names them (week / topic / lecturer), with file resources. */
     fun sections(courseId: Long): List<MoodleSection> = runCatching { sectionsAjax(courseId) }.getOrElse { e ->
         if (e is MoodleAuthRequired) throw e; sectionsHtml(courseId)
-    }.filter { it.files.isNotEmpty() }
+    }.map { sec -> sec.copy(files = sec.files.flatMap { f -> if (f.module == "folder") folderFiles(f) else listOf(f) }) }
+        .filter { it.files.isNotEmpty() }
+
+    /**
+     * Files inside a mod/folder (recursing into its subfolders). Each child keeps its relative path in the name
+     * ("תירגולים / תרגול 01 / alg1 2027a - Euler.pdf") so folder names/numbers feed lecture matching.
+     */
+    fun folderFiles(folder: MoodleFile): List<MoodleFile> = runCatching {
+        val (_, html) = getText("$base/mod/folder/view.php?id=${folder.cmid}")
+        parseFolderFiles(folder, html)
+    }.getOrElse { e -> if (e is MoodleAuthRequired) throw e; emptyList() }
 
     private fun sectionsAjax(courseId: Long): List<MoodleSection> {
         val st = JSONObject(ajax("core_courseformat_get_state", JSONObject().put("courseid", courseId)) as String)
@@ -139,7 +149,33 @@ class MoodleClient(private val base: String) {
 
     /** Recordings listed in the course page's Panopto side block ("הקלטות הקורס בשרת הוידאו Panopto"). */
     fun panoptoRecordings(courseId: Long): List<PanoptoRecording> =
-        recCache.get(courseId) ?: fetchPanoptoRecordings(courseId).also { recCache.put(courseId, it) }
+        recCache.get(courseId) ?: run {
+            val block = runCatching { fetchPanoptoRecordings(courseId) }
+            val hvp = runCatching { hvpRecordings(courseId) }.getOrElse { e -> if (e is MoodleAuthRequired) throw e; emptyList() }
+            // Same Panopto session in the block and an H5P activity → keep one (block entry wins, it has the canonical title).
+            val all = (block.getOrElse { e -> if (hvp.isEmpty()) throw e; emptyList() } + hvp).distinctBy { it.deliveryId }
+            all.also { if (block.isSuccess) recCache.put(courseId, it) }
+        }
+
+    private val hvpCache = TtlCache<Long, String>(24 * 60 * 60_000L) // cmid → Panopto delivery id ("" = none)
+
+    /** mod/hvp (H5P interactive video) activities in the course: (cmid, activity title). */
+    fun hvpActivities(courseId: Long): List<Pair<Long, String>> = runCatching {
+        val st = JSONObject(ajax("core_courseformat_get_state", JSONObject().put("courseid", courseId)) as String)
+        val a = st.getJSONArray("cm")
+        (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("module") == "hvp" }.map { it.getLong("id") to it.optString("name") }
+    }.getOrElse { e ->
+        if (e is MoodleAuthRequired) throw e
+        val (_, html) = getText("$base/course/view.php?id=$courseId")
+        Panopto.extractHvpActivities(html)
+    }
+
+    /** Panopto sessions embedded in H5P activities (e.g. "שיעור 5 - תקשורת: נוירוטרנסמיטורים"), titled by the activity. */
+    fun hvpRecordings(courseId: Long): List<PanoptoRecording> = hvpActivities(courseId).mapNotNull { (cmid, name) ->
+        val id = hvpCache.get(cmid) ?: runCatching { Panopto.embeddedSessionId(getText("$base/mod/hvp/view.php?id=$cmid").second).orEmpty() }
+            .getOrElse { e -> if (e is MoodleAuthRequired) throw e; return@mapNotNull null }.also { hvpCache.put(cmid, it) }
+        id.takeIf { it.isNotEmpty() }?.let { PanoptoRecording(it, unescape(name.trim()), "${Panopto.HOST}/Panopto/Pages/Viewer.aspx?id=$it") }
+    }
 
     private fun fetchPanoptoRecordings(courseId: Long): List<PanoptoRecording> {
         // The block renders "מאחזר תוכן…" and loads its list via AJAX (block_panopto_get_content) — the course page HTML
@@ -279,7 +315,7 @@ class MoodleClient(private val base: String) {
     }.getOrDefault(true)
 
     /** Real file name of a mod/resource (follows redirects to pluginfile.php without downloading the body). Null if unknown. */
-    fun fileName(f: MoodleFile): String? = runCatching {
+    fun fileName(f: MoodleFile): String? = if (f.module == FOLDER_FILE) f.name else runCatching {
         var u = "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
         repeat(8) {
             if (u.contains("/pluginfile.php/")) return@runCatching java.net.URLDecoder.decode(u.substringBefore('?').substringAfterLast('/'), "UTF-8")
@@ -303,7 +339,7 @@ class MoodleClient(private val base: String) {
 
     /** Download a mod/resource into [dir]. Returns the file, or throws if it is not PDF/PPTX. */
     fun download(f: MoodleFile, dir: File): File {
-        var u = "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
+        var u = if (f.module == FOLDER_FILE) f.url else "$base/mod/resource/view.php?id=${f.cmid}&redirect=1"
         repeat(8) {
             http.newCall(req(u).build()).execute().use { r ->
                 if (r.isRedirect) {
@@ -320,7 +356,7 @@ class MoodleClient(private val base: String) {
                         ?: error("No file found on Moodle page")
                     return@use
                 }
-                val fromUrl = r.request.url.pathSegments.lastOrNull().orEmpty()
+                val fromUrl = r.request.url.pathSegments.lastOrNull().orEmpty().replace("%", "%25")
                 val name = safeName(fromUrl.ifBlank { f.name })
                 val ext = name.substringAfterLast('.', "").lowercase()
                 if (ext !in setOf("pdf", "pptx", "ppt") && !type.contains("pdf") && !type.contains("presentation"))
@@ -340,7 +376,18 @@ class MoodleClient(private val base: String) {
         /** Process-wide client per Moodle base: keeps sesskey (skips the /my/ page scrape), caches and pooled connections. */
         fun of(base: String): MoodleClient = instances.getOrPut(base) { MoodleClient(base) }
         const val DEFAULT_BASE = "https://moodle.tau.ac.il"
-        val FILE_MODULES = setOf("resource")
+        val FILE_MODULES = setOf("resource", "folder")
+        const val FOLDER_FILE = "folderfile"
+
+        /** Parse a folder page: every pluginfile link under mod_folder/content, path after the revision segment. */
+        fun parseFolderFiles(folder: MoodleFile, html: String): List<MoodleFile> =
+            Regex("""href="([^"]*/pluginfile\.php/\d+/mod_folder/content/\d+/([^"?]+))[^"]*"""").findAll(html).map { m ->
+                val url = unescape(m.groupValues[1])
+                val rel = m.groupValues[2].split('/').map { runCatching { java.net.URLDecoder.decode(unescape(it).replace("+", "%2B"), "UTF-8") }.getOrDefault(it) }
+                val name = (listOf(folder.name.trim()) + rel).filter { it.isNotBlank() }.joinToString(" / ")
+                MoodleFile(-((folder.cmid * 31 + url.hashCode()).let { if (it == Long.MIN_VALUE) 1 else kotlin.math.abs(it) }), name, url, FOLDER_FILE)
+            }.distinctBy { it.url }
+                .filter { it.name.substringAfterLast('.').lowercase() in setOf("pdf", "pptx", "ppt") }.toList()
         fun safeName(s: String) = java.net.URLDecoder.decode(s, "UTF-8").replace(Regex("""[\\/:*?"<>|]"""), "_").take(120)
         fun unescape(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'").replace("&lt;", "<").replace("&gt;", ">")
     }

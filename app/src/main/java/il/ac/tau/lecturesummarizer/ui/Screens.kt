@@ -9,6 +9,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -71,6 +74,7 @@ import java.util.Date
 fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> Unit, onRecordLecture: (String) -> Unit = {}) {
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
+    val unread by app.unread.ids.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
     var deleting by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
@@ -140,9 +144,13 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
             items(courses.size, key = { courses[it].id }) { i ->
                 val c = courses[i]
                 val n = all.count { it.courseId == c.id }
+                val newCount = all.count { it.courseId == c.id && it.id in unread }
                 Column {
+                    Box(Modifier.fillMaxWidth()) {
                     NotebookCover(c.name, "$n lecture${if (n == 1) "" else "s"}" + (if (c.allContext.isNotEmpty()) " · ${c.allContext.size} PDF${if (c.allContext.size == 1) "" else "s"} ✓" else ""),
                         c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
+                    if (newCount > 0) UnreadCountBadge(newCount, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
+                    }
                     Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { editing = c }) { Text("Customize", style = MaterialTheme.typography.labelMedium) }
                         IconButton(onClick = { deleting = c }) { Icon(Icons.Default.Delete, "Delete notebook", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -179,6 +187,7 @@ fun LecturesScreen(
 ) {
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
+    val unread by app.unread.ids.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val courses by app.repo.courses.collectAsStateWithLifecycle()
@@ -238,7 +247,7 @@ fun LecturesScreen(
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.displayDurationMs)}" +
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
-                    course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }) {
+                    course?.coverColorValue() ?: coverColor(l.courseId), badge = stateLabel(l.state), pattern = patternOf(course?.pattern), onDelete = { toDelete = l }, isNew = l.id in unread) {
                     when (l.state) {
                         LectureState.DRAFT -> if (l.allSlides.isNotEmpty() || l.fromPanopto) onAttach(l.id) else onNew(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
@@ -408,7 +417,7 @@ fun stateLabel(s: LectureState) = when (s) {
 
 /** Lecture row: inherits a lighter version of the course cover (pale pattern + colored spine). */
 @Composable
-fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
+fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, isNew: Boolean = false, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -417,7 +426,12 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
             Row {
                 Box(Modifier.width(6.dp).fillMaxHeight().background(color))
                 Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isNew) NewDot(Modifier.padding(end = 8.dp))
+                        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (isNew) Text("NEW · חדש", Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(UnreadRed).padding(horizontal = 8.dp, vertical = 2.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     badge?.let {
                         Text(it, Modifier.padding(top = 2.dp).clip(RoundedCornerShape(50)).background(color).padding(horizontal = 10.dp, vertical = 3.dp),
@@ -429,6 +443,24 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
             }
         }
     }
+}
+
+val UnreadRed = Color(0xFFE53935)
+
+/** Red count bubble on a course cover: lectures with a finished summary not opened yet. */
+@Composable
+fun UnreadCountBadge(n: Int, modifier: Modifier = Modifier) =
+    Box(modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp).clip(RoundedCornerShape(50)).background(UnreadRed).border(2.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
+        .padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+        Text(if (n > 99) "99+" else "$n", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+    }
+
+/** Pulsing red dot on a lecture whose (re)summary finished and wasn't opened yet. */
+@Composable
+fun NewDot(modifier: Modifier = Modifier) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "newdot")
+    val a by t.animateFloat(initialValue = 0.45f, targetValue = 1f, animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween<Float>(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    Box(modifier.size(12.dp).graphicsLayer { alpha = a }.clip(androidx.compose.foundation.shape.CircleShape).background(UnreadRed))
 }
 
 fun safeStart(ctx: android.content.Context, i: Intent) {

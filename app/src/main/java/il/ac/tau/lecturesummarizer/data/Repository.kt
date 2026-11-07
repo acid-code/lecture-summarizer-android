@@ -59,8 +59,13 @@ class Repository(private val context: Context) {
         _courses.value = _courses.value.map { if (it.id == id) f(it) else it }; save()
     }
 
+    /** Set by the app: called when a lecture's summary just became ready (unread badge). */
+    var onSummaryReady: ((String) -> Unit)? = null
+
     @Synchronized fun updateLecture(id: String, f: (Lecture) -> Lecture) {
-        _lectures.value = _lectures.value.map { if (it.id == id) f(it) else it }; save()
+        var ready = false
+        _lectures.value = _lectures.value.map { if (it.id == id) f(it).also { n -> ready = UnreadStore.justFinished(it, n) } else it }; save()
+        if (ready) onSummaryReady?.invoke(id)
     }
 
     @Synchronized fun deleteLecture(id: String) {

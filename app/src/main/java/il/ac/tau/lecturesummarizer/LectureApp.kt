@@ -11,11 +11,16 @@ class LectureApp : Application() {
         private set
     lateinit var settings: Settings
         private set
+    lateinit var unread: il.ac.tau.lecturesummarizer.data.UnreadStore
+        private set
 
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
         repo = Repository(this)
+        unread = il.ac.tau.lecturesummarizer.data.UnreadStore(this)
+        unread.retain(repo.lectures.value.map { it.id }.toSet())
+        repo.onSummaryReady = unread::markUnread
         settings.deviceId // create the stable per-install id once
         il.ac.tau.lecturesummarizer.autosync.AutoSyncWorker.schedule(this)
         il.ac.tau.lecturesummarizer.data.ApiProvider.claimIds = { repo.courses.value.mapNotNull { it.remoteId } }

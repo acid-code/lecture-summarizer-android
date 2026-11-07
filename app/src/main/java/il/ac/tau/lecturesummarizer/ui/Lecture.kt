@@ -378,7 +378,14 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
-    val scope = rememberCoroutineScope()
+    // Process-lifetime scope (not rememberCoroutineScope): Retry / Re-summarize / Reprocess flip the lecture state, which
+    // removes the button's card (or the screen) from composition and used to cancel the request mid-flight, so Retry
+    // "stopped working". Actions now run to completion regardless of what's on screen.
+    val scope = LectureActions.scope
+    DisposableEffect(lectureId) {
+        app.unread.openLectureId = lectureId; app.unread.markSeen(lectureId)
+        onDispose { if (app.unread.openLectureId == lectureId) app.unread.openLectureId = null }
+    }
 
     // Poll job status while processing; fetch the PDF when done.
     LaunchedEffect(l.jobId, l.state) {
@@ -669,4 +676,10 @@ internal fun PanoptoStatusLines(l: Lecture, srtReady: Boolean) {
     Text(if (srtReady) "✓ Captions imported" else "… Captions not downloaded yet", style = MaterialTheme.typography.bodySmall, color = c)
     Text(if (l.allSlides.isNotEmpty()) "✓ Slides attached (${l.allSlides.size})" else "○ No slides attached (optional)", style = MaterialTheme.typography.bodySmall, color = c)
     Text("Job source: " + if (l.segments.isEmpty()) "panopto captions" else "recorded audio", style = MaterialTheme.typography.bodySmall, color = c)
+}
+
+
+/** Detached scope for lecture actions that must outlive the composable that started them. */
+internal object LectureActions {
+    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 }

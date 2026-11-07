@@ -13,6 +13,17 @@ object Panopto {
     fun lectureTitle(recTitle: String): String = recTitle.replace(Regex("""\s+"""), " ").trim().ifBlank { "Panopto recording" }
     const val HOST = "https://tau.cloud.panopto.eu"
 
+    /** Panopto session id from an H5P (mod/hvp) page: iframe Embed.aspx / Viewer.aspx URL, also inside escaped H5PIntegration JSON. */
+    fun embeddedSessionId(html: String): String? {
+        val t = html.replace("\\/", "/").replace("&amp;", "&").replace("\\u0026", "&")
+        return Regex("""(?i)panopto[^"'\s]*/Pages/(?:Embed|Viewer)\.aspx\?(?:[^"'\s]*?&)?id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})""").find(t)?.groupValues?.get(1)?.lowercase()
+    }
+
+    /** mod/hvp links on a course page (HTML fallback): (cmid, title). */
+    fun extractHvpActivities(html: String): List<Pair<Long, String>> =
+        Regex("""href="[^"]*/mod/hvp/view\.php\?id=(\d+)"[^>]*>.*?<span class="instancename">([^<]+)""", RegexOption.DOT_MATCHES_ALL)
+            .findAll(html).map { it.groupValues[1].toLong() to it.groupValues[2].trim() }.distinctBy { it.first }.toList()
+
     /** True when the WebView already holds a Panopto forms-auth session (Viewer loaded = signed in). */
     fun hasSessionCookie(): Boolean {
         val c = android.webkit.CookieManager.getInstance().getCookie(HOST) ?: return false

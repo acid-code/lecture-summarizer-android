@@ -51,8 +51,10 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         if (pro && (retro || live)) SyncCard("סטטוס וריצה אחרונה · Last run") {
             val pausedLive by QC.paused
             val isPaused = pausedLive ?: st.paused
-            val c = remember(runStatus) { st.counts() }
-            val nf = remember(runStatus) { st.notFoundItems() }
+            var cTick by remember { mutableStateOf(0) }
+            val c = remember(runStatus, cTick) { st.counts() }
+            var nfTick by remember { mutableStateOf(0) }
+            val nf = remember(runStatus, nfTick) { st.notFoundItems() }
             if (!CalendarResolver.hasPermission(ctx)) Text("⚠️ Needs calendar access (above).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Queue:", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
@@ -66,7 +68,14 @@ fun AutoSyncSettingsSection(app: LectureApp) {
                 StatusChip("Waiting · ממתינים ${c["wait"] ?: 0}")
                 StatusChip("Not found · לא נמצאו ${c["notfound"] ?: 0}", if ((c["notfound"] ?: 0) > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant)
             }
-            NotFoundList(nf, c["notfound"] ?: 0, legacy = remember(runStatus) { st.notFoundSample })
+            NotFoundList(nf, c["notfound"] ?: 0, legacy = remember(runStatus) { st.notFoundSample },
+                onDismiss = { k -> st.dismissNotFound(k); nfTick++; cTick++ })
+            (c["dismissed"] ?: 0).takeIf { it > 0 }?.let { n ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Dismissed forever · הוסרו לצמיתות: $n", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { st.undismissAll(); cTick++ }) { Text("Restore · שחזר") }
+                }
+            }
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isPaused) Button(onClick = { QC.resume(ctx.applicationContext) }) { Text("Resume · המשך") }
@@ -80,8 +89,27 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         // ── 2. Live / rolling ──
         SyncCard("עדכונים שוטפים · Rolling updates") {
             ToggleRow(ProFeature.LIVE_RECORDINGS.he,
-                "New classes from the last 2 days are checked every ~3 h. Recordings not on Panopto yet stay on a pending watch (daily, up to 3 weeks) and are imported when they appear.",
+                "New classes are checked every ~3 h for 2 days, then daily up to 10 days after the class (some courses upload late). Recordings not on Panopto yet stay on a pending watch (daily, up to 3 weeks) and are imported when they appear.",
                 live && pro) { on -> toggle(ProFeature.LIVE_RECORDINGS, on) { live = it; st.live = it } }
+        }
+        // ── 2b. Whitelist ──
+        if (pro && (retro || live)) SyncCard("מה לייבא · What to import") {
+            var wlMode by remember { mutableStateOf(st.whitelistMode) }
+            var wl by remember { mutableStateOf(st.whitelist) }
+            var draft by remember { mutableStateOf("") }
+            ToggleRow("Only whitelisted courses · רק קורסים מרשימה",
+                "Off: every class in your calendar is imported. On: only calendar items whose course name or number contains one of the entries below.",
+                wlMode) { wlMode = it; st.whitelistMode = it; AutoSyncWorker.runNow(ctx.applicationContext) }
+            if (wlMode) {
+                if (wl.isEmpty()) Text("⚠️ Whitelist is empty — nothing will be imported.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    wl.forEach { w -> InputChip(selected = false, onClick = { wl = wl - w; st.whitelist = wl }, label = { Text("$w  ✕") }) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), singleLine = true, label = { Text("Course name or number") })
+                    TextButton(enabled = draft.isNotBlank(), onClick = { wl = (wl + draft.trim()).distinct(); st.whitelist = wl; draft = ""; AutoSyncWorker.runNow(ctx.applicationContext) }) { Text("Add") }
+                }
+            }
         }
         // ── 3. Historical / retro ──
         SyncCard("הרצאות קודמות · Historical lectures") {
@@ -146,7 +174,7 @@ private fun StatusChip(text: String, color: androidx.compose.ui.graphics.Color =
 
 /** Expandable list of individual classes whose recording wasn't found. */
 @Composable
-private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFoundItem>, total: Int, legacy: String?) {
+private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFoundItem>, total: Int, legacy: String?, onDismiss: (String) -> Unit) {
     if (total == 0 && items.isEmpty()) return
     var open by remember { mutableStateOf(false) }
     val fmt = remember { java.text.SimpleDateFormat("EEE dd/MM HH:mm", java.util.Locale.getDefault()) }
@@ -159,10 +187,13 @@ private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFou
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items.forEach { i ->
-                    Column(Modifier.fillMaxWidth().padding(start = 8.dp)) {
-                        Text(i.course, style = MaterialTheme.typography.bodyMedium)
-                        Text(listOfNotNull(i.kind.ifEmpty { null }, fmt.format(java.util.Date(i.classMs))).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(i.course, style = MaterialTheme.typography.bodyMedium)
+                            Text(listOfNotNull(i.kind.ifEmpty { null }, fmt.format(java.util.Date(i.classMs))).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { onDismiss(i.key) }) { Text("Dismiss forever · הסר") }
                     }
                 }
                 if (total > items.size) Text("Showing latest ${items.size} of $total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

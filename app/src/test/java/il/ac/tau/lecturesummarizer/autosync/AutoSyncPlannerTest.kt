@@ -30,10 +30,26 @@ class AutoSyncPlannerTest {
         assertTrue(AutoSyncPlanner.plan(listOf(c(0).copy(endMs = now + 1)), now, true, true, { null }, { false }).isEmpty())
     }
     @Test fun pendingWatchPolledDaily() {
-        val a = c(6); val b = c(7); val n = c(5)
+        val a = c(6); val b = c(7); val n = c(12)
         val st = mapOf(AutoSyncStore.key(a) to "wait:${now - 2 * 3_600_000}", AutoSyncStore.key(b) to "wait:${now - day}")
         val p = AutoSyncPlanner.plan(listOf(a, b, n), now, retro = false, live = true, status = { st[it] }, alreadyHave = { false })
         assertEquals(listOf(b), p.map { it.cls })   // a polled 2h ago, n older than live window and never enrolled
+    }
+    @Test fun liveWindowTenDaysFreshEveryPass() {
+        // Late uploader: a class 8 days ago is still enrolled by the live watch; after 2 days it's polled daily.
+        val late = c(8); val fresh = c(1); val old = c(11)
+        val st = mapOf(AutoSyncStore.key(fresh) to "wait:${now - 3_600_000}", AutoSyncStore.key(late) to "wait:${now - 3_600_000}")
+        assertEquals(listOf(fresh), AutoSyncPlanner.plan(listOf(late, fresh, old), now, false, true, { st[it] }, { false }).map { it.cls })
+        assertEquals(listOf(late), AutoSyncPlanner.plan(listOf(late, old), now, false, true, { null }, { false }).map { it.cls })
+    }
+    @Test fun dismissedIsFinal() {
+        val a = c(3)
+        assertTrue(AutoSyncPlanner.plan(listOf(a), now, true, true, { "dismissed" }, { false }).isEmpty())
+    }
+    @Test fun whitelist() {
+        assertTrue(AutoSyncPlanner.whitelisted(c(1), listOf("algo")))
+        assertTrue(AutoSyncPlanner.whitelisted(c(1), listOf("0368-1234")))
+        assertFalse(AutoSyncPlanner.whitelisted(c(1), listOf("bio", " ")))
     }
     @Test fun notFoundRetriedDaily() {
         val a = c(10); val b = c(11); val legacy = c(12)
