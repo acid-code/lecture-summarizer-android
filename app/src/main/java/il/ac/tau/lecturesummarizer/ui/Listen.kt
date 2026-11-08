@@ -10,14 +10,22 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Forward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -223,19 +231,43 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             Text(ltr("−" + mmss(total - shownPos)), style = MaterialTheme.typography.labelMedium)
                         }
                         var speedOpen by remember { mutableStateOf(false) }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalButton(onClick = { seek(pos - 15_000) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_back15)) }
-                            Spacer(Modifier.width(16.dp))
-                            Button(onClick = { player.toggle(); playing = player.isPlaying || player.wantPlay },
-                                modifier = Modifier.size(64.dp), shape = RoundedCornerShape(50), contentPadding = PaddingValues(0.dp)) {
-                                Text(if(playing)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_pause)else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_play))
+                        val backCd = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_back15)
+                        val fwdCd = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_forward15)
+                        val playCd = androidx.compose.ui.res.stringResource(if (playing) il.ac.tau.lecturesummarizer.R.string.player_pause else il.ac.tau.lecturesummarizer.R.string.player_play)
+                        // Icon controls + short labels: full "Back/Forward 15 seconds" strings overflowed and hid speed.
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { seek(pos - 15_000) },
+                                modifier = Modifier.weight(1f).semantics { contentDescription = backCd },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                            ) {
+                                Icon(Icons.Default.Replay, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(ltr("−15"), maxLines = 1, overflow = TextOverflow.Clip)
                             }
-                            Spacer(Modifier.width(16.dp))
-                            FilledTonalButton(onClick = { seek(pos + 15_000) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_forward15)) }
-                            Spacer(Modifier.width(8.dp))
-                            // Compact speed button; tap to expand/collapse the speed slider.
-                            OutlinedButton(onClick = { speedOpen = !speedOpen }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                                Text(ltr("%sx".format(if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0'))))
+                            Button(
+                                onClick = { player.toggle(); playing = player.isPlaying || player.wantPlay },
+                                modifier = Modifier.size(56.dp).semantics { contentDescription = playCd },
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(0.dp),
+                            ) {
+                                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, playCd, Modifier.size(28.dp))
+                            }
+                            FilledTonalButton(
+                                onClick = { seek(pos + 15_000) },
+                                modifier = Modifier.weight(1f).semantics { contentDescription = fwdCd },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                            ) {
+                                Text(ltr("+15"), maxLines = 1, overflow = TextOverflow.Clip)
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.Forward, null, Modifier.size(18.dp))
+                            }
+                            OutlinedButton(
+                                onClick = { speedOpen = !speedOpen },
+                                modifier = Modifier.widthIn(min = 56.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Text(ltr("%sx".format(if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0'))), maxLines = 1)
                             }
                         }
                         if (speedOpen) Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -250,19 +282,21 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                     }
                 }
             }
-            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    transcript?.let { if (!it.complete) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_partial), style = MaterialTheme.typography.bodySmall) }
-                    if (tMsg.isNotEmpty()) Text(tMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f, fill = false).padding(end = 8.dp)) {
+                    transcript?.let { if (!it.complete) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_partial), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                    if (tMsg.isNotEmpty()) Text(tMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (lines.isNotEmpty()) {
-                    TextButton(onClick = {
-                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_clipboard_label), transcriptText(l.title, lines)))
-                        android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_copied, lines.size), android.widget.Toast.LENGTH_SHORT).show()
-                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_copy)) }
-                    TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export)) }
-                    FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_follow)) })
+                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = {
+                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_clipboard_label), transcriptText(l.title, lines)))
+                            android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_copied, lines.size), android.widget.Toast.LENGTH_SHORT).show()
+                        }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_copy), maxLines = 1) }
+                        TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export), maxLines = 1) }
+                        FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_follow), maxLines = 1) })
+                    }
                 }
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp)) {
