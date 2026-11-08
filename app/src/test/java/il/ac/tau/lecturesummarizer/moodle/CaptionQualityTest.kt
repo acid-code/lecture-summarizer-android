@@ -15,6 +15,13 @@ class CaptionQualityTest {
         assertTrue(CaptionQuality.captionsUsable(segs("שלום"), videoDurationSec = 120.0))
     }
 
+    @Test fun shortVideoRejectsHourLongCaptionTrack() {
+        // Real bug: ~14s Panopto clip in materials, but SRT spanned a full lecture → huge PDF.
+        val text = "מילה ".repeat(50).trim()
+        assertFalse(CaptionQuality.captionsUsable(segs(text, end = 5547.0), videoDurationSec = 14.9))
+        assertTrue(CaptionQuality.captionsUsable(segs(text, end = 14.0), videoDurationSec = 14.9))
+    }
+
     @Test fun longVideoRejectsTinyText() {
         assertFalse(CaptionQuality.captionsUsable(segs("קצר"), videoDurationSec = 3600.0))
     }
