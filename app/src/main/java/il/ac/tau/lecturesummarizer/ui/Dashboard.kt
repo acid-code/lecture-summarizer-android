@@ -43,6 +43,8 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  }
 }
 @Composable fun HomeScreen(app:LectureApp,onOpen:(String)->Unit,onSettings:()->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit){
+ CompactCalendarTypography {
+
  val all by app.repo.lectures.collectAsState();val courses by app.repo.courses.collectAsState();val unread by app.unread.ids.collectAsState()
  var calendar by remember{mutableStateOf<List<CalendarRuleMatch>>(emptyList())};var loading by remember{mutableStateOf(true)}
  var watch by remember{mutableStateOf(false)};var available by remember{mutableStateOf(CalendarConnection.connected(app))};var selectedCalendars by remember{mutableStateOf(false)};var automatic by remember{mutableStateOf(false)};var lastScan by remember{mutableLongStateOf(0)};var scanError by remember{mutableStateOf(false)}
@@ -59,12 +61,16 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  }
  if(setup)SemesterSetupSheet(app,{setup=false})
  if(watch)androidx.compose.ui.window.Dialog(onDismissRequest={watch=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){CalendarWatchListScreen(app,calendar,{watch=false})}
+
+ }
 }
 @Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null){
- LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+ CompactCalendarTypography {
+
+ LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
   item{Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
   item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
-   Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+   Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
     Text(stringResource(if(next!=null && next.event.start<=System.currentTimeMillis())R.string.home_now else R.string.home_next),style=MaterialTheme.typography.labelMedium)
     if(calendarError){Text(stringResource(R.string.home_calendar_error));TextButton(onClick=onRetry){Text(stringResource(R.string.retry))}}
     else if(next!=null){UpcomingLectureRows(upcoming,onUpcomingAll)
@@ -89,10 +95,12 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
   }}
   item{OutlinedButton(onClick=onSetup,modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.EventNote,null);Text(stringResource(R.string.semester_setup))}}
  }
+
+ }
 }
 @Composable fun DashboardLectureRow(l:Lecture,courses:List<Course>,onClick:()->Unit,detail:@Composable ()->Unit){
  OutlinedCard(onClick=onClick,modifier=Modifier.fillMaxWidth()){
-  Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(bidi(courses.firstOrNull{it.id==l.courseId}?.name.orEmpty()),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary);Text(bidi(l.title),style=MaterialTheme.typography.titleSmall);detail()}
+  Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(courses.firstOrNull{it.id==l.courseId}?.name.orEmpty()),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary);Text(bidi(l.title),style=MaterialTheme.typography.titleSmall);detail()}
  }
 }
 @Composable fun SearchScreen(app:LectureApp,onOpen:(String)->Unit){

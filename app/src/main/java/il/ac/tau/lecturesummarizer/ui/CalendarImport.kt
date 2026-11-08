@@ -45,13 +45,17 @@ import java.time.format.DateTimeFormatter
 /** Sticky action owns navigation/IME insets. All explanatory content scrolls above it. */
 @Composable fun CalendarImportFrame(onBack:()->Unit,label:String,enabled:Boolean,onConfirm:()->Unit,
     footerInsets:WindowInsets=WindowInsets.navigationBars.union(WindowInsets.ime),content:@Composable (PaddingValues)->Unit){
+ CompactCalendarTypography {
+
     AppScaffold(stringResource(R.string.calendar_import_title),onBack=onBack,bottomBar={
-        Surface(tonalElevation=0.dp){Column(Modifier.fillMaxWidth().windowInsetsPadding(footerInsets).padding(horizontal=20.dp,vertical=12.dp)){
+        Surface(tonalElevation=0.dp){Column(Modifier.fillMaxWidth().windowInsetsPadding(footerInsets).padding(horizontal=16.dp,vertical=8.dp)){
             Button(onClick=onConfirm,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("calendar-import-primary")){
                 Text(label,Modifier.fillMaxWidth(),textAlign=TextAlign.Center,softWrap=true)
             }
         }}
     },content=content)
+
+ }
 }
 @Composable fun CalendarImportScreen(app:LectureApp,onBack:()->Unit,onImported:()->Unit){
     var calendars by remember{mutableStateOf(emptyList<CalendarSource>())}
@@ -78,7 +82,7 @@ import java.time.format.DateTimeFormatter
             if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
             if(truncated)Text(stringResource(R.string.calendar_rules_truncated),color=MaterialTheme.colorScheme.error)
         }
-        val body=Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().padding(horizontal=20.dp)
+        val body=Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().padding(horizontal=16.dp)
         if(events==null)CalendarSourcePickerContent(calendars,ids,{ids=it},body,!busy,header)
         else CalendarEventPickerContent(events!!,selected,query,{query=it},{selected=it},body,!busy,header,{
             Text(stringResource(R.string.calendar_series_selection_explainer),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -87,40 +91,46 @@ import java.time.format.DateTimeFormatter
     }
 }
 @Composable fun CalendarSourcePickerContent(calendars:List<CalendarSource>,ids:Set<Long>,onSelected:(Set<Long>)->Unit,modifier:Modifier=Modifier,enabled:Boolean=true,header:@Composable ()->Unit={}){
-    LazyColumn(modifier,contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+ CompactCalendarTypography {
+
+    LazyColumn(modifier,contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         item{header()}
         item{Text(stringResource(R.string.calendar_choose_sources),style=MaterialTheme.typography.titleLarge)}
         item{Text(stringResource(R.string.calendar_rules_privacy),style=MaterialTheme.typography.bodySmall)}
         if(calendars.isEmpty())item{Text(stringResource(R.string.calendar_none))}
         items(calendars,key={it.id}){c->OutlinedCard(onClick={if(enabled)onSelected(if(c.id in ids)ids-c.id else ids+c.id)},modifier=Modifier.fillMaxWidth()){
-            Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.Top){Checkbox(c.id in ids,{on->onSelected(if(on)ids+c.id else ids-c.id)},enabled=enabled)
-                Column(Modifier.weight(1f).padding(top=8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){Text(bidi(c.name),softWrap=true);Text(bidi(c.account),style=MaterialTheme.typography.bodySmall,softWrap=true)}
+            Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.Top){Checkbox(c.id in ids,{on->onSelected(if(on)ids+c.id else ids-c.id)},enabled=enabled)
+                Column(Modifier.weight(1f).padding(top=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){Text(bidi(c.name),softWrap=true);Text(bidi(c.account),style=MaterialTheme.typography.bodySmall,softWrap=true)}
             }
         }}
     }
+
+ }
 }
 /** Bulk actions never silently drop hidden selections. Clear all clears the entire selection. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun EventSelectionTools(query:String,onQuery:(String)->Unit,selectedCount:Int,total:Int,onSelectAll:()->Unit,onClear:()->Unit,enabled:Boolean=true){
     OutlinedTextField(query,onQuery,Modifier.fillMaxWidth(),singleLine=true,label={Text(stringResource(R.string.calendar_event_search))},leadingIcon={Icon(Icons.Default.Search,null)},enabled=enabled)
     Text(stringResource(R.string.calendar_selected_series_count,selectedCount,total),style=MaterialTheme.typography.labelLarge)
-    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
         TextButton(enabled=enabled,onClick=onSelectAll){Text(stringResource(if(query.isBlank())R.string.calendar_select_all else R.string.calendar_select_visible),softWrap=true)}
         TextButton(enabled=enabled && selectedCount>0,onClick=onClear){Text(stringResource(R.string.calendar_clear_all),softWrap=true)}
     }
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun CalendarEventPickerContent(events:List<CalendarImportEvent>,selected:Set<String>,query:String,onQuery:(String)->Unit,onSelected:(Set<String>)->Unit,modifier:Modifier=Modifier,enabled:Boolean=true,header:@Composable ()->Unit={},footer:@Composable ()->Unit={}){
+ CompactCalendarTypography {
+
     val groups=CalendarSeriesSelection.groups(events);val visible=CalendarSeriesSelection.filter(groups,query);val keys=CalendarSeriesSelection.migrateKeys(selected,groups)
-    LazyColumn(modifier.fillMaxSize().testTag("calendar-series-list"),contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+    LazyColumn(modifier.fillMaxSize().testTag("calendar-series-list"),contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         item{header()}
         item{Text(stringResource(R.string.calendar_pick_events),style=MaterialTheme.typography.titleLarge,softWrap=true)}
         item{Text(stringResource(R.string.calendar_series_only),style=MaterialTheme.typography.bodySmall)}
         item{EventSelectionTools(query,onQuery,keys.size,groups.size,{onSelected(keys+visible.map{it.key})},{onSelected(emptySet())},enabled)}
         if(visible.isEmpty())item{Text(stringResource(R.string.calendar_series_empty))}
         items(visible,key={it.key}){series->OutlinedCard(onClick={if(enabled)onSelected(if(series.key in keys)keys-series.key else keys+series.key)},modifier=Modifier.fillMaxWidth().testTag("calendar-series:${series.key}")){
-            Row(Modifier.padding(10.dp),verticalAlignment=Alignment.Top){Checkbox(series.key in keys,{on->onSelected(if(on)keys+series.key else keys-series.key)},enabled=enabled)
-                Column(Modifier.weight(1f).padding(top=8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+            Row(Modifier.padding(8.dp),verticalAlignment=Alignment.Top){Checkbox(series.key in keys,{on->onSelected(if(on)keys+series.key else keys-series.key)},enabled=enabled)
+                Column(Modifier.weight(1f).padding(top=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){
                     Text(bidi(series.title),style=MaterialTheme.typography.titleSmall,softWrap=true)
                     Text(seriesSchedule(series),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,softWrap=true)
                     if(series.instances.any{it.seriesId!=null && it.eventId!=it.seriesId})Text(stringResource(R.string.calendar_series_exceptions),style=MaterialTheme.typography.labelSmall,softWrap=true)
@@ -129,6 +139,8 @@ import java.time.format.DateTimeFormatter
         }}
         item{footer()}
     }
+
+ }
 }
 @Composable fun seriesSchedule(s:CalendarSeries):String{
     val locale=LocalConfiguration.current.locales[0];val zone=runCatching{ZoneId.of(s.zone)}.getOrDefault(ZoneId.of("Asia/Jerusalem"))

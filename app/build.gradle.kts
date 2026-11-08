@@ -43,7 +43,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*", "**/CalendarV2ScreenshotsTest*", "**/CalendarV3ScreenshotsTest*", "**/CalendarV4ScreenshotsTest*", "**/StudyToolsScreenshotsTest*", "**/HomeCompactScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
+    testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*", "**/CalendarV2ScreenshotsTest*", "**/CalendarV3ScreenshotsTest*", "**/CalendarV4ScreenshotsTest*", "**/StudyToolsScreenshotsTest*", "**/HomeCompactScreenshotsTest*", "**/PhoneTypographyScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
     buildFeatures { compose = true; buildConfig = true }
 }
 
