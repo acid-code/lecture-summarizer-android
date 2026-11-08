@@ -41,4 +41,16 @@ class TutorAnswerTest {
         assertTrue(hebrewDominant("הסבר על VC dimension"))
         assertFalse(hebrewDominant("Explain VC dimension only"))
     }
+
+    @Test fun sanitizeRewritesUuidCiteAndAppendsMissing() {
+        val id = "b38acb6e-7e8a-4bd3-8e0d-72c7a7f57d84:s:850"
+        val cites = listOf(
+            il.ac.tau.lecturesummarizer.study.TutorCitation(id, "summary", "Summary", "An enzyme lowers activation energy."),
+            il.ac.tau.lecturesummarizer.study.TutorCitation("t:0", "transcript", "Transcript", "It is not consumed by the reaction."),
+        )
+        val out = sanitizeTutorAnswer("A homozygote has identical alleles [$id].", cites)
+        assertTrue(out.contains("[1]"))
+        assertFalse(out.contains("b38acb6e", ignoreCase = true))
+        assertTrue(out.contains("[2]"))
+    }
 }

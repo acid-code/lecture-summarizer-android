@@ -752,11 +752,14 @@
     <string name="tutor_empty">מה תרצו להבין טוב יותר?</string>
     <string name="tutor_empty_body">כתבו שאלה על מושג או קטע שמופיע בשיעור. אם אין תשובה בחומר, נאמר זאת.</string>
     <string name="tutor_suggestion">הסבירו את המושג %1$s לפי הקורס</string>
-    <string name="tutor_sources">צפייה במקורות (%1$s)</string>
+    <string name="tutor_sources">מקורות (%1$s)</string>
+    <string name="tutor_sources_show">הצג</string>
+    <string name="tutor_sources_hide">הסתר</string>
     <string name="tutor_source_transcript">מהתמלול</string>
     <string name="tutor_source_summary">מהסיכום</string>
     <string name="tutor_source_slides">מהשקפים</string>
     <string name="tutor_source_context">מחומר הרקע של הקורס</string>
+    <string name="tutor_source_page">מקור ⁦%1$s⁩ מתוך ⁦%2$s⁩</string>
     <string name="tutor_thinking">בודקים את החומר…</string>
     <string name="tutor_question">שאלה על הקורס</string>
     <string name="tutor_send">שליחת שאלה</string>

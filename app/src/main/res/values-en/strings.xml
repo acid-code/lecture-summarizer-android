@@ -740,11 +740,14 @@
     <string name="tutor_empty">What would you like to understand?</string>
     <string name="tutor_empty_body">Ask about a concept or passage from this course. If the material does not cover it, we will say so.</string>
     <string name="tutor_suggestion">Explain %1$s using this course</string>
-    <string name="tutor_sources">View sources (%1$s)</string>
+    <string name="tutor_sources">Sources (%1$s)</string>
+    <string name="tutor_sources_show">Show</string>
+    <string name="tutor_sources_hide">Hide</string>
     <string name="tutor_source_transcript">From the transcript</string>
     <string name="tutor_source_summary">From the summary</string>
     <string name="tutor_source_slides">From the slides</string>
     <string name="tutor_source_context">From course context</string>
+    <string name="tutor_source_page">Source ⁦%1$s⁩ of ⁦%2$s⁩</string>
     <string name="tutor_thinking">Checking the course material…</string>
     <string name="tutor_question">Question about this course</string>
     <string name="tutor_send">Send question</string>

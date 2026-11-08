@@ -40,9 +40,12 @@ class StudyToolsScreenshotsTest {
  private fun render(lang:String,dark:Boolean){
    val he=lang=="he";val title=if(he)"הרצאה 3 · אנזימים"else "Lecture 3 · Enzymes"
    val concepts=if(he)listOf(Concept("אנזים","זרז ביולוגי המפחית את אנרגיית השפעול של תגובה."),Concept("סובסטרט","החומר שעליו פועל האנזים."),Concept("אתר פעיל","האזור באנזים שאליו נקשר הסובסטרט."),Concept("אנרגיית שפעול","האנרגיה הדרושה כדי להתחיל את התגובה."))else listOf(Concept("Enzyme","A biological catalyst that lowers the activation energy of a reaction."),Concept("Substrate","The material on which an enzyme acts."),Concept("Active site","The region of the enzyme where the substrate binds."),Concept("Activation energy","The energy needed to start a reaction."))
-   val text=if(he)"אנזים מפחית את אנרגיית השפעול של תגובה ואינו נצרך בה."else "An enzyme lowers the activation energy of a reaction and is not consumed."
+   val text=if(he)"אנזים מפחית את אנרגיית השפעול של תגובה ואינו נצרך בה. [1]\n\nהסובסטרט נקשר לאתר הפעיל וכך מזרז את התגובה. [2]"else "An enzyme lowers the activation energy of a reaction and is not consumed. [1]\n\nThe substrate binds the active site and speeds the reaction. [2]"
    val question=if(he)"מה תפקיד האנזים בשיעור הזה?"else "What does an enzyme do in this lecture?"
-   val answered=listOf(TutorTurn(question,TutorReply("answer",text,listOf(TutorCitation("t:0","transcript","Transcript",text)))))
+   val answered=listOf(TutorTurn(question,TutorReply("answer",text,listOf(
+     TutorCitation("t:0","transcript",if(he)"תמלול · דקה 4:20"else "Transcript · 4:20",if(he)"אנזים מפחית את אנרגיית השפעול של תגובה ואינו נצרך בה."else "An enzyme lowers the activation energy of a reaction and is not consumed."),
+     TutorCitation("s:0","summary",if(he)"סיכום · אנזימים"else "Summary · Enzymes",if(he)"הסובסטרט נקשר לאתר הפעיל וכך מזרז את התגובה."else "The substrate binds the active site and speeds the reaction."),
+   ))))
    val refused=listOf(TutorTurn(if(he)"עזרו לי לתכנן חופשה"else "Help me plan a holiday",TutorReply("refused",if(he)"אפשר לשאול רק על החומר של השיעור הזה."else "I can only help with this lecture's material.",emptyList())))
    var screen by mutableIntStateOf(0);var input by mutableStateOf("")
    compose.setContent{CompositionLocalProvider(LocalLayoutDirection provides if(he)LayoutDirection.Rtl else LayoutDirection.Ltr){AppTheme(darkMode=dark){
@@ -64,7 +67,7 @@ class StudyToolsScreenshotsTest {
    repeat(concepts.size){compose.onNodeWithTag("recall-card").performClick();compose.mainClock.advanceTimeBy(400);compose.onNodeWithTag("recall-known").performClick()}
    compose.onNodeWithText(ctx.getString(R.string.flashcard_finished)).assertIsDisplayed();capture("memory-complete")
    listOf(2 to "memory-empty",3 to "memory-download-offline",4 to "tutor-empty",5 to "tutor-answer",6 to "tutor-refusal",7 to "tutor-offline",8 to "tutor-server-required",9 to "tutor-loading").forEach{(i,name)->compose.runOnIdle{screen=i};capture(name)
-     if(i==5){compose.onNodeWithText(ctx.getString(R.string.tutor_sources,ltr(1))).performClick();capture("tutor-sources");compose.onAllNodesWithText(bidi(text)).assertCountEquals(2)}
+     if(i==5){compose.onNodeWithText(ctx.getString(R.string.tutor_sources_show)).performClick();capture("tutor-sources");assertTrue(compose.onAllNodesWithText("[1]",substring=true).fetchSemanticsNodes().size>=2);assertTrue(compose.onAllNodesWithText("[2]",substring=true).fetchSemanticsNodes().size>=2)}
    }
  }
  @Test fun longDefinitionCanBeReadInFull(){

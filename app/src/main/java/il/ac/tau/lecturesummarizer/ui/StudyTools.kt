@@ -117,10 +117,18 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  val ctx=LocalContext.current;val store=remember{StudyStore(app)};val scope=rememberCoroutineScope();val online=rememberOnline().first
  var turns by remember(id){mutableStateOf(emptyList<TutorTurn>())};var concepts by remember(id){mutableStateOf(emptyList<Concept>())};var busy by remember{mutableStateOf(false)}
  var question by rememberSaveable(id){mutableStateOf("")};var error by remember{mutableIntStateOf(0)};var clear by remember{mutableStateOf(false)};var retryAt by remember{mutableLongStateOf(0L)};var now by remember{mutableLongStateOf(System.currentTimeMillis())}
+ var sourceView by remember{mutableStateOf<Pair<List<TutorCitation>,Int>?>(null)}
  LaunchedEffect(id){val saved=withContext(Dispatchers.IO){store.turns(id) to store.cached(id,densityOf(l))?.entries.orEmpty()};turns=saved.first;concepts=saved.second}
  LaunchedEffect(retryAt){while(System.currentTimeMillis()<retryAt){delay(1000);now=System.currentTimeMillis()};now=System.currentTimeMillis()}
+ sourceView?.let{(cites,idx)->
+  androidx.activity.compose.BackHandler{sourceView=null}
+  TutorSourceViewer(cites,idx,l.pdfPath?.let(::File)?.takeIf{it.exists()},l.allSlides,{sourceView=null})
+  return
+ }
  AppScaffold(stringResource(R.string.tutor_title),onBack=onBack,actions={IconButton(enabled=turns.isNotEmpty()&&!busy,onClick={clear=true}){Icon(Icons.Default.DeleteSweep,stringResource(R.string.tutor_clear))}}){pad->
-   TutorConversation(l.title,turns,question,{question=it.take(1200)},busy,online&&l.remoteId!=null&&now>=retryAt,if(!online)ctx.getString(R.string.tutor_offline)else if(l.remoteId==null)ctx.getString(R.string.tutor_not_ready)else if(retryAt>now)ctx.getString(R.string.tutor_limit_until,ltr(java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(retryAt))))else if(error!=0)ctx.getString(error)else null,concepts.take(3),Modifier.padding(pad).consumeWindowInsets(pad)){
+   TutorConversation(l.title,turns,question,{question=it.take(1200)},busy,online&&l.remoteId!=null&&now>=retryAt,if(!online)ctx.getString(R.string.tutor_offline)else if(l.remoteId==null)ctx.getString(R.string.tutor_not_ready)else if(retryAt>now)ctx.getString(R.string.tutor_limit_until,ltr(java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(retryAt))))else if(error!=0)ctx.getString(error)else null,concepts.take(3),Modifier.padding(pad).consumeWindowInsets(pad),onOpenSource={turnId,index->
+     val cites=turns.firstOrNull{it.id==turnId}?.reply?.citations.orEmpty();if(cites.isNotEmpty())sourceView=cites to index.coerceIn(0,cites.lastIndex)
+   }){
      if(busy||question.isBlank())return@TutorConversation
      val text=question.trim();busy=true;error=0
      scope.launch{try{
@@ -133,7 +141,7 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  if(clear)AlertDialog(onDismissRequest={clear=false},title={Text(stringResource(R.string.tutor_clear))},text={Text(stringResource(R.string.tutor_clear_body))},confirmButton={TextButton(onClick={scope.launch{withContext(Dispatchers.IO){store.clearChat(id)};turns=emptyList();clear=false}}){Text(stringResource(R.string.tutor_clear))}},dismissButton={TextButton(onClick={clear=false}){Text(stringResource(R.string.copy_cancel))}})
 }
 @OptIn(ExperimentalLayoutApi::class)
-@Composable fun TutorConversation(title:String,turns:List<TutorTurn>,question:String,onQuestion:(String)->Unit,busy:Boolean,canSend:Boolean,error:String?,concepts:List<Concept>,modifier:Modifier=Modifier,onSend:()->Unit){
+@Composable fun TutorConversation(title:String,turns:List<TutorTurn>,question:String,onQuestion:(String)->Unit,busy:Boolean,canSend:Boolean,error:String?,concepts:List<Concept>,modifier:Modifier=Modifier,onOpenSource:(String,Int)->Unit={_,_->},onSend:()->Unit){
  val ctx=LocalContext.current;val list=androidx.compose.foundation.lazy.rememberLazyListState()
  LaunchedEffect(turns.lastOrNull()?.id,busy){list.animateScrollToItem(((if(turns.isEmpty())1 else turns.size)+(if(busy)2 else 0)-1).coerceAtLeast(0))}
  Column(modifier.fillMaxSize().navigationBarsPadding().imePadding()){
@@ -143,11 +151,13 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
    LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=list,contentPadding=PaddingValues(horizontal=20.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
      if(turns.isEmpty())item(key="StudyTools:static:1"){Column(verticalArrangement=Arrangement.spacedBy(12.dp)){Text(stringResource(R.string.tutor_empty),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_empty_body),style=MaterialTheme.typography.bodyMedium);FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){concepts.forEach{c->SuggestionChip(onClick={onQuestion(ctx.getString(R.string.tutor_suggestion,c.term))},label={Text(bidi(c.term))})}}}}
      itemsIndexed(turns,key={_,turn->turn.id}){index,turn->Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-       Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.primaryContainer,modifier=Modifier.fillMaxWidth()){Text(bidi(turn.question),Modifier.padding(16.dp),style=MaterialTheme.typography.bodyMedium)}
-       OutlinedCard(Modifier.fillMaxWidth()){
-         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-           Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){Icon(if(turn.reply.kind=="answer")Icons.Default.School else Icons.Default.Info,null,Modifier.size(18.dp));Text(stringResource(R.string.tutor_label),style=MaterialTheme.typography.labelMedium)}
-           TutorAnswerBody(turn.reply.answer,turn.reply.citations,turn.id)
+       Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.primaryContainer,modifier=Modifier.fillMaxWidth()){
+         Text(bidi(turn.question),Modifier.padding(16.dp),style=MaterialTheme.typography.bodyLarge.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content))
+       }
+       OutlinedCard(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.large){
+         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+           Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){Icon(if(turn.reply.kind=="answer")Icons.Default.School else Icons.Default.Info,null,Modifier.size(18.dp));Text(stringResource(R.string.tutor_label),style=MaterialTheme.typography.labelLarge)}
+           TutorAnswerBody(turn.reply.answer,turn.reply.citations,turn.id,onOpenSource={onOpenSource(turn.id,it)})
          }
        }
      }}
@@ -165,8 +175,13 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  }
 }
 
-/** Keep the client hint aligned with the actual question; the server independently checks it. */
+private val heLangRequest=Regex("""(?:^|[\s,.;:!?])(?:בעברית|ב\s*עברית|ענה\s+בעברית|תענה\s+בעברית|תשובה\s+בעברית|in\s+hebrew|answer\s+in\s+hebrew|reply\s+in\s+hebrew)(?:$|[\s,.;:!?])""",RegexOption.IGNORE_CASE)
+private val enLangRequest=Regex("""(?:^|[\s,.;:!?])(?:באנגלית|ב\s*אנגלית|ענה\s+באנגלית|תענה\s+באנגלית|תשובה\s+באנגלית|in\s+english|answer\s+in\s+english|reply\s+in\s+english)(?:$|[\s,.;:!?])""",RegexOption.IGNORE_CASE)
+
+/** App locale wins; only an explicit Hebrew/English request overrides (server applies the same rule). */
 internal fun tutorQuestionLanguage(question:String,fallback:String):String {
- val he=question.count{it in '\u0590'..'\u05ff'};val en=question.count{it in 'a'..'z'||it in 'A'..'Z'}
- return if(he>0&&he>=en/2f)"he" else if(en>0)"en" else if(fallback=="he")"he" else "en"
+ val base=if(fallback=="he")"he" else "en"
+ val he=heLangRequest.containsMatchIn(question)
+ val en=enLangRequest.containsMatchIn(question)
+ return when{he&&!en->"he";en&&!he->"en";else->base}
 }

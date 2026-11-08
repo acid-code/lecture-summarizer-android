@@ -91,8 +91,7 @@ class SlideDeckRepairWorker(ctx: Context, params: WorkerParameters) : CoroutineW
                 OneTimeWorkRequestBuilder<SlideDeckRepairWorker>()
                     .setConstraints(
                         Constraints.Builder()
-                            .setRequiredNetworkType(NetworkType.UNMETERED)
-                            .setRequiresBatteryNotLow(true)
+                            .setRequiredNetworkType(NetworkType.CONNECTED)
                             .build(),
                     )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
