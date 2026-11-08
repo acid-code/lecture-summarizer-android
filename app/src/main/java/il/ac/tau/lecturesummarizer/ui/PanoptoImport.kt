@@ -93,19 +93,36 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
             // New entry from Panopto: pin source + Moodle course, fetch captions in the background and go straight to
             // Materials so slides (file / Moodle, filtered to this course) can be attached meanwhile.
             store.setLectureSource(lectureId, course.id, rec.title)
-            app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, error = null) }
+            val durMs = withContext(Dispatchers.IO) {
+                runCatching { (client.deliveryInfo(rec).durationSec * 1000).toLong() }.getOrDefault(0L)
+            }
+            app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, panoptoDurationMs = durMs.takeIf { d -> d > 0 } ?: it.panoptoDurationMs, error = null) }
             PanoptoFetch.start(app, lectureId)
             finished(); return
         }
         state = PState.Importing(rec.title)
         state = withContext(Dispatchers.IO) {
             runCatching {
+                val info = runCatching { client.deliveryInfo(rec) }.getOrNull()
+                val videoSec = info?.durationSec?.takeIf { it > 0 }
+                val videoMs = ((videoSec ?: 0.0) * 1000).toLong()
                 val srtText = client.downloadCaptions(rec)
                 val segs = Panopto.parseSrt(srtText)
-                if (segs.isEmpty()) error("Captions are empty")
-                // Mark the lecture as Panopto-sourced (labels, Upload, Reprocess) and cache the captions locally.
+                store.setLectureSource(lectureId, course.id, rec.title)
+                // Cascade: thin/empty captions on a long video → download audio instead of an empty study PDF.
+                if (!CaptionQuality.captionsUsable(segs, videoSec)) {
+                    if (info?.hasAudio == false) error(ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_thin_no_audio, CaptionQuality.formatDurationHe(videoSec ?: 0.0)))
+                    app.repo.updateLecture(lectureId) {
+                        it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl,
+                            panoptoSrtPath = null, panoptoAudio = true, panoptoDurationMs = videoMs.takeIf { d -> d > 0 } ?: it.panoptoDurationMs,
+                            segments = emptyList(), error = null,
+                            stageDetail = ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_cascade_audio, CaptionQuality.formatDurationHe(videoSec ?: 0.0)))
+                    }
+                    il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly = true)
+                    return@runCatching "audio"
+                }
                 val srtFile = java.io.File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srtText) }
-                app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
+                app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = videoMs.takeIf { d -> d > 0 } ?: (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
                 val api = ApiProvider.get(app.settings)
                 val repo = app.repo
                 val c = repo.course(lecture?.courseId ?: newCourseId!!) ?: error("Course missing")
@@ -113,15 +130,29 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 val l = repo.lecture(lectureId)!!
                 val remote = l.remoteId ?: api.createLecture(courseRemote, l.title, l.recordedAtMs).also { rid -> repo.updateLecture(lectureId) { it.copy(remoteId = rid) } }
                 val lang = Panopto.languageOf(segs)
-                store.setLectureSource(lectureId, course.id, rec.title)
                 JobKick.kick(lectureId)
-                val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, lang, segs))
+                val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, lang, segs, videoDurationSec = videoSec))
                     ?: error("Server didn't start a captions job")
                 repo.updateLecture(lectureId) { it.copy(jobId = job, liveJob = false, state = LectureState.PROCESSING, error = null, stage = null, stageDetail = null, progress = 0) }
                 JobPollWorker.enqueue(ctx.applicationContext, lectureId, replace = true)
-                null
-            }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
-        } ?: run { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_imported_toast), Toast.LENGTH_SHORT).show(); finished(); return }
+                "captions"
+            }.fold(
+                onSuccess = { mode -> mode },
+                onFailure = { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) },
+            )
+        }.let { result ->
+            when (result) {
+                is PState -> result
+                "audio" -> {
+                    Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_cascade_toast), Toast.LENGTH_LONG).show()
+                    finished(); return
+                }
+                else -> {
+                    Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_imported_toast), Toast.LENGTH_SHORT).show()
+                    finished(); return
+                }
+            }
+        }
     }
 
     fun importAudio(course: MoodleCourse, rec: PanoptoRecording, wifiOnly: Boolean) {
@@ -282,11 +313,12 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     }
                     items(s.recs.filter { !onlyWithCaptions || capStatus[it.deliveryId] != CaptionStatus.NONE }, key = { it.deliveryId }) { r ->
                         var sessionMs by remember(r.deliveryId){mutableStateOf(r.startMs ?: dateStore.sessionStart(r.deliveryId)?.takeIf{it>0})}
+                        var durationSec by remember(r.deliveryId){mutableStateOf<Double?>(null)}
                         LaunchedEffect(r.deliveryId){
-                            if(sessionMs==null && dateStore.sessionStart(r.deliveryId)==null){
-                                val info=withContext(Dispatchers.IO){dateLimit.withPermit{runCatching{client.deliveryInfo(r)}.getOrNull()?.also{dateStore.setSessionStart(r.deliveryId,it.sessionStartMs)}}}
-                                info?.let{sessionMs=it.sessionStartMs;audioOk[r.deliveryId]=it.hasAudio}
-                            }
+                            val info=withContext(Dispatchers.IO){dateLimit.withPermit{runCatching{client.deliveryInfo(r)}.getOrNull()?.also{
+                                if(it.sessionStartMs!=null)dateStore.setSessionStart(r.deliveryId,it.sessionStartMs)
+                            }}}
+                            info?.let{sessionMs=it.sessionStartMs ?: sessionMs; durationSec=it.durationSec.takeIf{d->d>0}; audioOk[r.deliveryId]=it.hasAudio}
                         }
                         val cs = capStatus[r.deliveryId] ?: CaptionStatus.CHECKING
                         val noCaps = cs == CaptionStatus.NONE
@@ -300,7 +332,12 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Column(Modifier.padding(12.dp)) {
                                 Text(bidi(r.title), modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(classKindLabel(MoodleMatch.kindFromTitle(r.title)) + (sessionMs?.let { " • " + java.time.format.DateTimeFormatter.ofPattern("d MMM").withZone(java.time.ZoneId.of("Asia/Jerusalem")).format(java.time.Instant.ofEpochMilli(it)) } ?: ""), style = MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                    val meta = buildString {
+                                        append(classKindLabel(MoodleMatch.kindFromTitle(r.title)))
+                                        durationSec?.let { append(" • "); append(CaptionQuality.formatDurationHe(it)) }
+                                        sessionMs?.let { append(" • "); append(java.time.format.DateTimeFormatter.ofPattern("d MMM").withZone(java.time.ZoneId.of("Asia/Jerusalem")).format(java.time.Instant.ofEpochMilli(it))) }
+                                    }
+                                    Text(meta, style = MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                     val (label, color) = when (cs) {
                                         CaptionStatus.HAS -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_available) to Color(0xFF2E7D32)
                                         CaptionStatus.NONE -> when (audio) {

@@ -490,10 +490,34 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
             // 4) Listen / transcript
             val audio = l.segments.count { File(it.path).exists() }
+            var sharingTranscript by remember { mutableStateOf(false) }
             if (audio > 0 || l.remoteId != null) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_listen_and_transcript), Icons.Default.Headphones) {
                 Text(if (audio > 0) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_help) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_no_audio),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TonalAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_transcript), Icons.Default.PlayArrow, Modifier.fillMaxWidth(), onClick = onListen)
+                if (l.remoteId != null) OutlineAction(
+                    if (sharingTranscript) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_share_busy)
+                    else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export),
+                    Icons.Default.Share, Modifier.fillMaxWidth(), enabled = !sharingTranscript,
+                ) {
+                    val remote = l.remoteId ?: return@OutlineAction
+                    sharingTranscript = true
+                    scope.launch(Dispatchers.IO) {
+                        val result = runCatching {
+                            val tr = ApiProvider.get(app.settings).transcript(remote)
+                            val lines = tr?.lines.orEmpty()
+                            if (lines.isEmpty()) error("empty")
+                            lines
+                        }
+                        sharingTranscript = false
+                        launch(Dispatchers.Main) {
+                            result.onSuccess { shareTranscriptTxt(ctx, l.title, it) }
+                                .onFailure {
+                                    Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_share_empty), Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    }
+                }
             }
 
             if(l.remoteId!=null||pdf!=null)StudyToolsEntry(onMemory,onTutor)
@@ -527,6 +551,42 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             val jid = l.jobId
             val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.all { it.uploaded } && l.remoteId != null
             val canResummarize = jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
+            var confirmForceRestart by remember { mutableStateOf(false) }
+            var confirmStopJob by remember { mutableStateOf(false) }
+            if (l.state == LectureState.PROCESSING && jid != null) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_controls), Icons.Default.Build) {
+                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart), Icons.Default.Refresh, Modifier.fillMaxWidth()) { confirmForceRestart = true }
+                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop), Icons.Default.Stop, Modifier.fillMaxWidth()) { confirmStopJob = true }
+            }
+            if (confirmForceRestart) AlertDialog(
+                onDismissRequest = { confirmForceRestart = false },
+                title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart_confirm_title)) },
+                text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart_confirm_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmForceRestart = false
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { il.ac.tau.lecturesummarizer.upload.forceRestartLecture(app, lectureId) }
+                                .onFailure { app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) } }
+                        }
+                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart)) }
+                },
+                dismissButton = { TextButton(onClick = { confirmForceRestart = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
+            )
+            if (confirmStopJob) AlertDialog(
+                onDismissRequest = { confirmStopJob = false },
+                title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_confirm_title)) },
+                text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_confirm_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmStopJob = false
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { il.ac.tau.lecturesummarizer.upload.stopLectureJob(app, lectureId) }
+                                .onFailure { app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) } }
+                        }
+                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop)) }
+                },
+                dismissButton = { TextButton(onClick = { confirmStopJob = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
+            )
             if (l.state == LectureState.FAILED || repairOpen && canResummarize) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
                 if (l.state == LectureState.FAILED) {
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).
@@ -588,12 +648,14 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_re_summarize), Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) { pickDensity = true }
                     if (pickDensity) AlertDialog(onDismissRequest = { pickDensity = false },
                         title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_summary_level)) },
-                        text = { Column {
-                            il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
-                                TextButton(onClick = {
-                                    pickDensity = false
-                                    il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,lectureId,d.api)
-                                }) { Text(densityLabel(d)) }
+                        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
+                                    TextButton(onClick = {
+                                        pickDensity = false
+                                        il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,lectureId,d.api)
+                                    }) { Text(densityLabel(d)) }
+                                }
                             }
                             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_a_different_level_is_saved_as_an_additional_summary_the_existing), style = MaterialTheme.typography.bodySmall)
                         } },

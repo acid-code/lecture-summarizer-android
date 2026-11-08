@@ -98,18 +98,18 @@ fun shareStudyPdf(ctx:Context,app:il.ac.tau.lecturesummarizer.LectureApp,l:Lectu
  }}
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable fun SummaryHero(file:File?,available:Set<String>,selected:String?,onSelect:(SummaryDensity)->Unit,onOpen:()->Unit,
  updating:Set<String> = emptySet(),loading:Set<String> = emptySet(),failed:Set<String> = emptySet(),canGenerate:Boolean=true,onGenerate:(SummaryDensity)->Unit={},levelNote:@Composable (SummaryDensity)->Unit={}){
  var generate by remember{mutableStateOf<SummaryDensity?>(null)}
  Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
   PdfHeroPreview(file)
-  FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
    SummaryDensity.entries.forEach{d->
     val busy=d.api in updating;val fetching=d.api in loading
-    FilterChip(selected=selected==d.api,enabled=!busy,onClick={if(d.api in available)onSelect(d)else generate=d},modifier=Modifier.testTag("summary-variant:${d.api}"),
+    FilterChip(selected=selected==d.api,enabled=!busy,onClick={if(d.api in available)onSelect(d)else generate=d},
+     modifier=Modifier.weight(1f).testTag("summary-variant:${d.api}"),
      leadingIcon={if(busy||fetching)CircularProgressIndicator(Modifier.size(14.dp),strokeWidth=2.dp)else if(d.api in failed)Icon(Icons.Default.Error,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.error)else if(selected==d.api)Icon(Icons.Default.Check,null,Modifier.size(16.dp))else if(d.api !in available)Icon(Icons.Default.Add,null,Modifier.size(16.dp))},
-     label={Column{Text(densityLabel(d));if(busy)Text(stringResource(R.string.summary_variant_updating),style=MaterialTheme.typography.labelSmall)else if(fetching)Text(stringResource(R.string.summary_variant_loading),style=MaterialTheme.typography.labelSmall);levelNote(d)}})
+     label={Text(densityLabel(d),maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)})
    }
   }
   Button(enabled=file?.exists()==true,onClick=onOpen,modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.OpenInNew,null);Spacer(Modifier.width(8.dp));Text(stringResource(R.string.open_summary))}

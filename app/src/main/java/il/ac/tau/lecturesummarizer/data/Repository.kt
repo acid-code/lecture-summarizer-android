@@ -64,11 +64,13 @@ class Repository(private val context: Context) {
     var onSummaryReady: ((String) -> Unit)? = null
 
     @Synchronized fun updateLecture(id: String, f: (Lecture) -> Lecture) {
-        val old=lecture(id)
-        var ready = false
-        _lectures.value = _lectures.value.map { if (it.id == id) f(it).also { n -> ready = UnreadStore.justFinished(it, n) } else it }; save()
-        val changed=lecture(id)
-        if(changed!=null && old!=changed){CourseActivity(context).touch(changed.courseId);if(old?.courseId!=changed.courseId)old?.let{CourseActivity(context).touch(it.courseId)}}
+        val old=lecture(id) ?: return
+        val next=f(old)
+        if(next==old)return // no-op polls must not re-emit (avoids whole-UI recomposition flash)
+        var ready = UnreadStore.justFinished(old, next)
+        _lectures.value = _lectures.value.map { if (it.id == id) next else it }; save()
+        CourseActivity(context).touch(next.courseId)
+        if(old.courseId!=next.courseId)CourseActivity(context).touch(old.courseId)
         if (ready) onSummaryReady?.invoke(id)
     }
 

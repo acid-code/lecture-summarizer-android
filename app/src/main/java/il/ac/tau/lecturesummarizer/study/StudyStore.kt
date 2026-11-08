@@ -20,7 +20,7 @@ fun tutorReplyFromJson(o:JSONObject):TutorReply{
  val answer=o.getString("answer");require(answer.isNotBlank()&&answer.length<=5000)
  val a=o.optJSONArray("citations")?:JSONArray();require(a.length()<=6)
  val citations=(0 until a.length()).map{a.getJSONObject(it)}.map{TutorCitation(it.getString("source_id").take(120),it.getString("kind"),it.getString("label").take(160),it.getString("quote").take(1200))}
- require(citations.all{it.sourceId.isNotBlank()&&it.kind in setOf("transcript","summary","slides")&&it.quote.length>=12});require(if(kind=="answer")citations.isNotEmpty()else citations.isEmpty());return TutorReply(kind,answer,citations)
+ require(citations.all{it.sourceId.isNotBlank()&&it.kind in setOf("transcript","summary","slides","context")&&it.quote.length>=12});require(if(kind=="answer")citations.isNotEmpty()else citations.isEmpty());return TutorReply(kind,answer,citations)
 }
 /** Private app storage, keyed by a hash of the LOCAL lecture id. Never a shared cache or remote-ID filename. */
 class StudyStore(ctx:Context){

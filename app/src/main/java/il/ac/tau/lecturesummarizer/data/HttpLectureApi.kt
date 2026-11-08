@@ -186,6 +186,7 @@ class HttpLectureApi(
         }
         val body = JSONObject().put("source", import.source).put("external_id", import.externalId)
             .put("title", import.title).put("language", import.language).put("segments", segs)
+        import.videoDurationSec?.takeIf { it > 0 }?.let { body.put("video_duration_sec", it) }
         return postJson("/v1/lectures/$lectureRemoteId/transcript/import", body).optString("job_id").ifBlank { null }
     }
 
@@ -215,6 +216,24 @@ class HttpLectureApi(
             catch (e2: HttpStatusException) { if (e2.code == 409) return jobStatus(jobId) else throw e2 }
         }
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+    }
+
+    override suspend fun forceRestartJob(jobId: String): JobStatus {
+        val o = try { postJson("/v1/jobs/$jobId/retry?force=1", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) return jobStatus(jobId) else throw e }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"))
+    }
+
+    override suspend fun cancelJob(jobId: String): JobStatus {
+        val o = try { postJson("/v1/jobs/$jobId/cancel", JSONObject()) }
+        catch (e: HttpStatusException) {
+            // Older servers: fall back to force-fail via retry not available — surface as failed locally.
+            if (e.code == 404 || e.code == 405) return JobStatus("failed", "failed", 0, "cancelled_by_user")
+            throw e
+        }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"))
     }
 
     override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus {

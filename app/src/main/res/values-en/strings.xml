@@ -298,7 +298,9 @@
     <string name="listen_no_audio">No recording on this device — read the transcript.</string>
     <string name="transcript_partial">Partial transcript — transcription is still running</string>
     <string name="transcript_copy">Copy all</string>
-    <string name="transcript_export">Export transcript</string>
+    <string name="transcript_export">Share transcript</string>
+    <string name="transcript_share_busy">Preparing transcript…</string>
+    <string name="transcript_share_empty">No transcript is ready to share yet.</string>
     <string name="transcript_follow">Follow playback</string>
     <string name="moodle_attach">Add from Moodle</string>
     <string name="moodle_change">Choose another course</string>
@@ -527,7 +529,7 @@
     <string name="reprocessing_existing">Updating from the existing transcript</string>
     <string name="reprocessing_audio_missing">Audio is unavailable. We will update from the existing transcript.</string>
     <string name="transcript_loading">Loading transcript…</string>
-    <string name="transcript_share">Save or share transcript</string>
+    <string name="transcript_share">Share transcript (text or file)</string>
     <string name="share_recording">Share recording</string>
     <string name="cover_color">Color</string>
     <string name="cover_style">Cover style</string>
@@ -559,8 +561,8 @@
     <string name="sync_battery_choose">Choose stop threshold</string>
     <string name="sync_battery_run">Continue until ⁦%1$d⁩%%</string>
     <string name="sync_battery_wait">Wait</string>
-    <string name="slides_search_setting">Moodle slide suggestions</string>
-    <string name="slides_search_setting_body">Check after transcription, on an unmetered network only. Files are suggested for your approval, never attached automatically.</string>
+    <string name="slides_search_setting">Moodle slides</string>
+    <string name="slides_search_setting_body">Attach an unambiguous matching deck before summarizing when possible. After transcription, also suggest other Moodle files on Wi‑Fi for your approval.</string>
     <string name="shared_file_list">⁦%1$d⁩ shared files: %2$s</string>
     <string name="transcript_clipboard_label">Transcript</string>
     <string name="upload_paused">Upload paused. Your recordings are saved; you can retry the upload.</string>
@@ -730,7 +732,7 @@
     <string name="memory_load_error">Could not download concepts. Try again when the summary is ready and you are online.</string>
     <string name="study_offline">Offline. Previously saved material is still available.</string>
     <string name="memory_download">Download summary concepts</string>
-    <string name="tutor_scope">Only this course’s available transcript, summary and uploaded slides. Check the quoted sources.</string>
+    <string name="tutor_scope">Only this course — transcripts, summaries, slides and course-context packs across its lectures. Check the quoted sources.</string>
     <string name="tutor_label">Course tutor</string>
     <string name="tutor_empty">What would you like to understand?</string>
     <string name="tutor_empty_body">Ask about a concept or passage from this course. If the material does not cover it, we will say so.</string>
@@ -739,6 +741,7 @@
     <string name="tutor_source_transcript">From the transcript</string>
     <string name="tutor_source_summary">From the summary</string>
     <string name="tutor_source_slides">From the slides</string>
+    <string name="tutor_source_context">From course context</string>
     <string name="tutor_thinking">Checking the course material…</string>
     <string name="tutor_question">Question about this course</string>
     <string name="tutor_send">Send question</string>

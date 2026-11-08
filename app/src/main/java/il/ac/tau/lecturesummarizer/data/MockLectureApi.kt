@@ -39,6 +39,12 @@ class MockLectureApi : LectureApi {
         jobStarts[jobId] = System.currentTimeMillis(); return JobStatus("running", stages[0], 0, null)
     }
 
+    override suspend fun forceRestartJob(jobId: String): JobStatus = retryJob(jobId)
+
+    override suspend fun cancelJob(jobId: String): JobStatus {
+        jobStarts.remove(jobId); return JobStatus("failed", "failed", 0, "cancelled_by_user")
+    }
+
     override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus = retryJob(jobId)
     override suspend fun reprocessJob(jobId: String, fallback: Boolean) = ReprocessResult(retryJob(jobId), "full", false)
     override suspend fun transcript(lectureRemoteId: String): Transcript? = Transcript("mock", true,
