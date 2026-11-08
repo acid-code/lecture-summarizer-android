@@ -49,6 +49,7 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
                 val dest=File(app.repo.pdfDir(),"$id-$density.pdf")
                 api.downloadSummaryPdf(remote,dest,density)
                 if(app.repo.lecture(id)?.let{f.revision(it)}!=rev){f.state(id,"changed");return Result.success()}
+                try{il.ac.tau.lecturesummarizer.study.StudyStore(app).refresh(api,id,remote,density,job)}catch(e:CancellationException){throw e}catch(_:Exception){/* Retain the old glossary until a successful refresh. */}
                 f.built(id,density,rev)
                 runCatching{StudyIndex(app).put(id,"summary:$density",SlideText.read(app,dest))}
                 app.repo.updateLecture(id){cur->if(cur.pdfPath==null || cur.pdfPath.endsWith("-$density.pdf") || densities.last()==density && densities.none{cur.pdfPath.endsWith("-$it.pdf")})cur.copy(pdfPath=dest.absolutePath)else cur}

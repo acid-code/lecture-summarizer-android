@@ -43,7 +43,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*", "**/CalendarV2ScreenshotsTest*", "**/CalendarV3ScreenshotsTest*", "**/CalendarV4ScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
+    testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*", "**/CalendarV2ScreenshotsTest*", "**/CalendarV3ScreenshotsTest*", "**/CalendarV4ScreenshotsTest*", "**/StudyToolsScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
     buildFeatures { compose = true; buildConfig = true }
 }
 
@@ -56,6 +56,7 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.json:json:20240303")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")

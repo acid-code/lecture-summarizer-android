@@ -8,6 +8,10 @@ import java.io.InputStream
  * The phone never calls Gemini or any model directly — only this API.
  */
 interface LectureApi {
+    /** Saved summary glossary; no generation or tutor call. Older summary.json endpoints already support this. */
+    suspend fun glossary(lectureRemoteId:String,density:String?=null):List<il.ac.tau.lecturesummarizer.study.Concept> = emptyList()
+    suspend fun tutor(lectureRemoteId:String,question:String,language:String,previousQuestions:List<String> = emptyList()):il.ac.tau.lecturesummarizer.study.TutorReply = error("Tutor unavailable")
+
     suspend fun createCourse(name: String): String
     suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long): String
     /** Adds one deck (several per lecture). replaceAll=true clears the server's previous decks first (first deck of a full upload). */

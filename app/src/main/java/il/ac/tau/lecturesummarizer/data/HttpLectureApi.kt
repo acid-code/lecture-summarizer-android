@@ -64,7 +64,7 @@ class HttpLectureApi(
                     runCatching { JSONObject(b).let { it.optString("error").ifBlank { it.optString("message") } } }.getOrNull()
                         ?.takeIf { it.isNotBlank() } ?: b.take(200)
                 }
-                throw HttpStatusException(resp.code, "HTTP ${resp.code} ${r.method} ${r.url.encodedPath}" + if (msg.isNotBlank()) " — $msg" else "")
+                throw HttpStatusException(resp.code, "HTTP ${resp.code} ${r.method} ${r.url.encodedPath}" + if (msg.isNotBlank()) " — $msg" else "",resp.header("Retry-After")?.toIntOrNull())
             }
             f(resp)
         }
@@ -74,6 +74,18 @@ class HttpLectureApi(
         call(req(path).post(body.toString().toRequestBody(json)).build()) {
             val s = it.body?.string().orEmpty(); if (s.isBlank()) JSONObject() else JSONObject(s)
         }
+
+    override suspend fun glossary(lectureRemoteId:String,density:String?):List<il.ac.tau.lecturesummarizer.study.Concept>{
+        require(density==null||density in setOf("standard","detailed","compact"))
+        return call(req("/v1/lectures/$lectureRemoteId/summary.json"+(density?.let{"?density=$it"}?:"")).get().build()){r->
+            val a=JSONObject(r.body!!.string()).getJSONObject("summary").optJSONArray("glossary")?:JSONArray()
+            il.ac.tau.lecturesummarizer.study.cleanConcepts((0 until a.length()).mapNotNull{i->a.optJSONObject(i)?.let{o->il.ac.tau.lecturesummarizer.study.Concept(o.optString("term"),o.optString("explanation"))}})
+        }
+    }
+    override suspend fun tutor(lectureRemoteId:String,question:String,language:String,previousQuestions:List<String>):il.ac.tau.lecturesummarizer.study.TutorReply{
+        require(question.trim().length in 1..1200);require(language in setOf("he","en"));require(previousQuestions.size<=3&&previousQuestions.all{it.length in 1..400})
+        return il.ac.tau.lecturesummarizer.study.tutorReplyFromJson(postJson("/v1/lectures/$lectureRemoteId/tutor",JSONObject().put("question",question.trim()).put("language",language).apply{if(previousQuestions.isNotEmpty())put("previous_questions",JSONArray(previousQuestions))}))
+    }
 
     override suspend fun createCourse(name: String) =
         postJson("/v1/courses", JSONObject().put("name", name).put("lang_primary", "he")).getString("course_id")
@@ -276,4 +288,4 @@ fun audioMime(f: File): String = when (f.extension.lowercase()) {
 }
 
 /** Non-2xx HTTP response; [message] includes the server's error body when present. */
-class HttpStatusException(val code: Int, message: String) : IOException(message)
+class HttpStatusException(val code: Int, message: String,val retryAfterSeconds:Int?=null) : IOException(message)

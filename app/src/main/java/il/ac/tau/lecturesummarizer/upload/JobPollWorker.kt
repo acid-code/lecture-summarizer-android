@@ -51,6 +51,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                         }
                         .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed)) } }
                     runCatching{val index=il.ac.tau.lecturesummarizer.data.StudyIndex(app);api.transcript(l.remoteId!!)?.let{index.put(id,"transcript",it.lines.joinToString(" "){line->line.text})};if(dest.exists())index.put(id,"summary:${density ?: "unknown"}",il.ac.tau.lecturesummarizer.slides.SlideText.read(app,dest))}
+                    try{il.ac.tau.lecturesummarizer.study.StudyStore(app).refresh(api,id,l.remoteId!!,density,jobId)}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(_:Exception){/* PDF stays usable; Study screen can retry glossary download. */}
                     il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app, id)
                     notify(id, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_ready_notification), named(app, l))
                     return Result.success()

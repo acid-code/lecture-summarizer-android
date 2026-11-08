@@ -98,8 +98,10 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         composable("panopto/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
             PanoptoImportScreen(app, id, onBack = { nav.popBackStack() }, onStarted = { nav.navigate("job/$id") { popUpTo("panopto/$id") { inclusive = true } } }) }
         }
-        composable("job/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }, onListen = { nav.navigate("listen/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { nav.navigate("panopto/$id") }) }
+        composable("job/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }, onListen = { nav.navigate("listen/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { nav.navigate("panopto/$id") },onMemory={nav.navigate("memory/$id")},onTutor={nav.navigate("tutor/$id")}) }
         }
+        composable("memory/{id}"){e->val id=e.arguments!!.getString("id")!!;LectureTheme(app,id){MemoryScreen(app,id){nav.popBackStack()}}}
+        composable("tutor/{id}"){e->val id=e.arguments!!.getString("id")!!;LectureTheme(app,id){TutorScreen(app,id){nav.popBackStack()}}}
         composable("listen/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { ListenScreen(app, e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }) }
         }
         composable("share") {

@@ -365,7 +365,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onMemory:()->Unit={}, onTutor:()->Unit={}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -499,6 +499,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TonalAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_transcript), Icons.Default.PlayArrow, Modifier.fillMaxWidth(), onClick = onListen)
             }
+
+            if(l.remoteId!=null||pdf!=null)StudyToolsEntry(onMemory,onTutor)
 
             OutlinedButton(onClick={sourcesOpen=!sourcesOpen},modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.Folder,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lecture_sources))}
             if(sourcesOpen){

@@ -77,13 +77,13 @@ class Repository(private val context: Context) {
         recordingsDir(id).deleteRecursively()
         File(pdfDir(), "$id.pdf").delete()
         SummaryDensity.entries.forEach{File(pdfDir(),"$id-${it.api}.pdf").delete()}
-        File(context.filesDir,"panopto/$id.srt").delete();StudyIndex(context).remove(id)
+        File(context.filesDir,"panopto/$id.srt").delete();StudyIndex(context).remove(id);il.ac.tau.lecturesummarizer.study.StudyStore(context).remove(id)
         _lectures.value = _lectures.value.filterNot { it.id == id }; save()
     }
 
     /** Remove a notebook and all its lectures (recordings + PDFs) from the phone. */
     @Synchronized fun deleteCourse(id: String) {
-        _lectures.value.filter { it.courseId == id }.forEach { recordingsDir(it.id).deleteRecursively(); File(pdfDir(), "${it.id}.pdf").delete();val lid=it.id;SummaryDensity.entries.forEach{d->File(pdfDir(),"$lid-${d.api}.pdf").delete()};File(context.filesDir,"panopto/$lid.srt").delete();StudyIndex(context).remove(lid) }
+        _lectures.value.filter { it.courseId == id }.forEach { recordingsDir(it.id).deleteRecursively(); File(pdfDir(), "${it.id}.pdf").delete();val lid=it.id;SummaryDensity.entries.forEach{d->File(pdfDir(),"$lid-${d.api}.pdf").delete()};File(context.filesDir,"panopto/$lid.srt").delete();StudyIndex(context).remove(lid);il.ac.tau.lecturesummarizer.study.StudyStore(context).remove(lid) }
         _lectures.value = _lectures.value.filterNot { it.courseId == id }
         _courses.value = _courses.value.filterNot { it.id == id }; save();CourseActivity(context).remove(id)
     }
