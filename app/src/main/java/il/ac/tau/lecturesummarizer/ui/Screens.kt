@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.compose.foundation.combinedClickable
+
 import il.ac.tau.lecturesummarizer.data.allSlides
 import android.Manifest
 import android.content.Intent
@@ -196,6 +198,8 @@ fun LecturesScreen(
     val download = rememberDownloader()
     var editCover by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
+    var moveLecture by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
+    moveLecture?.let{l->LectureMoveDialog(app,l){moveLecture=null}}
     toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lectures_title), onBack = onBack,
         fab = { ExtendedFloatingActionButton(onClick={adding=true},icon={Icon(Icons.Default.Add,null)},text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture))}) }
@@ -251,7 +255,7 @@ fun LecturesScreen(
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.displayDurationMs)}" +
                         (l.stageDetail?.takeUnless { l.state != LectureState.DONE && il.ac.tau.lecturesummarizer.upload.isTerminalStageText(it) }?.takeIf { l.state == LectureState.PROCESSING || l.state == LectureState.UPLOADING || l.liveJob }?.let { " · $it" } ?: ""),
-                    course?.coverColorValue() ?: coverColor(l.courseId), status = { LectureStatusChip(l, onRetry = { retryScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { il.ac.tau.lecturesummarizer.upload.retryLecture(app, l.id) }.onFailure { app.repo.updateLecture(l.id) { it.copy(error = app.getString(il.ac.tau.lecturesummarizer.R.string.retry_failed)) } } } }) }, pattern = patternOf(course?.pattern), onDelete = { toDelete = l }, isNew = l.id in unread) {
+                    course?.coverColorValue() ?: coverColor(l.courseId), status = { LectureStatusChip(l, onRetry = { retryScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { il.ac.tau.lecturesummarizer.upload.retryLecture(app, l.id) }.onFailure { app.repo.updateLecture(l.id) { it.copy(error = app.getString(il.ac.tau.lecturesummarizer.R.string.retry_failed)) } } } }) }, pattern = patternOf(course?.pattern), onDelete = { toDelete = l }, onMove={moveLecture=l}, isNew = l.id in unread) {
                     when (l.state) {
                         LectureState.DRAFT -> if (l.allSlides.isNotEmpty() || l.fromPanopto) onAttach(l.id) else onNew(l.id)
                         LectureState.RECORDING -> onRecord(l.id)
@@ -320,10 +324,8 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
 
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     var moving by remember { mutableStateOf(false) }
-    if (moving && l != null) AlertDialog(onDismissRequest = { moving = false }, title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_move_to_notebook)) },
-        text = { Column { courses.forEach { c -> TextButton(onClick = { app.repo.moveLecture(l.id, c.id); moving = false }, modifier = Modifier.fillMaxWidth()) {
-            Text((if (c.id == l.courseId) "✓ " else "") + c.name) } } } },
-        confirmButton = {}, dismissButton = { TextButton(onClick = { moving = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } })
+    if(moving&&l!=null)LectureMoveDialog(app,l){moving=false}
+
     AppScaffold(l?.title ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_title), onBack = onBack) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().padding(24.dp),
@@ -415,8 +417,9 @@ LectureState.FAILED->il.ac.tau.lecturesummarizer.R.string.st_failed_offline
 
 /** Lecture row: inherits a lighter version of the course cover (pale pattern + colored spine). */
 @Composable
-fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, status: (@Composable () -> Unit)? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, isNew: Boolean = false, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp),
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, status: (@Composable () -> Unit)? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, onMove:(()->Unit)?=null, isNew: Boolean = false, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().combinedClickable(onClick=onClick,onLongClick=onMove), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Box(Modifier.height(IntrinsicSize.Min)) {
@@ -437,7 +440,16 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
                     }
                     status?.let { Box(Modifier.padding(top = 2.dp)) { it() } }
                 }
-                onDelete?.let { IconButton(onClick = it, modifier = Modifier.align(Alignment.CenterVertically)) {
+                if(onMove!=null){
+                    var menu by remember{mutableStateOf(false)}
+                    Box(Modifier.align(Alignment.CenterVertically)){
+                        IconButton(onClick={menu=true}){Icon(Icons.Default.MoreVert,androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.more_actions))}
+                        DropdownMenu(menu,{menu=false}){
+                            DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.move_to_course))},onClick={menu=false;onMove()})
+                            onDelete?.let{remove->DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture))},onClick={menu=false;remove()})}
+                        }
+                    }
+                }else onDelete?.let { IconButton(onClick = it, modifier = Modifier.align(Alignment.CenterVertically)) {
                     Icon(Icons.Default.Delete, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture), tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
         }

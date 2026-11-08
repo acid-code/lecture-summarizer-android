@@ -1,5 +1,8 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,7 +30,7 @@ import java.io.File
 fun NewEntryScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onRecord: () -> Unit, onUpload: () -> Unit) {
     val l = app.repo.lecture(lectureId) ?: return
     AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add_lecture), onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_where_is_this_lecture_from), style = MaterialTheme.typography.bodyMedium)
             ChoiceCard(Icons.Default.Mic, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_record), androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_record_body), onRecord)

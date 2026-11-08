@@ -54,6 +54,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".CalendarImportActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+
         <receiver android:name=".panopto.CellularChoiceReceiver" android:exported="false" />
         <receiver android:name=".autosync.AutoSyncChoiceReceiver" android:exported="false" />
         <activity android:name=".autosync.BatteryFloorActivity" android:exported="false" android:excludeFromRecents="true" android:taskAffinity="" android:theme="@android:style/Theme.Translucent.NoTitleBar" />

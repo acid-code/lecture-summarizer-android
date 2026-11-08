@@ -78,8 +78,10 @@ class HttpLectureApi(
     override suspend fun glossary(lectureRemoteId:String,density:String?):List<il.ac.tau.lecturesummarizer.study.Concept>{
         require(density==null||density in setOf("standard","detailed","compact"))
         return call(req("/v1/lectures/$lectureRemoteId/summary.json"+(density?.let{"?density=$it"}?:"")).get().build()){r->
-            val a=JSONObject(r.body!!.string()).getJSONObject("summary").optJSONArray("glossary")?:JSONArray()
-            il.ac.tau.lecturesummarizer.study.cleanConcepts((0 until a.length()).mapNotNull{i->a.optJSONObject(i)?.let{o->il.ac.tau.lecturesummarizer.study.Concept(o.optString("term"),o.optString("explanation"))}})
+            val summary=JSONObject(r.body!!.string()).getJSONObject("summary")
+            val pairs=summary.optJSONArray("memory_pairs")?.takeIf{it.length()>0}
+            val a=pairs ?: summary.optJSONArray("glossary") ?: JSONArray()
+            il.ac.tau.lecturesummarizer.study.cleanConcepts((0 until a.length()).mapNotNull{i->a.optJSONObject(i)?.let{o->il.ac.tau.lecturesummarizer.study.Concept(o.optString("term"),o.optString(if(pairs!=null)"definition"else "explanation"))}})
         }
     }
     override suspend fun tutor(lectureRemoteId:String,question:String,language:String,previousQuestions:List<String>):il.ac.tau.lecturesummarizer.study.TutorReply{
@@ -255,6 +257,18 @@ class HttpLectureApi(
         }
     }
 
+    override suspend fun moveLecture(lectureRemoteId:String,courseRemoteId:String){
+        postJson("/v1/lectures/$lectureRemoteId/move",JSONObject().put("course_id",courseRemoteId))
+    }
+
+    override suspend fun summaryJobStates(lectureRemoteId:String):Map<String,SummaryJobState> = call(req("/v1/lectures/$lectureRemoteId/summaries").get().build()){r->
+        val values=JSONObject(r.body!!.string()).optJSONObject("densities") ?: return@call emptyMap()
+        SummaryDensity.entries.mapNotNull{density->val row=values.optJSONObject(density.api) ?: return@mapNotNull null
+            val running=row.optStringOrNull("running_job_id");val failed=row.optStringOrNull("failed_job_id");val done=row.optStringOrNull("done_job_id")
+            when{running!=null->density.api to SummaryJobState(running,"updating",row.optStringOrNull("running_stage"));failed!=null->density.api to SummaryJobState(failed,"error");done!=null->density.api to SummaryJobState(done,"ready");else->null}
+        }.toMap()
+    }
+
     override suspend fun availableDensities(lectureRemoteId: String): Set<String> = withContext(Dispatchers.IO) {
         runCatching {
             client.newCall(req("/v1/lectures/$lectureRemoteId/summaries").get().build()).execute().use { resp ->
@@ -269,7 +283,12 @@ class HttpLectureApi(
         call(req("/v1/lectures/$lectureRemoteId/summary.pdf" + (density?.let { "?density=$it" } ?: "")).get().build()) { resp ->
             val tmp = File(dest.parentFile, dest.name + ".part")
             tmp.outputStream().use { out -> resp.body!!.byteStream().copyTo(out) }
-            tmp.renameTo(dest); Unit
+            check(tmp.renameTo(dest)){"summary_cache_replace_failed"}
+            val sidecar=File(dest.path+".study.json")
+            val header=resp.header("X-Study-Pairs")
+            val delivered=runCatching{if(header==null||header.length>8000)null else String(android.util.Base64.decode(header,android.util.Base64.DEFAULT),Charsets.UTF_8).also{require(JSONArray(it).length()<=16)}}.getOrNull()
+            if(delivered!=null){val data=File(sidecar.path+".tmp");data.writeText(delivered);check(data.renameTo(sidecar))}else sidecar.delete()
+            Unit
         }
 
     companion object {

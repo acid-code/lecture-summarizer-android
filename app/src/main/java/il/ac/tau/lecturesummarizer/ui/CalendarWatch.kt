@@ -21,11 +21,11 @@ import il.ac.tau.lecturesummarizer.calendar.*
 import java.text.DateFormat
 import java.util.Date
 
-@Composable fun CalendarWatchStatus(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected,compact:Boolean=false){
- CompactCalendarTypography {CalendarWatchStatusBody(matches,selected,automatic,lastScan,error,onWatch,onChoose,loading,trackingEnabled,watchConfigured,compact)}
+@Composable fun CalendarWatchStatus(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected,compact:Boolean=false,courseCount:Int=matches.map{it.rule.targetCourseId ?: it.rule.targetCourse}.distinct().size,onEnable:()->Unit=onWatch){
+ CompactCalendarTypography {CalendarWatchStatusBody(matches,selected,automatic,lastScan,error,onWatch,onChoose,loading,trackingEnabled,watchConfigured,compact,courseCount,onEnable)}
 }
 
-@Composable private fun CalendarWatchStatusBody(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected,compact:Boolean=false){
+@Composable private fun CalendarWatchStatusBody(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected,compact:Boolean=false,courseCount:Int=matches.map{it.rule.targetCourseId ?: it.rule.targetCourse}.distinct().size,onEnable:()->Unit=onWatch){
     if(compact){
         HorizontalDivider(color=MaterialTheme.colorScheme.primary.copy(alpha=0.15f))
         Column(verticalArrangement=Arrangement.spacedBy(2.dp)){
@@ -33,7 +33,7 @@ import java.util.Date
                 Icon(Icons.Default.EventAvailable,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)){
                     Text(stringResource(if(selected)R.string.watch_connected else R.string.watch_available),style=MaterialTheme.typography.labelMedium)
-                    if(!loading)Text(stringResource(R.string.watch_counts,ltr(matches.size),ltr(matches.map{it.rule.targetCourseId ?: it.rule.targetCourse}.distinct().size)),modifier=Modifier.fillMaxWidth().testTag("calendar-watch-counts"),style=MaterialTheme.typography.labelSmall,softWrap=true)
+                    if(!loading)Text(stringResource(R.string.watch_course_count,ltr(courseCount)),modifier=Modifier.fillMaxWidth().testTag("calendar-watch-counts"),style=MaterialTheme.typography.labelSmall,softWrap=true)
                 }
             }
             // Never squeeze this question beside a count. Give both their complete logical width.
@@ -42,11 +42,10 @@ import java.util.Date
                 Spacer(Modifier.width(8.dp));Icon(Icons.AutoMirrored.Filled.ArrowForward,null,Modifier.size(16.dp))
             }
             if(error)Text(stringResource(R.string.calendar_rules_error),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
-            else if(!trackingEnabled)Text(stringResource(R.string.watch_disabled),style=MaterialTheme.typography.labelSmall)
-            else if(automatic){
+            else if(automatic&&trackingEnabled){
                 val estimate=(lastScan+30*60_000L).takeIf{lastScan>0 && it>System.currentTimeMillis()}
                 Text(if(estimate!=null)stringResource(R.string.watch_next_check,ltr(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(estimate))))else stringResource(R.string.watch_check_soon),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }else Text(stringResource(R.string.watch_manual_short),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }else TextButton(onClick=onEnable,contentPadding=PaddingValues(0.dp)){Text(stringResource(R.string.watch_background_enable),style=MaterialTheme.typography.labelSmall)}
         }
         return
     }
@@ -55,8 +54,8 @@ import java.util.Date
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
             StatusChip(stringResource(if(selected)R.string.watch_connected else R.string.watch_available),color=MaterialTheme.colorScheme.primary,icon=Icons.Default.EventAvailable)
             if(loading){LinearProgressIndicator(Modifier.fillMaxWidth());Text(stringResource(R.string.watch_loading),style=MaterialTheme.typography.bodySmall)}
-            else Text(stringResource(R.string.watch_counts,ltr(matches.size),ltr(matches.map{it.rule.targetCourseId ?: it.rule.targetCourse}.distinct().size)),style=MaterialTheme.typography.titleMedium)
-            if(!trackingEnabled)Text(stringResource(R.string.watch_disabled),style=MaterialTheme.typography.bodySmall)
+            else Text(stringResource(R.string.watch_course_count,ltr(courseCount)),style=MaterialTheme.typography.titleMedium)
+            if(!trackingEnabled)TextButton(onClick=onEnable){Text(stringResource(R.string.watch_background_enable))}
             Text(stringResource(if(watchConfigured)R.string.watch_next_explanation else R.string.watch_choose_explanation),style=MaterialTheme.typography.bodySmall)
             if(error)Text(stringResource(R.string.calendar_rules_error),color=MaterialTheme.colorScheme.error)
             if(upcoming.isEmpty() && watchConfigured && !loading && trackingEnabled)Text(stringResource(R.string.watch_no_upcoming),style=MaterialTheme.typography.bodySmall)
@@ -65,7 +64,7 @@ import java.util.Date
                 val estimate=(lastScan+30*60_000L).takeIf{lastScan>0 && it>System.currentTimeMillis()}
                 Text(if(estimate!=null)stringResource(R.string.watch_next_check,ltr(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(estimate))))else stringResource(R.string.watch_check_soon),style=MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.watch_check_estimate),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }else Text(stringResource(R.string.watch_check_manual),style=MaterialTheme.typography.bodySmall)
+            }else if(trackingEnabled)TextButton(onClick=onEnable){Text(stringResource(R.string.watch_background_enable))}
             if(lastScan>0)Text(stringResource(R.string.watch_last_check,relativeUpdated(lastScan)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick=if(watchConfigured && trackingEnabled)onWatch else onChoose){Text(stringResource(if(watchConfigured && trackingEnabled)R.string.watch_open else R.string.calendar_pick_events))}
         }

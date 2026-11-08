@@ -417,6 +417,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
     var confirmDelete by remember { mutableStateOf(false) }
     if (confirmDelete) DeleteLectureDialog(l.title, { confirmDelete = false }) { confirmDelete = false; deleteLectureEverywhere(app, ctx, lectureId, onBack) }
+    var moveOpen by remember{mutableStateOf(false)}
+    if(moveOpen)LectureMoveDialog(app,l){moveOpen=false}
     var overflow by remember{mutableStateOf(false)}
     var sourcesOpen by remember{mutableStateOf(false)}
     var repairOpen by remember{mutableStateOf(false)}
@@ -424,6 +426,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
         IconButton(enabled=l.pdfPath?.let{File(it).exists()}==true,onClick={shareStudyPdf(ctx,app,l)}){Icon(Icons.Default.Share,ctx.getString(il.ac.tau.lecturesummarizer.R.string.share_pdf))}
         Box{IconButton(onClick={overflow=true}){Icon(Icons.Default.MoreVert,ctx.getString(il.ac.tau.lecturesummarizer.R.string.more_actions))}
             DropdownMenu(expanded=overflow,onDismissRequest={overflow=false}){
+                DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.move_to_course))},onClick={overflow=false;moveOpen=true})
                 DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo))},onClick={overflow=false;repairOpen=!repairOpen;sourcesOpen=true})
                 DropdownMenuItem(enabled=l.pdfPath?.let{File(it).exists()}==true,text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_save_pdf))},onClick={overflow=false;l.pdfPath?.let{path->download(FileProvider.getUriForFile(ctx,ctx.packageName+".files",File(path)),summaryPdfName(app.repo.course(l.courseId)?.name,l.title),"application/pdf")}})
                 DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture),color=MaterialTheme.colorScheme.error)},onClick={overflow=false;confirmDelete=true})
@@ -450,7 +453,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     // Status row spans the full card width: compact chip + detail filling the remaining space.
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         LectureStatusChip(l, onRetry = { scope.launch(Dispatchers.IO) { runCatching { il.ac.tau.lecturesummarizer.upload.retryLecture(app, l.id) }.onFailure { app.repo.updateLecture(l.id) { it.copy(error = app.getString(il.ac.tau.lecturesummarizer.R.string.retry_failed)) } } } })
-                        if(app.settings.showDeveloper)(l.stageDetail ?: l.stage)?.let{Text(it,modifier=Modifier.weight(1f),maxLines=2)}
+                        val variants=rememberVariantState(l.id)
+                        if(variants.values.any{it.pending})Text(androidx.compose.ui.res.stringResource(if(variants.values.any{it.pending&&it.stage=="pdf"})il.ac.tau.lecturesummarizer.R.string.summary_variant_pdf else il.ac.tau.lecturesummarizer.R.string.summary_variant_stage),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+                        else if(app.settings.showDeveloper)(l.stageDetail ?: l.stage)?.let{Text(it,modifier=Modifier.weight(1f),maxLines=2)}
 
                     }
                     if (l.fromPanopto) PanoptoStatusLines(l, l.panoptoSrtPath?.let { File(it).exists() } == true)
@@ -478,16 +483,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 SummaryChangeNote(app,l)
                 if(pdf==null)Text(if(processing)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_preparing)else if(l.state==LectureState.FAILED)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_created)else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_ready),style=MaterialTheme.typography.bodyMedium)
                 else {
-                    var levels by remember(l.remoteId, l.pdfPath) { mutableStateOf(emptySet<String>()) }
-                    LaunchedEffect(l.remoteId,l.pdfPath){
-                        val cached=il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.filter{d->File(app.repo.pdfDir(),"$lectureId-${d.api}.pdf").exists()}.map{it.api}.toSet()
-                        levels=cached
-                        l.remoteId?.let{remote->repeat(12){levels=ApiProvider.get(app.settings).availableDensities(remote)+cached;if(levels.containsAll(app.settings.summaryDensities))return@LaunchedEffect;delay(15_000)}}
-                    }
-                    SummaryHero(pdf,levels,il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.firstOrNull{pdf.name.endsWith("-${it.api}.pdf")}?.api,
-                        onSelect={d->scope.launch(Dispatchers.IO){val dest=File(app.repo.pdfDir(),"$lectureId-${d.api}.pdf");runCatching{if(!dest.exists())ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!,dest,d.api)}.onSuccess{app.repo.updateLecture(lectureId){it.copy(pdfPath=dest.absolutePath)}}.onFailure{launch(Dispatchers.Main){Toast.makeText(ctx,ctx.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed),Toast.LENGTH_LONG).show()}}}},
-                        onOpen={val uri=FileProvider.getUriForFile(ctx,ctx.packageName+".files",pdf);safeStart(ctx,Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))},
-                        levelNote={d->SummaryFreshnessNotice(app,l,d.api)})
+                    LectureSummaryVariants(app,l,onOpen={val uri=FileProvider.getUriForFile(ctx,ctx.packageName+".files",pdf);safeStart(ctx,Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))})
 
                 }
             }

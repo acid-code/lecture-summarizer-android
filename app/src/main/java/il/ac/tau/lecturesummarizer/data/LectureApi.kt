@@ -13,6 +13,8 @@ interface LectureApi {
     suspend fun tutor(lectureRemoteId:String,question:String,language:String,previousQuestions:List<String> = emptyList()):il.ac.tau.lecturesummarizer.study.TutorReply = error("Tutor unavailable")
 
     suspend fun createCourse(name: String): String
+    /** Changes only the owning course; lecture id, artifacts and density PDFs are retained. */
+    suspend fun moveLecture(lectureRemoteId:String,courseRemoteId:String){error("Lecture move requires an updated server")}
     suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long): String
     /** Adds one deck (several per lecture). replaceAll=true clears the server's previous decks first (first deck of a full upload). */
     suspend fun clearSlides(lectureRemoteId: String) { error("Slides removal is not supported by this API") }
@@ -44,5 +46,8 @@ interface LectureApi {
     suspend fun deleteCourse(courseRemoteId: String)
     suspend fun downloadSummaryPdf(lectureRemoteId: String, dest: File, density: String? = null)
     /** GET /v1/lectures/{id}/summaries — density levels that have a finished summary. Empty on older servers. */
+    suspend fun summaryJobStates(lectureRemoteId:String):Map<String,SummaryJobState> = emptyMap()
     suspend fun availableDensities(lectureRemoteId: String): Set<String> = emptySet()
 }
+
+data class SummaryJobState(val jobId:String,val state:String,val stage:String?=null)

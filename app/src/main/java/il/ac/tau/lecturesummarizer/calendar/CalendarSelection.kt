@@ -37,7 +37,7 @@ object CalendarSelectionImporter {
         Settings(ctx).apply{calendarIds=store.sources().map{it.id}.toSet();calendarRulesEnabled=true}
         val applier=CalendarRuleApplier(ctx,repo)
         val approved=CalendarRules.preview(generated,events)
-        approved.forEach{applier.apply(it)}
+        // Watch configuration is NOT a recording import. Never materialize calendar instances as lectures.
         store.pending(store.pending().filterNot{applier.current(it)})
         return Result(generated.map{it.targetCourseId}.distinct().size,approved.size)
     }

@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import java.io.File
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -39,7 +41,7 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  val lectures by app.repo.lectures.collectAsStateWithLifecycle();val l=lectures.firstOrNull{it.id==id}?:return
  val store=remember{StudyStore(app)};var cache by remember(id){mutableStateOf<CachedConcepts?>(null)}
  var busy by remember{mutableStateOf(true)};var error by remember{mutableStateOf(false)};val scope=rememberCoroutineScope();val online=rememberOnline().first
- LaunchedEffect(id,l.pdfPath){cache=withContext(Dispatchers.IO){store.cached(id,densityOf(l))};busy=false}
+ LaunchedEffect(id,l.pdfPath){cache=withContext(Dispatchers.IO){l.pdfPath?.let{store.delivered(id,File(it),densityOf(l) ?: "standard",l.jobId.orEmpty())};store.cached(id,densityOf(l))};busy=false}
  fun reload(){if(busy||l.remoteId==null)return;scope.launch{busy=true;error=false;try{withContext(Dispatchers.IO){store.refresh(ApiProvider.get(app.settings),id,l.remoteId,densityOf(l),l.jobId.orEmpty())};cache=withContext(Dispatchers.IO){store.cached(id,densityOf(l))}}catch(e:CancellationException){throw e}catch(_:Exception){error=true}finally{busy=false}}}
  AppScaffold(stringResource(R.string.memory_title),onBack=onBack,actions={if(cache!=null)IconButton(enabled=!busy&&online&&l.remoteId!=null,onClick={reload()}){Icon(Icons.Default.Download,stringResource(R.string.memory_update))}}){pad->
    if(cache?.entries?.size?.let{it>=2}==true)Column(Modifier.padding(pad).fillMaxSize()){
@@ -109,7 +111,7 @@ private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.
      if(busy||question.isBlank())return@TutorConversation
      val text=question.trim();busy=true;error=0
      scope.launch{try{
-       val language=ctx.resources.configuration.locales[0].language.let{if(it=="he")"he"else "en"}
+       val language=tutorQuestionLanguage(text,ctx.resources.configuration.locales[0].language)
        val reply=ApiProvider.get(app.settings).tutor(l.remoteId!!,text,language,turns.filter{it.reply.kind=="answer"}.takeLast(3).map{it.question.take(400)})
        withContext(Dispatchers.IO){store.append(id,TutorTurn(text,reply))};turns=withContext(Dispatchers.IO){store.turns(id)};question=""
      }catch(e:CancellationException){throw e}catch(e:HttpStatusException){error=when(e.code){404,405->R.string.tutor_server_required;409->R.string.tutor_not_ready;429->{retryAt=System.currentTimeMillis()+(e.retryAfterSeconds?:60).coerceIn(1,86400)*1000L;R.string.tutor_rate_limit};401,403->R.string.tutor_access_error;else->R.string.tutor_error}}catch(_:Exception){error=R.string.tutor_error}finally{busy=false}}
@@ -121,7 +123,7 @@ private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.
 @Composable fun TutorConversation(title:String,turns:List<TutorTurn>,question:String,onQuestion:(String)->Unit,busy:Boolean,canSend:Boolean,error:String?,concepts:List<Concept>,modifier:Modifier=Modifier,onSend:()->Unit){
  val ctx=LocalContext.current;val list=androidx.compose.foundation.lazy.rememberLazyListState()
  LaunchedEffect(turns.size,busy){if(turns.isNotEmpty())list.animateScrollToItem((turns.size-1).coerceAtLeast(0))}
- Column(modifier.fillMaxSize().imePadding()){
+ Column(modifier.fillMaxSize().navigationBarsPadding().imePadding()){
    OutlinedCard(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth()){
      Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(title),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_scope),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
    }
@@ -152,4 +154,10 @@ private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.
      Text(stringResource(R.string.tutor_privacy),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
    }
  }
+}
+
+/** Keep the client hint aligned with the actual question; the server independently checks it. */
+internal fun tutorQuestionLanguage(question:String,fallback:String):String {
+ val he=question.count{it in '\u0590'..'\u05ff'};val en=question.count{it in 'a'..'z'||it in 'A'..'Z'}
+ return if(he>0&&he>=en/2f)"he" else if(en>0)"en" else if(fallback=="he")"he" else "en"
 }

@@ -21,20 +21,20 @@ class CalendarSelectionTest {
         assertFalse(CalendarConnection.connected(false,setOf(12),setOf(12)))
         assertFalse(CalendarConnection.connected(true,emptySet(),emptySet()))
     }
-    @Test fun approvedEventsSurviveReopenInCoursesRulesAndLectures(){
+    @Test fun selectedSeriesPersistWatchRulesWithoutCreatingLectureRows(){
         val repo=Repository(ctx);val chosen=listOf(event("lecture1"),event("lecture2",time=1_800_604_800_000))
         val result=CalendarSelectionImporter.import(ctx,repo,listOf(source),chosen)
         val reopened=Repository(ctx);val store=CalendarRuleStore(ctx,reopened)
         assertEquals(1,result.courses);assertEquals(2,result.events)
-        assertEquals(1,reopened.courses.value.size);assertEquals(2,reopened.lectures.value.size)
+        assertEquals(1,reopened.courses.value.size);assertEquals(0,reopened.lectures.value.size)
         assertEquals(listOf(source),store.sources());assertEquals(1,store.rules().size)
         assertTrue(store.rules().single().enabled);assertTrue(store.rules().single().recurringOnly);assertFalse(store.rules().single().exactTitle);assertTrue(store.rules().single().seriesKeys.isNotEmpty())
         assertEquals(2,CalendarRules.preview(store.rules(),chosen).size)
         assertEquals(0,CalendarRules.preview(store.rules(),listOf(event("unselected","Biology exam"))).size)
         assertTrue(Settings(ctx).calendarRulesEnabled);assertEquals(setOf(12L),Settings(ctx).calendarIds)
-        assertTrue(CalendarRuleApplier(ctx,reopened).current(CalendarRules.preview(store.rules(),chosen).first()))
+        assertFalse(CalendarRuleApplier(ctx,reopened).current(CalendarRules.preview(store.rules(),chosen).first()))
         CalendarSelectionImporter.import(ctx,reopened,listOf(source),chosen)
-        assertEquals(2,Repository(ctx).lectures.value.size)
+        assertEquals(0,Repository(ctx).lectures.value.size)
     }
     @Test fun selectionIsScopedAndDoesNotEnableBackgroundDownloads(){
         val repo=Repository(ctx);CalendarSelectionImporter.import(ctx,repo,listOf(source),listOf(event("selected")))
@@ -55,7 +55,7 @@ class CalendarSelectionTest {
         val repo=Repository(ctx)
         val other=source.copy(id=13)
         CalendarSelectionImporter.import(ctx,repo,listOf(source,other),listOf(event("a"),event("b").copy(calendarId=13)))
-        assertEquals(1,repo.lectures.value.size)
+        assertEquals(0,repo.lectures.value.size)
     }
     @Test fun changingChosenCalendarsRevokesThePreviousActiveSource(){
         val repo=Repository(ctx)
@@ -64,13 +64,15 @@ class CalendarSelectionTest {
         CalendarSelectionImporter.import(ctx,repo,listOf(other),listOf(event("new","Chemistry").copy(calendarId=99)))
         assertEquals(listOf(other),CalendarRuleStore(ctx,repo).sources())
         assertEquals(setOf(99L),Settings(ctx).calendarIds)
-        assertEquals(2,repo.lectures.value.size) // Historical saved lectures are not deleted.
+        assertEquals(0,repo.lectures.value.size) // Changing calendars stores rules only.
     }
-    @Test fun selectedEventRescheduleUpdatesExistingLocalLecture(){
+    @Test fun selectedEventRescheduleNeverMaterializesOrMutatesLectures(){
         val repo=Repository(ctx);val original=event("same")
         CalendarSelectionImporter.import(ctx,repo,listOf(source),listOf(original))
-        val id=repo.lectures.value.single().id
         CalendarSelectionImporter.import(ctx,repo,listOf(source),listOf(original.copy(start=original.start+60000,end=original.end+60000)))
-        assertEquals(id,repo.lectures.value.single().id);assertEquals(original.start+60000,repo.lectures.value.single().recordedAtMs)
+        assertTrue(repo.lectures.value.isEmpty())
+        val match=CalendarRules.preview(CalendarRuleStore(ctx,repo).rules(),listOf(original)).first()
+        val applier=CalendarRuleApplier(ctx,repo);val undo=applier.apply(match)!!
+        assertTrue(applier.current(match));assertTrue(repo.lectures.value.isEmpty());assertTrue(applier.undo(undo));assertFalse(applier.current(match))
     }
 }

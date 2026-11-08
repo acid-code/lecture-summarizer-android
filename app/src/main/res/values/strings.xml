@@ -775,4 +775,16 @@
     <string name="calendar_series_days">כל %1$s ימים</string>
     <string name="calendar_series_months">כל %1$s חודשים</string>
     <string name="calendar_series_years">כל %1$s שנים</string>
+    <string name="summary_variant_updating">מתעדכן…</string>
+    <string name="summary_variant_loading">מוריד…</string>
+    <string name="summary_generate_variant">ליצור את הגרסה הזו?</string>
+    <string name="summary_generate_variant_body">גרסת %1$s תיווצר ברקע. הסיכומים שכבר קיימים יישארו זמינים.</string>
+    <string name="summary_generate_unavailable">כדי ליצור גרסת %1$s צריך קודם לעבד את השיעור.</string>
+    <string name="summary_generate_confirm">יצירת גרסה</string>
+    <string name="move_to_course">העברה לקורס</string>
+    <string name="move_course_failed">ההעברה לא הושלמה. השיעור נשאר בקורס המקורי. נסו שוב לאחר עדכון השרת.</string>
+    <string name="summary_variant_stage">מכין סיכום ברקע</string>
+    <string name="watch_background_enable">בדיקות ברקע כבויות · הפעלה</string>
+    <string name="watch_course_count">%1$s קורסים במעקב</string>
+    <string name="summary_variant_pdf">מכין את קובץ הסיכום</string>
 </resources>

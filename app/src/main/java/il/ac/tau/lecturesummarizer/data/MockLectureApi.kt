@@ -14,6 +14,7 @@ class MockLectureApi : LectureApi {
     private val jobStarts = mutableMapOf<String, Long>()
 
     override suspend fun createCourse(name: String) = "mock-c-" + UUID.randomUUID()
+    override suspend fun moveLecture(lectureRemoteId:String,courseRemoteId:String) {}
     override suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long) = "mock-l-" + UUID.randomUUID()
     override suspend fun clearSlides(lectureRemoteId: String) {}
     override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean, range:SlideRange?) { data.close(); delay(300) }

@@ -29,6 +29,13 @@ class StudyStore(ctx:Context){
  private fun file(id:String,suffix:String)=File(dir,"${hash(id)}-$suffix.json")
  private fun read(f:File)=runCatching{JSONObject(f.readText())}.getOrNull()
  private fun write(f:File,o:JSONObject){val temp=File(f.path+".tmp");temp.writeText(o.toString());check(temp.renameTo(f))}
+ /** Delivered alongside the PDF, so opening the game needs zero additional API calls. */
+ fun delivered(id:String,pdf:File,density:String,key:String=""):Boolean {
+  val a=runCatching{JSONArray(File(pdf.path+".study.json").readText())}.getOrNull() ?: return false
+  val pairs=cleanConcepts((0 until a.length()).mapNotNull{a.optJSONObject(it)?.let{o->Concept(o.optString("term"),o.optString("definition"))}})
+  if(pairs.isEmpty())return false
+  cache(id,density,key,pairs);return true
+ }
  fun cache(id:String,density:String,summaryKey:String,entries:List<Concept>)=synchronized(lock){require(density in levels);write(file(id,density),JSONObject().put("density",density).put("summaryKey",summaryKey).put("updatedAt",System.currentTimeMillis()).put("entries",JSONArray(cleanConcepts(entries).map{JSONObject().put("term",it.term).put("explanation",it.explanation)})))}
  fun cached(id:String,preferred:String?=null):CachedConcepts?=synchronized(lock){
    (listOfNotNull(preferred?.takeIf{it in levels})+levels).distinct().firstNotNullOfOrNull{density->read(file(id,density))?.let{o->runCatching{val a=o.getJSONArray("entries");CachedConcepts(cleanConcepts((0 until a.length()).map{a.getJSONObject(it)}.map{Concept(it.getString("term"),it.getString("explanation"))}),density,o.optString("summaryKey"),o.optLong("updatedAt"))}.getOrNull()}}

@@ -29,26 +29,30 @@ import java.time.*
 import java.time.format.DateTimeFormatter
 
 @Composable fun CalendarImportButton(app:LectureApp,onImported:()->Unit={}) {
-    var open by remember{mutableStateOf(false)}
     var connected by remember{mutableStateOf(CalendarConnection.connected(app))}
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME){connected=CalendarConnection.connected(app)}
-    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){if(it){connected=CalendarConnection.connected(app);open=true}}
-    OutlinedButton(onClick={if(CalendarResolver.hasPermission(app))open=true else permission.launch(Manifest.permission.READ_CALENDAR)}){
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val launch=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){
+        connected=CalendarConnection.connected(app)
+        if(it.resultCode==android.app.Activity.RESULT_OK)onImported()
+    }
+    val open={launch.launch(android.content.Intent(context,il.ac.tau.lecturesummarizer.CalendarImportActivity::class.java))}
+    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){if(it){connected=CalendarConnection.connected(app);open()}}
+    OutlinedButton(onClick={if(CalendarResolver.hasPermission(app))open() else permission.launch(Manifest.permission.READ_CALENDAR)}){
         Icon(if(connected)Icons.Default.EventAvailable else Icons.Default.CalendarMonth,null)
         Spacer(Modifier.width(8.dp));Text(stringResource(if(connected)R.string.calendar_manage_events else R.string.ob1_cta))
-    }
-    if(open)androidx.compose.ui.window.Dialog(onDismissRequest={open=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
-        CalendarImportScreen(app,{open=false}){connected=CalendarConnection.connected(app);open=false;onImported()}
     }
 }
 
 /** Sticky action owns navigation/IME insets. All explanatory content scrolls above it. */
 @Composable fun CalendarImportFrame(onBack:()->Unit,label:String,enabled:Boolean,onConfirm:()->Unit,
-    footerInsets:WindowInsets=WindowInsets.navigationBars.union(WindowInsets.ime),content:@Composable (PaddingValues)->Unit){
+    footerInsets:WindowInsets?=null,content:@Composable (PaddingValues)->Unit){
  CompactCalendarTypography {
 
     AppScaffold(stringResource(R.string.calendar_import_title),onBack=onBack,bottomBar={
-        Surface(tonalElevation=0.dp){Column(Modifier.fillMaxWidth().windowInsetsPadding(footerInsets).padding(horizontal=16.dp,vertical=8.dp)){
+        // Production uses the activity window's REAL insets, not a simulated dialog inset.
+        val safe=if(footerInsets==null)Modifier.navigationBarsPadding().imePadding() else Modifier.windowInsetsPadding(footerInsets)
+        Surface(tonalElevation=0.dp){Column(Modifier.fillMaxWidth().then(safe).padding(horizontal=16.dp,vertical=8.dp)){
             Button(onClick=onConfirm,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("calendar-import-primary")){
                 Text(label,Modifier.fillMaxWidth(),textAlign=TextAlign.Center,softWrap=true)
             }
@@ -93,12 +97,12 @@ import java.time.format.DateTimeFormatter
 @Composable fun CalendarSourcePickerContent(calendars:List<CalendarSource>,ids:Set<Long>,onSelected:(Set<Long>)->Unit,modifier:Modifier=Modifier,enabled:Boolean=true,header:@Composable ()->Unit={}){
  CompactCalendarTypography {
 
-    LazyColumn(modifier,contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+    LazyColumn(modifier.testTag("calendar-source-list"),contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         item{header()}
         item{Text(stringResource(R.string.calendar_choose_sources),style=MaterialTheme.typography.titleLarge)}
         item{Text(stringResource(R.string.calendar_rules_privacy),style=MaterialTheme.typography.bodySmall)}
         if(calendars.isEmpty())item{Text(stringResource(R.string.calendar_none))}
-        items(calendars,key={it.id}){c->OutlinedCard(onClick={if(enabled)onSelected(if(c.id in ids)ids-c.id else ids+c.id)},modifier=Modifier.fillMaxWidth()){
+        items(calendars,key={it.id}){c->OutlinedCard(onClick={if(enabled)onSelected(if(c.id in ids)ids-c.id else ids+c.id)},modifier=Modifier.fillMaxWidth().testTag("calendar-source:${c.id}")){
             Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.Top){Checkbox(c.id in ids,{on->onSelected(if(on)ids+c.id else ids-c.id)},enabled=enabled)
                 Column(Modifier.weight(1f).padding(top=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){Text(bidi(c.name),softWrap=true);Text(bidi(c.account),style=MaterialTheme.typography.bodySmall,softWrap=true)}
             }

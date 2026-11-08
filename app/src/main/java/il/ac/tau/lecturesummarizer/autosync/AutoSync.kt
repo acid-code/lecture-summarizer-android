@@ -215,11 +215,10 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val from = now - maxOf(if (st.retro) st.lookbackDays else 0, if (st.live) AutoSyncPlanner.PENDING_MAX_DAYS else 0) * 86_400_000L
         val ruleStore=CalendarRuleStore(app)
         val customRules=app.settings.calendarRulesEnabled && ruleStore.prefs.getBoolean("configured",false)
-        val matchedEvents=if(customRules)CalendarRules.preview(ruleStore.rules(),CalendarRuleProvider.read(app,ruleStore.sources(),now).events).filter{it.event.start>=from && it.event.end<=now && ((ruleStore.autoApprove && !ruleStore.undone(it)) || CalendarRuleApplier(app).current(it))}else emptyList()
+        val matchedEvents=if(customRules)CalendarRules.preview(ruleStore.rules(),CalendarRuleProvider.read(app,ruleStore.sources(),now).events).filter{it.event.start>=from && it.event.end<=now && (il.ac.tau.lecturesummarizer.calendar.CalendarSeriesSelection.pickerRule(it.rule) || (ruleStore.autoApprove && !ruleStore.undone(it)) || CalendarRuleApplier(app).current(it))}else emptyList()
         val classes=if(customRules)matchedEvents.map{m->TauClass(m.rule.targetCourse,MoodleMatch.kindFromTitle(m.event.title),app.repo.courses.value.firstOrNull{it.name==m.rule.targetCourse}?.courseNumber,null,null,m.event.start,m.event.end,false)}
             else CalendarResolver.pastClasses(app,app.settings.calendarIds,from,now).filter(st::allowed)
         classes.forEach{c->st.track(c,matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}?.event?.title ?: c.courseName)}
-        val managed=CalendarRuleApplier(app).managedIds()
         val mappingStore=SourceMappingStore(app)
         val sourceRegistry=DataSourceRegistry()
         val sourceCache=mutableMapOf<SourceConfig,SourceListing>()
@@ -227,7 +226,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         fun have(c: TauClass): Boolean {
             val course = repo.courses.value.firstOrNull { c.courseNumber != null && it.courseNumber == c.courseNumber }
                 ?: repo.courses.value.firstOrNull { TauNorm(it.name) == TauNorm(c.courseName) } ?: return false
-            return repo.lectures.value.any { l -> !(l.id in managed && l.state==LectureState.DRAFT && l.segments.isEmpty() && l.panoptoId==null) && l.courseId == course.id && RecordingMatcher.sameDay(l.recordedAtMs, c.beginMs) &&
+            return repo.lectures.value.any { l -> !(l.state==LectureState.DRAFT && l.segments.isEmpty() && l.panoptoId==null && l.remoteId==null && l.jobId==null && l.pdfPath==null && l.allSlides.isEmpty()) && l.courseId == course.id && RecordingMatcher.sameDay(l.recordedAtMs, c.beginMs) &&
                 MoodleMatch.kindFromTitle(l.title).let { k -> k == c.kind || k == ClassKind.UNKNOWN || c.kind == ClassKind.UNKNOWN } }
         }
         val items = AutoSyncPlanner.plan(classes, now, st.retro, st.live, st::status, ::have)
@@ -304,7 +303,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)
             val dm = RecordingMatcher.ymdOf(c.beginMs)
             val title = app.getString(when(c.kind){ClassKind.RECITATION->il.ac.tau.lecturesummarizer.R.string.generated_recitation;else->il.ac.tau.lecturesummarizer.R.string.generated_lecture},"%02d/%02d".format(dm.d,dm.m))
-            val l = repo.lectures.value.firstOrNull{x->x.id in managed && x.courseId==course.id && x.recordedAtMs==c.beginMs && x.state==LectureState.DRAFT && x.segments.isEmpty() && x.panoptoId==null} ?: repo.addLecture(course.id, title)
+            val l = repo.addLecture(course.id, title) // Only reached after a real recording match; never reuse an unproven edited placeholder.
             st.setStatus(it.key, "done:${l.id}")
             repo.updateLecture(l.id) { x -> x.copy(recordedAtMs = c.beginMs, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl) }
             if(mc.id>0)store.setLectureSource(l.id, mc.id, rec.title,if(explicit)binding?.firstOrNull{it.providerId=="moodle"}?.baseUrl else null)

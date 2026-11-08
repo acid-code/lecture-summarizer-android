@@ -774,4 +774,16 @@
     <string name="calendar_series_days">Every %1$s days</string>
     <string name="calendar_series_months">Every %1$s months</string>
     <string name="calendar_series_years">Every %1$s years</string>
+    <string name="summary_variant_updating">Updating…</string>
+    <string name="summary_variant_loading">Downloading…</string>
+    <string name="summary_generate_variant">Generate this version?</string>
+    <string name="summary_generate_variant_body">The %1$s version will be generated in the background. Existing summaries stay available.</string>
+    <string name="summary_generate_unavailable">Process the lecture first to generate the %1$s version.</string>
+    <string name="summary_generate_confirm">Generate version</string>
+    <string name="move_to_course">Move to course</string>
+    <string name="move_course_failed">Move failed. The lecture is still in its original course. Retry after the server is updated.</string>
+    <string name="summary_variant_stage">Generating summary in the background</string>
+    <string name="watch_background_enable">Background checks are off · Turn on</string>
+    <string name="watch_course_count">%1$s courses watched</string>
+    <string name="summary_variant_pdf">Building the summary PDF</string>
 </resources>

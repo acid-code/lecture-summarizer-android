@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.lifecycle.repeatOnLifecycle
+
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -54,7 +56,7 @@ fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceV
     Column {
         if(onClick==null) Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small) {
             Row(Modifier.padding(horizontal=10.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                Icon(if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
+                if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp,color=color)else Icon(if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
                 Text(text,style=MaterialTheme.typography.labelMedium)
             }
         } else AssistChip(onClick=onClick,label={Text(text)},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(16.dp))},
@@ -100,6 +102,28 @@ fun LectureStatusChip(l: Lecture, partial: Boolean = false, onRetry: (() -> Unit
             LectureState.DONE -> R.string.st_done to if(androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF95D5A0) else Green
             LectureState.FAILED -> (if(online)R.string.st_failed else R.string.st_failed_offline) to cs.error
         }
+    }
+    val variantEntries=rememberVariantState(l.id)
+    val variants=variantEntries.values.filter{it.pending}
+    val contextApp=androidx.compose.ui.platform.LocalContext.current.applicationContext as? il.ac.tau.lecturesummarizer.LectureApp
+    val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(l.id,l.remoteId,variants.isNotEmpty()){
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED){
+        if(contextApp!=null&&l.remoteId!=null)do{
+            il.ac.tau.lecturesummarizer.slides.SummaryJobsSync.refresh(contextApp,l)
+            val running=il.ac.tau.lecturesummarizer.slides.SummaryVariantState(contextApp).entries(l.id).values.any{it.pending}
+            if(running)kotlinx.coroutines.delay(15000)else break
+        }while(true)
+        }
+    }
+    if(variants.isNotEmpty()){
+        Box(modifier){StatusChip(stringResource(R.string.summary_variant_updating),cs.primary,busy=true,icon=Icons.Default.AutoAwesome)}
+        return
+    }
+    if(variantEntries.values.any{it.state=="error"}){
+        val app=androidx.compose.ui.platform.LocalContext.current.applicationContext as? il.ac.tau.lecturesummarizer.LectureApp
+        Box(modifier){StatusChip(stringResource(R.string.st_failed),cs.error,onClick=app?.let{{variantEntries.filterValues{it.state=="error"}.keys.forEach{density->il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueueDensity(it,l.id,density)}}},icon=Icons.Default.Error)}
+        return
     }
     Box(modifier) { StatusChip(if (l.state == LectureState.UPLOADING) stringResource(res, pct) else stringResource(res), color,
         progress = pct.takeIf { l.state == LectureState.UPLOADING }, busy = processing && online, offline = !online,

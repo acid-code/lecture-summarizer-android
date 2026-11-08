@@ -53,7 +53,7 @@ class Repository(private val context: Context) {
         _courses.value = _courses.value + c; save(); return c
     }
 
-    /** Reassign a lecture to another notebook (wrong calendar guess). Remote copy keeps its old course until re-upload. */
+    /** Local commit after LectureMover has synchronized the server, or for a local-only draft. */
     @Synchronized fun moveLecture(lectureId: String, courseId: String) = updateLecture(lectureId) { it.copy(courseId = courseId) }
 
     @Synchronized fun updateCourse(id: String, f: (Course) -> Course) {
@@ -70,6 +70,12 @@ class Repository(private val context: Context) {
         val changed=lecture(id)
         if(changed!=null && old!=changed){CourseActivity(context).touch(changed.courseId);if(old?.courseId!=changed.courseId)old?.let{CourseActivity(context).touch(it.courseId)}}
         if (ready) onSummaryReady?.invoke(id)
+    }
+
+    /** Migration-only row removal. Never deletes files; exact snapshot re-check prevents racing a real import. */
+    @Synchronized fun removeCalendarPlaceholder(expected:Lecture):Boolean {
+        if(lecture(expected.id)!=expected)return false
+        _lectures.value=_lectures.value.filterNot{it.id==expected.id};save();return true
     }
 
     @Synchronized fun deleteLecture(id: String) {

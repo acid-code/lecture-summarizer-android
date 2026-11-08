@@ -16,6 +16,7 @@ object CalendarRuleAutomation {
         if(sources.isEmpty() || rules.none{it.enabled && it.valid}){store.pending(emptyList());return@withContext Scan(emptyList(),false)}
         val result=CalendarRuleProvider.read(app,sources)
         val all=CalendarRules.preview(rules,result.events)
+        CalendarDraftCleanup.run(app,app.repo,CalendarDraftCleanup.proofs(rules,result.events))
         val applier=CalendarRuleApplier(app)
         val pending=all.filterNot{store.dismissed(it) || applier.current(it)}
         // Refuse a stale background scan if the user changed source/rule selection while it was running.
@@ -25,38 +26,28 @@ object CalendarRuleAutomation {
     }
 }
 
-/** Imports/updates LOCAL lecture placeholders only. The source calendar is read-only and never modified. */
+/** Approval enables source watching only; a calendar occurrence is never a lecture. */
 class CalendarRuleApplier(private val ctx:Context,private val repo:Repository) {
     constructor(app:LectureApp):this(app,app.repo)
     companion object{private val LOCK=Any()}
     private val p=ctx.getSharedPreferences("calendar_import_links",Context.MODE_PRIVATE)
-    data class Undo(val key:String,val lectureId:String,val before:Lecture?,val after:Lecture,val previousLink:String?,val createdCourse:Course?=null)
+    data class Undo(val key:String,val previousLink:String?,val afterLink:String)
     fun managedIds()=p.all.filterKeys{it.startsWith("link:")}.values.mapNotNull{runCatching{JSONObject(it as String).getString("lecture")}.getOrNull()}.toSet()
     private fun link(key:String)=p.getString("link:$key",null)?.let{runCatching{JSONObject(it)}.getOrNull()}
-    fun current(m:CalendarRuleMatch)=link(m.event.key)?.let{it.optString("fingerprint")==m.fingerprint && repo.lecture(it.optString("lecture"))!=null}==true
+    fun current(m:CalendarRuleMatch)=link(m.event.key)?.let{it.optString("fingerprint")==m.fingerprint}==true
     fun apply(m:CalendarRuleMatch):Undo? = synchronized(LOCK) {
         if(current(m))return null
         require(m.rule.targetCourse.isNotBlank())
-        val prior=p.getString("link:${m.event.key}",null);val old=link(m.event.key)
-        val before=old?.optString("lecture")?.let{repo.lecture(it)}
-        // User recordings, manually edited titles and processing work are not silently overwritten.
-        if(before!=null)check(before.state==LectureState.DRAFT && before.segments.isEmpty() && before.remoteId==null &&
-            before.title==old?.optString("title") && before.recordedAtMs==old?.optLong("start")){"calendar_local_edit_conflict"}
-        val beforeCourseIds=repo.courses.value.map{it.id}.toSet()
-        val course=m.rule.targetCourseId?.let{repo.course(it) ?: error("destination_course_deleted")} ?: repo.findOrCreateCourse(m.rule.targetCourse.trim(),null)
-        val l=before ?: repo.addLecture(course.id,m.event.title)
-        val after=l.copy(courseId=course.id,title=m.event.title,recordedAtMs=m.event.start)
-        repo.updateLecture(l.id){after}
-        p.edit().putString("link:${m.event.key}",JSONObject().put("lecture",l.id).put("fingerprint",m.fingerprint).put("title",after.title).put("start",after.recordedAtMs).toString()).commit()
+        val prior=p.getString("link:${m.event.key}",null)
+        val after=JSONObject().put("fingerprint",m.fingerprint).put("title",m.event.title).put("start",m.event.start).put("watchOnly",true).toString()
+        p.edit().putString("link:${m.event.key}",after).commit()
         CalendarRuleStore(ctx,repo).undoSuppression(m,false)
-        return Undo(m.event.key,l.id,before,after,prior,course.takeIf{it.id !in beforeCourseIds})
+        Undo(m.event.key,prior,after)
     }
     fun undo(u:Undo):Boolean = synchronized(LOCK) {
-        if(repo.lecture(u.lectureId)!=u.after)return false
-        if(u.before==null)repo.deleteLecture(u.lectureId)else repo.updateLecture(u.lectureId){u.before}
-        u.createdCourse?.let{c->if(repo.course(c.id)==c && repo.lectures.value.none{it.courseId==c.id})repo.deleteCourse(c.id)}
+        if(p.getString("link:${u.key}",null)!=u.afterLink)return false
         p.edit().apply{if(u.previousLink==null)remove("link:${u.key}")else putString("link:${u.key}",u.previousLink)}.commit()
-        return true
+        true
     }
 }
 

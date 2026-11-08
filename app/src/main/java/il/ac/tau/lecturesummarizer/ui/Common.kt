@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +46,7 @@ fun AppScaffold(
         },
         floatingActionButton = { fab?.invoke() },
         bottomBar = bottomBar,
+        contentWindowInsets = WindowInsets.safeDrawing,
         content = content,
     )
 }
