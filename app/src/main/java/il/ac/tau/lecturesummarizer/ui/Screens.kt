@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
@@ -77,6 +78,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     val unread by app.unread.ids.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    var courseActions by remember{mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null)}
     var deleting by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
     val ctx = LocalContext.current
     var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
@@ -115,18 +117,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.settings_title)) }
         },
         fab = {
-            if(courses.isNotEmpty()) Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ExtendedFloatingActionButton(onClick = { adding = true },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    icon = { Icon(Icons.Default.Add, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_new_notebook)) })
-                ExtendedFloatingActionButton(
-                    onClick = { if (CalendarResolver.hasPermission(ctx)) resolve() else calPerm.launch(Manifest.permission.READ_CALENDAR) },
-                    modifier = Modifier.height(72.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    icon = { Icon(Icons.Default.Mic, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_current), Modifier.size(32.dp)) },
-                    text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_lecture), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) })
-            }
+            ExtendedFloatingActionButton(onClick={adding=true},icon={Icon(Icons.Default.Add,null)},text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_new_notebook))})
         }
     ) { pad ->
         val (online, recheck) = rememberOnline()
@@ -142,8 +133,8 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
             if (!online) OfflineState(recheck)
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp), Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 176.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(courses.size, key = { courses[it].id }) { i ->
                 val c = courses[i]
                 val n = all.count { it.courseId == c.id }
@@ -151,13 +142,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 Column {
                     Box(Modifier.fillMaxWidth()) {
                     NotebookCover(c.name, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, n) + (if (c.allContext.isNotEmpty()) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.background_count, c.allContext.size) else ""),
-                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth()) { onOpen(c.id) }
+                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth(),onLongClick={courseActions=c}) { onOpen(c.id) }
                     if (newCount > 0) UnreadCountBadge(newCount, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
                     }
-                    Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { editing = c }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.customize), style = MaterialTheme.typography.labelMedium) }
-                        IconButton(onClick = { deleting = c }) { Icon(Icons.Default.Delete, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_course), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
+
                 }
             }
         }
@@ -177,6 +165,7 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
         pendingNew = null; app.repo.course(course.id)?.let { startIn(it, cls) }
     } }
     deleting?.let { c -> DeleteCourseDialog(c.name, all.count { it.courseId == c.id }, { deleting = null }) { deleting = null; deleteCourseEverywhere(app, ctx, c.id) } }
+    courseActions?.let{c->CourseActionsSheet(c.name,{courseActions=null},{courseActions=null;editing=c},{courseActions=null;deleting=c})}
     editing?.let { c -> NotebookEditor(c, onDismiss = { editing = null }) { name, e, col, pat ->
         app.repo.updateCourse(c.id) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editing = null
     } }
@@ -209,13 +198,8 @@ fun LecturesScreen(
     var toDelete by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Lecture?>(null) }
     toDelete?.let { d -> DeleteLectureDialog(d.title, { toDelete = null }) { toDelete = null; deleteLectureEverywhere(app, ctx, d.id) {} } }
     AppScaffold(course?.name ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lectures_title), onBack = onBack,
-        fab = { if(lectures.isNotEmpty())Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Panopto lives at course level: pick a recording → lecture is created and titled from the recording.
-            ExtendedFloatingActionButton(onClick = { onPanopto(app.repo.addLecture(courseId, PANOPTO_PLACEHOLDER).id) },
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                icon = { Icon(Icons.Default.OndemandVideo, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.import_panopto)) })
-            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture)) })
-        } }
+        fab = { ExtendedFloatingActionButton(onClick={adding=true},icon={Icon(Icons.Default.Add,null)},text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture))}) }
+
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             course?.let { c -> item { CourseSourcesButton(app,c) };item { CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true } } }
@@ -253,7 +237,7 @@ fun LecturesScreen(
                 EmptyState(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_title),
                     androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_body)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onPanopto(app.repo.addLecture(courseId, PANOPTO_PLACEHOLDER).id) }) {
+                        OutlinedButton(onClick = { onPanopto(courseId) }) {
                             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_panopto)) }
                         Button(onClick = {
                             val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
@@ -278,9 +262,7 @@ fun LecturesScreen(
             }
         }
     }
-    if (adding) NameDialog(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture_title), androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture_hint), onDismiss = { adding = false }) {
-        val l = app.repo.addLecture(courseId, it); adding = false; onNew(l.id)
-    }
+    if(adding)AddLectureSheet(onDismiss={adding=false},onRecord={adding=false;val title=ctx.getString(il.ac.tau.lecturesummarizer.R.string.generated_lecture,DateFormat.getDateInstance().format(Date()));onRecord(app.repo.addLecture(courseId,title).id)},onPanopto={adding=false;onPanopto(courseId)},onUpload={uris->adding=false;val id=app.repo.addLecture(courseId,ctx.getString(il.ac.tau.lecturesummarizer.R.string.imported_files_title)).id;uris.forEach{persist(ctx,it)};retryScope.launch{runCatching{kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){uris.forEach{uri->if(audioLike(ctx,uri))importAudio(app,id,uri,ctx)else addSlides(app,id,listOf(uri))}}}.onFailure{app.repo.updateLecture(id){it.copy(error=ctx.getString(il.ac.tau.lecturesummarizer.R.string.import_failed))}};onAttach(id)}})
     if (editCover && course != null) NotebookEditor(course, onDismiss = { editCover = false }) { name, e, col, pat ->
         app.repo.updateCourse(courseId) { it.copy(name = name, emoji = e, color = col, pattern = pat) }; editCover = false
     }
@@ -333,7 +315,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     var wasActive by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
         if (active) wasActive = true
-        else if (autoResume && wasActive) { wasActive = false; onDone() }
+        else if (wasActive) { wasActive = false; onDone() }
     }
 
     val courses by app.repo.courses.collectAsStateWithLifecycle()
@@ -357,16 +339,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_recording_continues_with_the_screen_off_audio_is_saved_in_10_minu),
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             l?.let { cur -> TextButton(onClick = { moving = true }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_course_change, bidi(courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"))) } }
-            if (l != null && !otherActive) {
-                val n = l.allSlides.size
-                Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.materials_count, n), style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { livePicker.launch(SLIDE_MIMES) }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(6.dp)); Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_files_pdf_pptx)) }
-                    OutlinedButton(onClick = onMoodle, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.School, null); Spacer(Modifier.width(6.dp)); Text("Moodle") }
-                }
-            }
+            if(active && l!=null)FilledTonalButton(onClick={app.repo.updateLecture(l.id){it.copy(markers=it.markers+il.ac.tau.lecturesummarizer.data.Marker(rec.elapsedMs/1000,ctx.getString(il.ac.tau.lecturesummarizer.R.string.important_marker)))}},colors=ButtonDefaults.filledTonalButtonColors(containerColor=MaterialTheme.colorScheme.tertiaryContainer,contentColor=MaterialTheme.colorScheme.onTertiaryContainer)){Icon(Icons.Default.Star,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.important_marker))}
             if (otherActive) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_another_lecture_is_recording_stop_it_first), color = MaterialTheme.colorScheme.error)
             if (denied) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
@@ -445,7 +418,7 @@ LectureState.FAILED->il.ac.tau.lecturesummarizer.R.string.st_failed_offline
 fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? = null, status: (@Composable () -> Unit)? = null, pattern: CoverPattern = CoverPattern.SOLID, onDelete: (() -> Unit)? = null, isNew: Boolean = false, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Box(Modifier.height(IntrinsicSize.Min)) {
             CoverBackground(color, pattern, light = true, modifier = Modifier.matchParentSize())
             Row {

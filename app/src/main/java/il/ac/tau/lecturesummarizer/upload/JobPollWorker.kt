@@ -50,6 +50,7 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                             app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100, error = null) }
                         }
                         .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed)) } }
+                    runCatching{val index=il.ac.tau.lecturesummarizer.data.StudyIndex(app);api.transcript(l.remoteId!!)?.let{index.put(id,"transcript",it.lines.joinToString(" "){line->line.text})};if(dest.exists())index.put(id,"summary:${density ?: "unknown"}",il.ac.tau.lecturesummarizer.slides.SlideText.read(app,dest))}
                     il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app, id)
                     notify(id, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_ready_notification), named(app, l))
                     return Result.success()

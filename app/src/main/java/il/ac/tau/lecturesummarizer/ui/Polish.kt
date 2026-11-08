@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -49,11 +50,11 @@ object Connections {
 /** One semantic chip primitive for connection, queue, lecture and slide states. */
 @Composable
 fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null) {
+    progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null, icon:androidx.compose.ui.graphics.vector.ImageVector=Icons.Default.Info) {
     Column {
         if(onClick==null) Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small) {
             Row(Modifier.padding(horizontal=10.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                if(offline)Icon(Icons.Default.CloudOff,null,Modifier.size(16.dp))
+                Icon(if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
                 Text(text,style=MaterialTheme.typography.labelMedium)
             }
         } else AssistChip(onClick=onClick,label={Text(text)},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(16.dp))},
@@ -102,7 +103,7 @@ fun LectureStatusChip(l: Lecture, partial: Boolean = false, onRetry: (() -> Unit
     }
     Box(modifier) { StatusChip(if (l.state == LectureState.UPLOADING) stringResource(res, pct) else stringResource(res), color,
         progress = pct.takeIf { l.state == LectureState.UPLOADING }, busy = processing && online, offline = !online,
-        onClick = onRetry.takeIf { l.state == LectureState.FAILED && online }) }
+        onClick = onRetry.takeIf { l.state == LectureState.FAILED && online }, icon=when(l.state){LectureState.DONE->Icons.Default.CheckCircle;LectureState.FAILED->Icons.Default.Error;LectureState.UPLOADING->Icons.Default.CloudUpload;LectureState.RECORDING->Icons.Default.Mic;LectureState.PROCESSING->Icons.Default.AutoAwesome;else->Icons.Default.Schedule}) }
 }
 
 // ---------- Empty states ----------

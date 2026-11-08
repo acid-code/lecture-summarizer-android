@@ -45,13 +45,23 @@ private sealed interface PState {
  */
 @Composable
 fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onStarted: () -> Unit,
-                        newEntry: Boolean = false, onRecordInstead: () -> Unit = {}) {
+                        newEntry: Boolean = false, onRecordInstead: () -> Unit = {}, newCourseId:String?=null, sourceTime:Long?=null, onCreated:(String)->Unit={}) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
     val client = remember { MoodleClient.of(store.baseUrl) }
-    val lecture = app.repo.lecture(lectureId) ?: return
-    val course = app.repo.course(lecture.courseId)
-    val kind = MoodleMatch.kindFromTitle(lecture.title)
+    var resolvedId by remember{mutableStateOf(lectureId)}
+    val lecture=app.repo.lecture(resolvedId)
+    if(lecture==null && newCourseId==null)return
+    val course=app.repo.course(lecture?.courseId ?: newCourseId!!)
+    val kind=MoodleMatch.kindFromTitle(lecture?.title.orEmpty())
+    fun ensureLecture(rec:PanoptoRecording):String{
+        if(resolvedId.isBlank()){
+            val existing=app.repo.lectures.value.firstOrNull{sourceTime!=null && it.courseId==newCourseId && it.recordedAtMs==sourceTime && it.state==LectureState.DRAFT && it.segments.isEmpty() && it.remoteId==null}
+            resolvedId=existing?.id ?: app.repo.addLecture(newCourseId!!,Panopto.lectureTitle(rec.title)).id
+            if(sourceTime!=null)app.repo.updateLecture(resolvedId){it.copy(recordedAtMs=sourceTime)}
+        };return resolvedId
+    }
+    fun finished(){if(newCourseId!=null)onCreated(resolvedId)else onStarted()}
     val mapKey = "${course?.courseNumber ?: course?.id}:${kind.name}"
     var state by remember { mutableStateOf<PState>(PState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
@@ -76,13 +86,14 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     }
 
     suspend fun import(course: MoodleCourse, rec: PanoptoRecording) {
+        val lectureId=ensureLecture(rec)
         if (newEntry) {
             // New entry from Panopto: pin source + Moodle course, fetch captions in the background and go straight to
             // Materials so slides (file / Moodle, filtered to this course) can be attached meanwhile.
             store.setLectureSource(lectureId, course.id, rec.title)
             app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, error = null) }
             PanoptoFetch.start(app, lectureId)
-            onStarted(); return
+            finished(); return
         }
         state = PState.Importing(rec.title)
         state = withContext(Dispatchers.IO) {
@@ -95,7 +106,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 app.repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
                 val api = ApiProvider.get(app.settings)
                 val repo = app.repo
-                val c = repo.course(lecture.courseId) ?: error("Course missing")
+                val c = repo.course(lecture?.courseId ?: newCourseId!!) ?: error("Course missing")
                 val courseRemote = c.remoteId ?: api.createCourse(c.name).also { rid -> repo.updateCourse(c.id) { it.copy(remoteId = rid) } }
                 val l = repo.lecture(lectureId)!!
                 val remote = l.remoteId ?: api.createLecture(courseRemote, l.title, l.recordedAtMs).also { rid -> repo.updateLecture(lectureId) { it.copy(remoteId = rid) } }
@@ -108,17 +119,18 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 JobPollWorker.enqueue(ctx.applicationContext, lectureId, replace = true)
                 null
             }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
-        } ?: run { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_imported_toast), Toast.LENGTH_SHORT).show(); onStarted(); return }
+        } ?: run { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_imported_toast), Toast.LENGTH_SHORT).show(); finished(); return }
     }
 
     fun importAudio(course: MoodleCourse, rec: PanoptoRecording, wifiOnly: Boolean) {
+        val lectureId=ensureLecture(rec)
         store.setLectureSource(lectureId, course.id, rec.title)
         app.repo.updateLecture(lectureId) { it.copy(title = if (it.title == PANOPTO_PLACEHOLDER || it.title.isBlank()) Panopto.lectureTitle(rec.title) else it.title,
             panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, panoptoAudio = true,
             segments = emptyList(), error = null) }
         il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly)
         Toast.makeText(ctx, if (wifiOnly && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx)) ctx.getString(il.ac.tau.lecturesummarizer.R.string.audio_wait_wifi) else ctx.getString(il.ac.tau.lecturesummarizer.R.string.audio_downloading), Toast.LENGTH_SHORT).show()
-        onStarted()
+        finished()
     }
 
     confirmAudio?.let { (c, r) ->

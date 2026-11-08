@@ -171,7 +171,7 @@ class RecorderService : Service() {
         paused = false
         ticker?.cancel()
         finishSegment()
-        lectureId?.let { id -> repo.updateLecture(id) { it.copy(state = LectureState.RECORDED) } }
+        lectureId?.let { id -> repo.updateLecture(id) { it.copy(state = LectureState.RECORDED) }; if(repo.lecture(id)?.segments?.isNotEmpty()==true)UploadWorker.enqueue(this,id) }
         _state.value = _state.value.copy(recording = false, paused = false)
         wakeLock?.let { if (it.isHeld) it.release() }
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)

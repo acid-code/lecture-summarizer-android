@@ -43,12 +43,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
     buildFeatures { compose = true; buildConfig = true }
 }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.39.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.39.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     implementation("androidx.compose.ui:ui")

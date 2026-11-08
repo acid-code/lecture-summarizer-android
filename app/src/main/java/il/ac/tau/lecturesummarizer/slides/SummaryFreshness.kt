@@ -25,6 +25,8 @@ class SummaryFreshness(private val ctx: Context) {
     fun revision(l:Lecture)=revision(l.allSlides + "generation:${p.getLong("generation:${l.id}",0)}")
     fun outdated(l: Lecture,density: String): Boolean = p.getBoolean("dirty:${l.id}",false) && p.getString("built:${l.id}:$density",null)!=revision(l)
     fun built(id: String,density: String,revision: String){p.edit().putString("built:$id:$density",revision).commit()}
+    fun recordChange(id:String,rev:String,count:Int,densities:List<String>){p.edit().putString("note:$id",org.json.JSONObject().put("revision",rev).put("count",count).put("levels",densities.joinToString(",")).toString()).commit()}
+    fun changeNote(id:String)=p.getString("note:$id",null)
     fun state(id: String)=p.getString("state:$id",null)
     fun state(id: String,s: String){p.edit().putString("state:$id",s).commit()}
     fun prepare(id:String,revision:String){if(p.getString("request:$id",null)!=revision){val e=p.edit().putString("request:$id",revision);p.all.keys.filter{it.startsWith("job:$id:")}.forEach{e.remove(it)};e.commit()}}

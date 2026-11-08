@@ -364,6 +364,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 // ---------- Lecture (status + materials + study PDF + listen) ----------
 
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
@@ -378,28 +379,7 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     }
 
     // Poll job status while processing; fetch the PDF when done.
-    LaunchedEffect(l.jobId, l.state) {
-        val jobId = l.jobId ?: return@LaunchedEffect
-        if (l.state != LectureState.PROCESSING) return@LaunchedEffect
-        val api = ApiProvider.get(app.settings)
-        while (true) {
-            val st = runCatching { api.jobStatus(jobId) }.getOrNull()
-            if (st != null && il.ac.tau.lecturesummarizer.upload.JobKick.staleDone(lectureId, st.state)) { delay(2000); continue }
-            if (st != null) {
-                app.repo.updateLecture(lectureId) { it.copy(stage = st.stage, progress = st.progress, error = st.error, stageDetail = st.detail) }
-                if (st.state == "done") {
-                    val dest = File(app.repo.pdfDir(), "$lectureId.pdf")
-                    runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
-                        .onSuccess { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100) } }
-                        .onFailure { e -> app.repo.updateLecture(lectureId) { it.copy(error = e.message) } }
-                    il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app, lectureId)
-                    break
-                }
-                if (st.state == "failed") { app.repo.updateLecture(lectureId) { it.copy(state = LectureState.FAILED) }; break }
-            }
-            delay(if (app.settings.mockMode) 1000 else 5000)
-        }
-    }
+    LaunchedEffect(l.jobId,l.state){if(l.jobId!=null && l.state==LectureState.PROCESSING)JobPollWorker.enqueue(app,lectureId)}
 
     val download = rememberDownloader()
     // androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_slides) after the fact: add decks to the lecture and send them right away (then Re-summarize uses them).
@@ -437,12 +417,24 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
     var confirmDelete by remember { mutableStateOf(false) }
     if (confirmDelete) DeleteLectureDialog(l.title, { confirmDelete = false }) { confirmDelete = false; deleteLectureEverywhere(app, ctx, lectureId, onBack) }
-    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_lecture), onBack = onBack, actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture)) } }) { pad ->
+    var overflow by remember{mutableStateOf(false)}
+    var sourcesOpen by remember{mutableStateOf(false)}
+    var repairOpen by remember{mutableStateOf(false)}
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_lecture),onBack=onBack,actions={
+        IconButton(enabled=l.pdfPath?.let{File(it).exists()}==true,onClick={shareStudyPdf(ctx,app,l)}){Icon(Icons.Default.Share,ctx.getString(il.ac.tau.lecturesummarizer.R.string.share_pdf))}
+        Box{IconButton(onClick={overflow=true}){Icon(Icons.Default.MoreVert,ctx.getString(il.ac.tau.lecturesummarizer.R.string.more_actions))}
+            DropdownMenu(expanded=overflow,onDismissRequest={overflow=false}){
+                DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo))},onClick={overflow=false;repairOpen=!repairOpen;sourcesOpen=true})
+                DropdownMenuItem(enabled=l.pdfPath?.let{File(it).exists()}==true,text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_save_pdf))},onClick={overflow=false;l.pdfPath?.let{path->download(FileProvider.getUriForFile(ctx,ctx.packageName+".files",File(path)),summaryPdfName(app.repo.course(l.courseId)?.name,l.title),"application/pdf")}})
+                DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture),color=MaterialTheme.colorScheme.error)},onClick={overflow=false;confirmDelete=true})
+            }
+        }
+    }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // 1) Notebook header + status
             val course = app.repo.course(l.courseId)
-            ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     course?.let { Text("${it.coverEmoji()}  ${it.name}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
                     // Title + state on the left, compact ids stacked on the right (no extra row).
@@ -463,8 +455,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     }
                     if (l.fromPanopto) PanoptoStatusLines(l, l.panoptoSrtPath?.let { File(it).exists() } == true)
                     if (processing) {
-                        LinearProgressIndicator(progress = { l.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.processing_leave),style=MaterialTheme.typography.bodySmall)
+                        ProcessingSteps(l)
+                        Text(androidx.compose.ui.res.stringResource(if(androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled())il.ac.tau.lecturesummarizer.R.string.processing_leave else il.ac.tau.lecturesummarizer.R.string.processing_return),style=MaterialTheme.typography.bodySmall)
                     }
                     l.error?.let { ErrorText(androidx.compose.ui.res.stringResource(if(it==UploadWorker.INTERRUPTED)il.ac.tau.lecturesummarizer.R.string.upload_paused else il.ac.tau.lecturesummarizer.R.string.action_failed)) }
                     // New local audio (e.g. "Record another") not yet sent: offer upload right away (state is a live flow).
@@ -483,45 +475,20 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             val pdf = l.pdfPath?.let(::File)?.takeIf { it.exists() }
             SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_study_pdf), Icons.Default.AutoStories) {
                 SummaryFreshnessNotice(app,l)
+                SummaryChangeNote(app,l)
                 if(pdf==null)Text(if(processing)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_preparing)else if(l.state==LectureState.FAILED)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_created)else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_ready),style=MaterialTheme.typography.bodyMedium)
                 else {
                     var levels by remember(l.remoteId, l.pdfPath) { mutableStateOf(emptySet<String>()) }
-                    LaunchedEffect(l.remoteId, l.pdfPath) { l.remoteId?.let { levels = ApiProvider.get(app.settings).availableDensities(it) + il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.filter{d->File(app.repo.pdfDir(),"$lectureId-${d.api}.pdf").exists()}.map{d->d.api} } }
-                    if (levels.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_level), style = MaterialTheme.typography.bodyMedium)
-                        il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.filter { it.api in levels }.forEach { d ->
-                            FilterChip(selected = pdf.name.endsWith("-${d.api}.pdf"), onClick = {
-                                scope.launch(Dispatchers.IO) {
-                                    val dest = File(app.repo.pdfDir(), "$lectureId-${d.api}.pdf")
-                                    runCatching { if(!dest.exists())ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!, dest, d.api) }
-                                        .onSuccess { app.repo.updateLecture(lectureId) { it.copy(pdfPath = dest.absolutePath) } }
-                                        .onFailure { e -> launch(Dispatchers.Main) { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed), Toast.LENGTH_LONG).show() } }
-                                }
-                            }, label = { Column { Text(densityLabel(d)); SummaryFreshnessNotice(app,l,d.api) } })
-                        }
+                    LaunchedEffect(l.remoteId,l.pdfPath){
+                        val cached=il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.filter{d->File(app.repo.pdfDir(),"$lectureId-${d.api}.pdf").exists()}.map{it.api}.toSet()
+                        levels=cached
+                        l.remoteId?.let{remote->repeat(12){levels=ApiProvider.get(app.settings).availableDensities(remote)+cached;if(levels.containsAll(app.settings.summaryDensities))return@LaunchedEffect;delay(15_000)}}
                     }
-                    val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf)
-                    val pdfName = summaryPdfName(app.repo.course(l.courseId)?.name, l.title)
-                    PrimaryAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_open_study_pdf), Icons.AutoMirrored.Filled.OpenInNew, Modifier.fillMaxWidth()) {
-                        safeStart(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TonalAction(ctx.getString(il.ac.tau.lecturesummarizer.R.string.share_pdf), Icons.Default.Share, Modifier.weight(1f)) {
-                            // Share a copy with a readable name (course + lecture) instead of "<id>.pdf".
-                            val named = runCatching {
-                                val dir = File(ctx.filesDir, "shared/pdf").apply { deleteRecursively(); mkdirs() }
-                                File(dir, pdfName).also { pdf.copyTo(it, overwrite = true) }
-                            }.getOrNull()
-                            val shareUri = named?.let { FileProvider.getUriForFile(ctx, ctx.packageName + ".files", it) } ?: uri
-                            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
-                                .putExtra(Intent.EXTRA_STREAM, shareUri).putExtra(Intent.EXTRA_TITLE, pdfName)
-                                .putExtra(Intent.EXTRA_SUBJECT, pdfName.removeSuffix(".pdf"))
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), ctx.getString(il.ac.tau.lecturesummarizer.R.string.share_pdf)))
-                        }
-                        OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_save_pdf), Icons.Default.Download, Modifier.weight(1f)) {
-                            download(uri, pdfName, "application/pdf")
-                        }
-                    }
+                    SummaryHero(pdf,levels,il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.firstOrNull{pdf.name.endsWith("-${it.api}.pdf")}?.api,
+                        onSelect={d->scope.launch(Dispatchers.IO){val dest=File(app.repo.pdfDir(),"$lectureId-${d.api}.pdf");runCatching{if(!dest.exists())ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!,dest,d.api)}.onSuccess{app.repo.updateLecture(lectureId){it.copy(pdfPath=dest.absolutePath)}}.onFailure{launch(Dispatchers.Main){Toast.makeText(ctx,ctx.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed),Toast.LENGTH_LONG).show()}}}},
+                        onOpen={val uri=FileProvider.getUriForFile(ctx,ctx.packageName+".files",pdf);safeStart(ctx,Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))},
+                        levelNote={d->SummaryFreshnessNotice(app,l,d.api)})
+
                 }
             }
 
@@ -533,7 +500,9 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 TonalAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_transcript), Icons.Default.PlayArrow, Modifier.fillMaxWidth(), onClick = onListen)
             }
 
-            SlidesCard(app, l, onMoodle)
+            OutlinedButton(onClick={sourcesOpen=!sourcesOpen},modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.Folder,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lecture_sources))}
+            if(sourcesOpen){
+            SlidesCard(app,l,onMoodle)
 
             // 2) Materials
             val matPrefs = remember { ctx.getSharedPreferences("ui_prefs", android.content.Context.MODE_PRIVATE) }
@@ -555,11 +524,12 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
               }
             }
 
+            }
             // 5) Secondary actions
             val jid = l.jobId
             val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.all { it.uploaded } && l.remoteId != null
             val canResummarize = jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
-            if (l.state == LectureState.FAILED || canResummarize) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
+            if (l.state == LectureState.FAILED || repairOpen && canResummarize) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
                 if (l.state == LectureState.FAILED) {
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).
                     if (canRetryJob) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_retry_processing), Icons.Default.Refresh, Modifier.fillMaxWidth()) {

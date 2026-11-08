@@ -1,20 +1,26 @@
-# Local validation
+# Local validation — matcher V2 + UX/Home/search checkpoint
 
-Command (JDK 17):
+Branch: `feature/email-pull-biotech`. Local only: no push, merge, release or deploy.
 
 ```sh
-REAL_BIOTECH_FIXTURES=/workspace/biotech-real-verification ./gradlew testDebugUnitTest testReleaseUnitTest assembleDebug lintDebug --console=plain
+export JAVA_HOME=/home/box/jdk17
+export PATH="$JAVA_HOME/bin:$PATH"
+REAL_BIOTECH_FIXTURES=/workspace/biotech-real-verification \
+LECTURE_SCREEN_DIR=/workspace/lecture-summarizer/screens \
+./gradlew testDebugUnitTest testReleaseUnitTest assembleDebug lintDebug -Pscreenshots=true --console=plain
 ```
 
-Final build: **successful**.
+Final combined command: **successful**.
 
-- Debug: {'tests': 100, 'failures': 0, 'errors': 0, 'skipped': 0}
-- Release: {'tests': 100, 'failures': 0, 'errors': 0, 'skipped': 0}
-- Android lint: {'Error': 0, 'Warning': 48}
-- Hebrew/English resource parity: 565 English string entries; no missing translatable keys.
-- APK permission audit: READ_CALENDAR present; WRITE_CALENDAR absent. No `gmail.readonly` or removed mailbox implementation marker in DEX. Debug default mock is false; release mock getter remains forced false.
+- Debug: **113 tests, 0 failures/errors/skips** (109 core + 4 native-graphics screenshot tests).
+- Release: **109 tests, 0 failures/errors/skips**. Rendering tests are intentionally debug/opt-in only.
+- Lint: **0 errors, 56 warnings**, plus 4 informational findings. Remaining warnings include unused resources/dependency updates and pre-existing permissive TLS trust-manager warnings; they are not security certification.
+- Both actual Biotech fixtures now assert the expected top suggestions, including candidate-order stability: 28/10 → PPT03; 02/11 → PPT04. Both abstain under the unchanged confidence margin; suggestions-only remains unconditional. See `BIOTECH_MATCHER_VERIFICATION.md`.
+- Hebrew/English parity: 603 default string entries, 602 English; **no missing translatable English keys** (one intentionally non-translatable entry).
+- APK audit: **READ_CALENDAR present, WRITE_CALENDAR absent**; no Gmail read-only scope or old mailbox-rule marker in DEX.
 - `git diff --check`: clean.
+- **20 actual native-graphics Compose renders** (Home, courses, summary, processing, search × Hebrew/English × light/dark) under `/workspace/lecture-summarizer/screens/`.
 
-The opt-in real-data diagnostic ran in both variants with no skip. Its green test means successful execution, **not successful deck accuracy**: both actual Biotech expectations fail (PPT05 is chosen twice). See BIOTECH_MATCHER_VERIFICATION.md.
+## What these checks do not prove
 
-These are JVM/build/lint checks, not device/provider/end-to-end tests. No screenshots were rendered. Authenticated folder/session behavior, CalendarContract integration, background scheduling, undo/race behavior, PDF rebuild completion and complete light/dark locale layouts remain unverified. Plural-form polish remains despite formatting lint improvements.
+These are JVM/build/lint/component-render checks, **not an emulator/device or authenticated provider E2E run**. Screenshot inputs are explicitly demo-only test fixtures passed to production composables, not real accounts or hardcoded production data. The summary screenshot captures the honest PDF-icon fallback; Android PdfRenderer thumbnail completion has not been verified on a device. Recorder stop/background upload, foreground-service lifecycle, local CalendarContract provider, permissions, Panopto/Moodle login/import, external PDF open/share, late sibling-summary completion, and background refresh race/undo still need device verification. Large-corpus search performance and full accessibility/font-scale visual QA remain untested. No live lecture/material attachment was changed.

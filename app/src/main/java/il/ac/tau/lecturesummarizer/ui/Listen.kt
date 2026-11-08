@@ -155,7 +155,7 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     LaunchedEffect(l.remoteId, l.stage) {
         val rid = l.remoteId ?: run { tMsg = ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_unuploaded); return@LaunchedEffect }
         runCatching { ApiProvider.get(app.settings).transcript(rid) }
-            .onSuccess { t -> transcript = t?.copy(lines = t.lines.sortedBy { it.t0 })
+            .onSuccess { t -> t?.let{il.ac.tau.lecturesummarizer.data.StudyIndex(app).put(lectureId,"transcript",it.lines.joinToString(" "){line->line.text})};transcript = t?.copy(lines = t.lines.sortedBy { it.t0 })
                 tMsg = if (t == null || t.lines.isEmpty()) ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_not_ready) else "" }
             .onFailure { e -> tMsg = ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_load_failed) }
     }
@@ -208,7 +208,7 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
 
     AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_title), onBack = onBack) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            ElevatedCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(22.dp),
+            OutlinedCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(l.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

@@ -49,9 +49,10 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
                 api.downloadSummaryPdf(remote,dest,density)
                 if(app.repo.lecture(id)?.let{f.revision(it)}!=rev){f.state(id,"changed");return Result.success()}
                 f.built(id,density,rev)
+                runCatching{StudyIndex(app).put(id,"summary:$density",SlideText.read(app,dest))}
                 app.repo.updateLecture(id){cur->if(cur.pdfPath==null || cur.pdfPath.endsWith("-$density.pdf") || densities.last()==density && densities.none{cur.pdfPath.endsWith("-$it.pdf")})cur.copy(pdfPath=dest.absolutePath)else cur}
             }
-            densities.forEach{f.pendingJob(id,it,rev,null)};f.state(id,"ready")
+            densities.forEach{f.pendingJob(id,it,rev,null)};f.recordChange(id,rev,l.allSlides.size,densities);f.state(id,"ready")
             return Result.success()
         }catch(e:CancellationException){throw e}
         catch(_:Exception){f.state(id,"error");return if(runAttemptCount<3)Result.retry()else Result.failure()}

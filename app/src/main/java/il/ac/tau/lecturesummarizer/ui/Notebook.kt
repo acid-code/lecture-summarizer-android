@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -67,28 +68,19 @@ private fun lerpWhite(c: Color) = Color(
     red = c.red + (1 - c.red) * 0.35f, green = c.green + (1 - c.green) * 0.35f, blue = c.blue + (1 - c.blue) * 0.35f)
 
 /** Apple-Notes/Study-style notebook cover tile for the courses grid. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun NotebookCover(title: String, subtitle: String, emoji: String, color: Color, pattern: CoverPattern,
-                  modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
-    val shape = RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp)
-    Box(modifier.aspectRatio(0.78f).shadow(6.dp, shape).clip(shape)
-        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
-        CoverBackground(color, pattern, light = false, modifier = Modifier.matchParentSize())
-        // spine
-        Box(Modifier.width(12.dp).fillMaxHeight().background(Color.Black.copy(alpha = 0.18f)))
-        Box(Modifier.padding(start = 12.dp).width(2.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.25f)))
-        Column(Modifier.fillMaxSize().padding(start = 24.dp, end = 14.dp, top = 16.dp, bottom = 14.dp)) {
-            Text(emoji, fontSize = 40.sp)
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.92f)).padding(horizontal = 10.dp, vertical = 8.dp).fillMaxWidth()) {
-                Column {
-                    Text(title, color = Color(0xFF1B1B1F), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (subtitle.isNotEmpty()) Text(subtitle, color = Color(0xFF555560), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-    }
+fun NotebookCover(title:String,subtitle:String,emoji:String,color:Color,pattern:CoverPattern,
+ modifier:Modifier=Modifier,onLongClick:(()->Unit)?=null,onClick:(()->Unit)?=null){
+ val shape=RoundedCornerShape(20.dp)
+ Column(modifier.clip(shape).border(1.dp,MaterialTheme.colorScheme.outlineVariant,shape).background(MaterialTheme.colorScheme.surface)
+  .then(if(onClick!=null)Modifier.combinedClickable(onClick=onClick,onLongClick=onLongClick)else Modifier)){
+  Box(Modifier.fillMaxWidth().height(56.dp)){CoverBackground(color,pattern,false,Modifier.matchParentSize());Text(emoji,Modifier.padding(horizontal=16.dp,vertical=10.dp),fontSize=28.sp)}
+  Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+   Text(bidi(title),style=MaterialTheme.typography.titleSmall,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
+   if(subtitle.isNotEmpty())Text(subtitle,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+  }
+ }
 }
 
 /** Create / edit notebook sheet: live preview, name, emoji grid, colour chips, background styles. */
