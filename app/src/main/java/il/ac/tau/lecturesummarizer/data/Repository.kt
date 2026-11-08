@@ -34,6 +34,7 @@ class Repository(private val context: Context) {
     }
 
     @Synchronized fun addLecture(courseId: String, title: String): Lecture {
+        CourseActivity(context).touch(courseId)
         val l = Lecture(UUID.randomUUID().toString(), courseId, title, System.currentTimeMillis())
         _lectures.value = _lectures.value + l; save(); return l
     }
@@ -56,19 +57,23 @@ class Repository(private val context: Context) {
     @Synchronized fun moveLecture(lectureId: String, courseId: String) = updateLecture(lectureId) { it.copy(courseId = courseId) }
 
     @Synchronized fun updateCourse(id: String, f: (Course) -> Course) {
-        _courses.value = _courses.value.map { if (it.id == id) f(it) else it }; save()
+        _courses.value = _courses.value.map { if (it.id == id) f(it) else it }; save();CourseActivity(context).touch(id)
     }
 
     /** Set by the app: called when a lecture's summary just became ready (unread badge). */
     var onSummaryReady: ((String) -> Unit)? = null
 
     @Synchronized fun updateLecture(id: String, f: (Lecture) -> Lecture) {
+        val old=lecture(id)
         var ready = false
         _lectures.value = _lectures.value.map { if (it.id == id) f(it).also { n -> ready = UnreadStore.justFinished(it, n) } else it }; save()
+        val changed=lecture(id)
+        if(changed!=null && old!=changed){CourseActivity(context).touch(changed.courseId);if(old?.courseId!=changed.courseId)old?.let{CourseActivity(context).touch(it.courseId)}}
         if (ready) onSummaryReady?.invoke(id)
     }
 
     @Synchronized fun deleteLecture(id: String) {
+        lecture(id)?.let{CourseActivity(context).touch(it.courseId)}
         recordingsDir(id).deleteRecursively()
         File(pdfDir(), "$id.pdf").delete()
         SummaryDensity.entries.forEach{File(pdfDir(),"$id-${it.api}.pdf").delete()}
@@ -80,7 +85,7 @@ class Repository(private val context: Context) {
     @Synchronized fun deleteCourse(id: String) {
         _lectures.value.filter { it.courseId == id }.forEach { recordingsDir(it.id).deleteRecursively(); File(pdfDir(), "${it.id}.pdf").delete();val lid=it.id;SummaryDensity.entries.forEach{d->File(pdfDir(),"$lid-${d.api}.pdf").delete()};File(context.filesDir,"panopto/$lid.srt").delete();StudyIndex(context).remove(lid) }
         _lectures.value = _lectures.value.filterNot { it.courseId == id }
-        _courses.value = _courses.value.filterNot { it.id == id }; save()
+        _courses.value = _courses.value.filterNot { it.id == id }; save();CourseActivity(context).remove(id)
     }
 
     @Synchronized private fun load() {

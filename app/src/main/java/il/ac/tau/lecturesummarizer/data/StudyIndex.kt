@@ -11,6 +11,9 @@ import kotlinx.coroutines.*
 
 /** Local-only index: never sends a query or bulk-downloads content to search. */
 class StudyIndex(ctx:Context){
+ val refreshPrefs=ctx.getSharedPreferences("study_refresh",Context.MODE_PRIVATE)
+ val lastUpdated get()=refreshPrefs.getLong("lastSuccess",0L)
+ data class RefreshResult(val completed:Int,val total:Int,val failures:Int)
  private val dir=File(ctx.filesDir,"study-index").apply{mkdirs()}
  companion object{
   fun normalize(s:String)=Normalizer.normalize(s.lowercase(Locale.ROOT),Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").replace(Regex("\\s+")," ").trim()
@@ -27,11 +30,18 @@ class StudyIndex(ctx:Context){
   val searchable="${l.title} $course\n$body"
   if(!matches(searchable,query))null else {val needle=normalize(query).split(' ').first();val at=normalize(body).indexOf(needle).coerceAtLeast(0);Hit(l,course,body.substring((at-35).coerceAtLeast(0).coerceAtMost(body.length),(at+150).coerceAtMost(body.length)))}
  }.take(100).toList()
- suspend fun reindexLocal(app:LectureApp)=withContext(Dispatchers.IO){
-  app.repo.lectures.value.forEach{l->currentCoroutineContext().ensureActive()
-   val files=(listOfNotNull(l.pdfPath?.let(::File))+SummaryDensity.entries.map{File(app.repo.pdfDir(),"${l.id}-${it.api}.pdf")}).distinctBy{it.path}.filter{it.exists()}
-   files.forEach{f->currentCoroutineContext().ensureActive();runCatching{val density=SummaryDensity.entries.firstOrNull{f.name.endsWith("-${it.api}.pdf")}?.api ?: "unknown";put(l.id,"summary:$density",SlideText.read(app,f))}}
-   l.panoptoSrtPath?.let(::File)?.takeIf{it.exists()}?.let{f->put(l.id,"transcript",il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(f.readText()).joinToString(" "){it.text})}
+ suspend fun reindexLocal(app:LectureApp,onProgress:(Int,Int)->Unit={_,_->})=reindexLocal(app,app.repo,onProgress)
+ suspend fun reindexLocal(ctx:Context,repo:Repository,onProgress:(Int,Int)->Unit={_,_->}):RefreshResult=withContext(Dispatchers.IO){
+  val lectures=repo.lectures.value.toList();var done=0;var failures=0
+  onProgress(0,lectures.size)
+  lectures.forEach{l->currentCoroutineContext().ensureActive()
+   val files=(listOfNotNull(l.pdfPath?.let(::File))+SummaryDensity.entries.map{File(repo.pdfDir(),"${l.id}-${it.api}.pdf")}).distinctBy{it.path}.filter{it.exists()}
+   files.forEach{f->currentCoroutineContext().ensureActive();try{val density=SummaryDensity.entries.firstOrNull{f.name.endsWith("-${it.api}.pdf")}?.api ?: "unknown";val text=SlideText.read(ctx,f);check(text.isNotBlank());put(l.id,"summary:$density",text)}catch(e:CancellationException){throw e}catch(_:Exception){failures++}}
+   l.panoptoSrtPath?.let(::File)?.takeIf{it.exists()}?.let{f->try{val text=il.ac.tau.lecturesummarizer.moodle.Panopto.parseSrt(f.readText()).joinToString(" "){it.text};check(text.isNotBlank());put(l.id,"transcript",text)}catch(e:CancellationException){throw e}catch(_:Exception){failures++}}
+   done++;onProgress(done,lectures.size)
   }
+  // A partial/error refresh must not overwrite the last known-good timestamp.
+  if(failures==0)refreshPrefs.edit().putLong("lastSuccess",System.currentTimeMillis()).apply()
+  RefreshResult(done,lectures.size,failures)
  }
 }

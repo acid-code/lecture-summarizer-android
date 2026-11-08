@@ -28,7 +28,8 @@ import java.util.concurrent.TimeUnit
 
 /** Persistent per-user auto-sync queue + toggles (Pro features: retro summarizer, live recordings watch). */
 class AutoSyncStore(ctx: Context) {
-    private val p = ctx.getSharedPreferences("autosync", Context.MODE_PRIVATE)
+    val prefs = ctx.getSharedPreferences("autosync", Context.MODE_PRIVATE)
+    private val p get()=prefs
     var retro: Boolean get() = p.getBoolean("retro", false); set(v) = p.edit().putBoolean("retro", v).apply()
     var live: Boolean get() = p.getBoolean("live", false); set(v) = p.edit().putBoolean("live", v).apply()
     /** Retro look-back (days). */
@@ -50,6 +51,18 @@ class AutoSyncStore(ctx: Context) {
     fun status(key: String): String? = p.getString("st:$key", null)
     fun setStatus(key: String, v: String) = p.edit().putString("st:$key", v).apply()
     fun counts(): Map<String, Int> = p.all.filterKeys { it.startsWith("st:") }.values.groupingBy { (it as String).substringBefore(':') }.eachCount()
+    /** All rows are backed by the same status keys as the counts. Legacy keys retain course/date fallback. */
+    fun entries(repo:il.ac.tau.lecturesummarizer.data.Repository):List<SyncQueueEntry> = p.all.filterKeys{it.startsWith("st:")}.mapNotNull{(key,value)->
+        val raw=value as? String ?: return@mapNotNull null;val eventKey=key.removePrefix("st:");val parts=eventKey.split('|')
+        val lecture=if(raw.startsWith("done:"))repo.lecture(raw.substringAfter(':'))else null
+        val meta=p.getString("meta:$eventKey",null)?.let{runCatching{JSONObject(it)}.getOrNull()}
+        val courseKey=parts.dropLast(2).joinToString("|")
+        val course=lecture?.let{repo.course(it.courseId)?.name} ?: meta?.optString("course") ?: notFoundItems().firstOrNull{it.key==eventKey}?.course ?: repo.courses.value.firstOrNull{it.courseNumber==courseKey || TauEventNorm(it.name)==courseKey}?.name ?: courseKey
+        SyncQueueEntry(eventKey,SyncCategories.category(raw,lecture),course,lecture?.title ?: meta?.optString("title").orEmpty(),lecture?.recordedAtMs ?: meta?.optLong("start") ?: parts.lastOrNull()?.toLongOrNull() ?: 0L,lecture)
+    }.sortedByDescending{it.start}
+    fun track(c:TauClass,title:String=c.courseName){p.edit().putString("meta:${key(c)}",JSONObject().put("course",c.courseName).put("title",title).put("start",c.beginMs).toString()).apply()}
+    /** Only unclaimed waiting/missing events can be explicitly rechecked. Active work is never unclaimed. */
+    fun retry(key:String):Boolean{val raw=status(key) ?: return false;if(!raw.startsWith("wait") && !raw.startsWith("notfound"))return false;p.edit().remove("st:$key").apply();dropNotFound(key);return true}
     /** Cached Panopto session start per delivery id (ms; -1 = DeliveryInfo had none). */
     fun sessionStart(id: String): Long? = p.getLong("ss:$id", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
     fun setSessionStart(id: String, ms: Long?) = p.edit().putLong("ss:$id", ms ?: -1L).apply()
@@ -205,6 +218,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val matchedEvents=if(customRules)CalendarRules.preview(ruleStore.rules(),CalendarRuleProvider.read(app,ruleStore.sources(),now).events).filter{it.event.start>=from && it.event.end<=now && ((ruleStore.autoApprove && !ruleStore.undone(it)) || CalendarRuleApplier(app).current(it))}else emptyList()
         val classes=if(customRules)matchedEvents.map{m->TauClass(m.rule.targetCourse,MoodleMatch.kindFromTitle(m.event.title),app.repo.courses.value.firstOrNull{it.name==m.rule.targetCourse}?.courseNumber,null,null,m.event.start,m.event.end,false)}
             else CalendarResolver.pastClasses(app,app.settings.calendarIds,from,now).filter(st::allowed)
+        classes.forEach{c->st.track(c,matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}?.event?.title ?: c.courseName)}
         val managed=CalendarRuleApplier(app).managedIds()
         val mappingStore=SourceMappingStore(app)
         val sourceRegistry=DataSourceRegistry()
@@ -241,6 +255,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val active = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
             if (active >= MAX_ACTIVE || started >= MAX_PER_RUN) break
             val c = it.cls
+            if(st.status(it.key)=="dismissed")continue
             val binding=mappingStore.forName(app,c.courseName)
             val explicit=binding?.any{!it.legacy}==true
             if(customRules && !explicit && binding?.any{it.courseId!=null}!=true){
@@ -273,6 +288,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     if(hit!=null)break
                 }
             }
+            if(st.status(it.key)=="dismissed")continue
             if (st.status(it.key) == "skip") { st.dropNotFound(it.key); continue }
             val (mc, rec) = hit ?: run {
                 if (st.live && it.live) { st.setStatus(it.key, "wait:$now"); waiting++ } else {

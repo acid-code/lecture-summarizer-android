@@ -4,7 +4,7 @@ import java.util.Locale
 import java.security.MessageDigest
 
 data class CalendarImportRule(val id:String,val name:String,val enabled:Boolean=false,val title:String="",
-    val include:List<String> = emptyList(),val exclude:List<String> = emptyList(),val courseFilter:String="",val targetCourse:String="",val calendars:Set<Long> = emptySet(),val recurringOnly:Boolean=false,val targetCourseId:String?=null) {
+    val include:List<String> = emptyList(),val exclude:List<String> = emptyList(),val courseFilter:String="",val targetCourse:String="",val calendars:Set<Long> = emptySet(),val recurringOnly:Boolean=false,val targetCourseId:String?=null,val exactTitle:Boolean=false) {
     val valid get()=name.isNotBlank() && targetCourse.isNotBlank() && (title.isNotBlank() || include.any{it.isNotBlank()} || courseFilter.isNotBlank() || recurringOnly)
 }
 data class CalendarSource(val id:Long,val name:String,val account:String,val accountType:String,val zone:String) {
@@ -28,7 +28,7 @@ object CalendarRules {
         val body=norm(event.title+" "+event.snippet)
         return rules.firstOrNull{r->r.enabled && r.valid && (r.calendars.isEmpty() || event.calendarId in r.calendars) &&
             r.exclude.none{it.isNotBlank() && norm(it) in body} &&
-            (!r.recurringOnly || event.recurring) && (r.title.isBlank() || titleMatches(r.title,event.title)) &&
+            (!r.recurringOnly || event.recurring) && (r.title.isBlank() || if(r.exactTitle)norm(r.title)==norm(event.title) else titleMatches(r.title,event.title)) &&
             (r.include.isEmpty() || r.include.any{it.isNotBlank() && norm(it) in body}) &&
             (r.courseFilter.isBlank() || norm(r.courseFilter) in body)}
     }

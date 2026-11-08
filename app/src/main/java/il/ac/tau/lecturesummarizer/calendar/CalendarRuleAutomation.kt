@@ -26,34 +26,35 @@ object CalendarRuleAutomation {
 }
 
 /** Imports/updates LOCAL lecture placeholders only. The source calendar is read-only and never modified. */
-class CalendarRuleApplier(private val app:LectureApp) {
+class CalendarRuleApplier(private val ctx:Context,private val repo:Repository) {
+    constructor(app:LectureApp):this(app,app.repo)
     companion object{private val LOCK=Any()}
-    private val p=app.getSharedPreferences("calendar_import_links",Context.MODE_PRIVATE)
+    private val p=ctx.getSharedPreferences("calendar_import_links",Context.MODE_PRIVATE)
     data class Undo(val key:String,val lectureId:String,val before:Lecture?,val after:Lecture,val previousLink:String?,val createdCourse:Course?=null)
     fun managedIds()=p.all.filterKeys{it.startsWith("link:")}.values.mapNotNull{runCatching{JSONObject(it as String).getString("lecture")}.getOrNull()}.toSet()
     private fun link(key:String)=p.getString("link:$key",null)?.let{runCatching{JSONObject(it)}.getOrNull()}
-    fun current(m:CalendarRuleMatch)=link(m.event.key)?.let{it.optString("fingerprint")==m.fingerprint && app.repo.lecture(it.optString("lecture"))!=null}==true
+    fun current(m:CalendarRuleMatch)=link(m.event.key)?.let{it.optString("fingerprint")==m.fingerprint && repo.lecture(it.optString("lecture"))!=null}==true
     fun apply(m:CalendarRuleMatch):Undo? = synchronized(LOCK) {
         if(current(m))return null
         require(m.rule.targetCourse.isNotBlank())
         val prior=p.getString("link:${m.event.key}",null);val old=link(m.event.key)
-        val before=old?.optString("lecture")?.let{app.repo.lecture(it)}
+        val before=old?.optString("lecture")?.let{repo.lecture(it)}
         // User recordings, manually edited titles and processing work are not silently overwritten.
         if(before!=null)check(before.state==LectureState.DRAFT && before.segments.isEmpty() && before.remoteId==null &&
             before.title==old?.optString("title") && before.recordedAtMs==old?.optLong("start")){"calendar_local_edit_conflict"}
-        val beforeCourseIds=app.repo.courses.value.map{it.id}.toSet()
-        val course=m.rule.targetCourseId?.let{app.repo.course(it) ?: error("destination_course_deleted")} ?: app.repo.findOrCreateCourse(m.rule.targetCourse.trim(),null)
-        val l=before ?: app.repo.addLecture(course.id,m.event.title)
+        val beforeCourseIds=repo.courses.value.map{it.id}.toSet()
+        val course=m.rule.targetCourseId?.let{repo.course(it) ?: error("destination_course_deleted")} ?: repo.findOrCreateCourse(m.rule.targetCourse.trim(),null)
+        val l=before ?: repo.addLecture(course.id,m.event.title)
         val after=l.copy(courseId=course.id,title=m.event.title,recordedAtMs=m.event.start)
-        app.repo.updateLecture(l.id){after}
+        repo.updateLecture(l.id){after}
         p.edit().putString("link:${m.event.key}",JSONObject().put("lecture",l.id).put("fingerprint",m.fingerprint).put("title",after.title).put("start",after.recordedAtMs).toString()).commit()
-        CalendarRuleStore(app).undoSuppression(m,false)
+        CalendarRuleStore(ctx,repo).undoSuppression(m,false)
         return Undo(m.event.key,l.id,before,after,prior,course.takeIf{it.id !in beforeCourseIds})
     }
     fun undo(u:Undo):Boolean = synchronized(LOCK) {
-        if(app.repo.lecture(u.lectureId)!=u.after)return false
-        if(u.before==null)app.repo.deleteLecture(u.lectureId)else app.repo.updateLecture(u.lectureId){u.before}
-        u.createdCourse?.let{c->if(app.repo.course(c.id)==c && app.repo.lectures.value.none{it.courseId==c.id})app.repo.deleteCourse(c.id)}
+        if(repo.lecture(u.lectureId)!=u.after)return false
+        if(u.before==null)repo.deleteLecture(u.lectureId)else repo.updateLecture(u.lectureId){u.before}
+        u.createdCourse?.let{c->if(repo.course(c.id)==c && repo.lectures.value.none{it.courseId==c.id})repo.deleteCourse(c.id)}
         p.edit().apply{if(u.previousLink==null)remove("link:${u.key}")else putString("link:${u.key}",u.previousLink)}.commit()
         return true
     }

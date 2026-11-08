@@ -39,7 +39,7 @@ private val Amber = Color(0xFF7A4700)
 
 // ---------- Connection status (reuses the existing WebView-cookie sessions; no new auth) ----------
 object Connections {
-    fun calendar(ctx: Context) = CalendarResolver.hasPermission(ctx)
+    fun calendar(ctx: Context) = il.ac.tau.lecturesummarizer.calendar.CalendarConnection.connected(ctx)
     fun moodle(ctx: Context): Boolean = runCatching {
         val c = android.webkit.CookieManager.getInstance().getCookie(MoodleStore(ctx.applicationContext).baseUrl) ?: return false
         c.split(';').any { it.substringBefore('=').trim().startsWith("MoodleSession", true) }
