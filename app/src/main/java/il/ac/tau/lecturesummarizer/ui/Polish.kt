@@ -55,14 +55,12 @@ fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceV
     progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null, icon:androidx.compose.ui.graphics.vector.ImageVector=Icons.Default.Info) {
     Column {
         if(onClick==null) Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small) {
-            Row(Modifier.padding(horizontal=10.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp,color=color)else Icon(if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
                 Text(text,style=MaterialTheme.typography.labelMedium)
             }
         } else AssistChip(onClick=onClick,label={Text(text)},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(16.dp))},
             colors=AssistChipDefaults.assistChipColors(containerColor=color.copy(alpha=0.12f),labelColor=color,leadingIconContentColor=color))
-        if (progress != null) LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f }, modifier = Modifier.width(120.dp).height(3.dp), color = color)
-        else if (busy) LinearProgressIndicator(Modifier.width(120.dp).height(3.dp), color = color)
     }
 }
 

@@ -73,13 +73,13 @@ private fun lerpWhite(c: Color) = Color(
 fun NotebookCover(title:String,subtitle:String,emoji:String,color:Color,pattern:CoverPattern,
  modifier:Modifier=Modifier,footer:@Composable ()->Unit={},onLongClick:(()->Unit)?=null,onClick:(()->Unit)?=null){
  val shape=RoundedCornerShape(20.dp)
- Column(modifier.height((220*androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)).dp).clip(shape).border(1.dp,MaterialTheme.colorScheme.outlineVariant,shape).background(MaterialTheme.colorScheme.surface)
+ Column(modifier.heightIn(min=150.dp).clip(shape).border(1.dp,MaterialTheme.colorScheme.outlineVariant,shape).background(MaterialTheme.colorScheme.surface)
   .then(if(onClick!=null)Modifier.combinedClickable(onClick=onClick,onLongClick=onLongClick)else Modifier)){
-  Box(Modifier.fillMaxWidth().height(56.dp)){CoverBackground(color,pattern,false,Modifier.matchParentSize());Text(emoji,Modifier.padding(horizontal=16.dp,vertical=10.dp),fontSize=28.sp)}
-  Column(Modifier.weight(1f).padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+  Box(Modifier.fillMaxWidth().height(36.dp)){CoverBackground(color,pattern,false,Modifier.matchParentSize());Text(emoji,Modifier.padding(horizontal=16.dp,vertical=4.dp),fontSize=24.sp)}
+  Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
    Text(bidi(title),style=MaterialTheme.typography.titleSmall,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
    if(subtitle.isNotEmpty())Text(subtitle,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
-   Spacer(Modifier.weight(1f));footer()
+   Spacer(Modifier.height(2.dp));footer()
   }
  }
 }

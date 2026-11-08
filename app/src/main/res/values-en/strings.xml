@@ -634,9 +634,9 @@
     <string name="calendar_exact_title">Match the exact title</string>
     <string name="updated_never">Not updated yet</string>
     <string name="updated_now">just now</string>
-    <string name="updated_minutes">%1$s minutes ago</string>
-    <string name="updated_hours">%1$s hours ago</string>
-    <string name="updated_days">%1$s days ago</string>
+    <string name="updated_minutes">%1$sm ago</string>
+    <string name="updated_hours">%1$sh ago</string>
+    <string name="updated_days">%1$sd ago</string>
     <string name="course_updated">Updated %1$s</string>
     <string name="refresh_title">Refresh search index</string>
     <string name="refresh_action">Refresh</string>

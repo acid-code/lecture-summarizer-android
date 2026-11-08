@@ -23,7 +23,7 @@ enum class RefreshPhase { IDLE,RUNNING,SUCCESS,ERROR }
 @Composable fun CourseUpdated(ctx:Context,id:String){
     val activity=remember(ctx){CourseActivity(ctx)};var time by remember(id){mutableLongStateOf(activity.updated(id))}
     DisposableEffect(id){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,key->if(key==id)time=activity.updated(id)};activity.prefs.registerOnSharedPreferenceChangeListener(listener);onDispose{activity.prefs.unregisterOnSharedPreferenceChangeListener(listener)}}
-    Text(stringResource(R.string.course_updated,relativeUpdated(time)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(if(time==0L)stringResource(R.string.updated_never)else stringResource(R.string.course_updated,relativeUpdated(time)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }
 @Composable fun SearchIndexRefreshCard(phase:RefreshPhase,lastUpdated:Long,done:Int=0,total:Int=0,onRefresh:()->Unit){
     OutlinedCard(Modifier.fillMaxWidth()){

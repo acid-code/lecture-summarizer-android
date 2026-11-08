@@ -635,8 +635,8 @@
     <string name="calendar_exact_title">התאמה מדויקת לכותרת</string>
     <string name="updated_never">טרם עודכן</string>
     <string name="updated_now">עכשיו</string>
-    <string name="updated_minutes">לפני %1$s דקות</string>
-    <string name="updated_hours">לפני %1$s שעות</string>
+    <string name="updated_minutes">לפני %1$s דק׳</string>
+    <string name="updated_hours">לפני %1$s שע׳</string>
     <string name="updated_days">לפני %1$s ימים</string>
     <string name="course_updated">עודכן %1$s</string>
     <string name="refresh_title">עדכון החיפוש</string>

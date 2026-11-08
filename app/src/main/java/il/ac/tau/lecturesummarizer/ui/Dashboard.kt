@@ -89,7 +89,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
   }}
   val processing=all.filter{it.state in setOf(LectureState.UPLOADING,LectureState.PROCESSING) || it.state==LectureState.RECORDED && it.segments.any{segment->!segment.uploaded}}
   if(processing.isNotEmpty())item(key="Dashboard:static:3"){Text(stringResource(R.string.home_processing),style=MaterialTheme.typography.titleMedium)}
-  items(processing,key={"processing:${it.id}"}){l->DashboardLectureRow(l,courses,{onOpen(l.id)}){LectureStatusChip(l);LinearProgressIndicator(progress={l.progress.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth())}}
+  items(processing,key={"processing:${it.id}"}){l->DashboardLectureRow(l,courses,{onOpen(l.id)}){LectureStatusChip(l)}}
   val ready=all.filter{it.state==LectureState.DONE}.sortedWith(compareByDescending<Lecture>{it.id in unread}.thenByDescending{it.recordedAtMs}).take(8)
   item(key="Dashboard:static:4"){Text(stringResource(R.string.home_summaries),style=MaterialTheme.typography.titleMedium)}
   if(ready.isEmpty())item(key="Dashboard:static:5"){Text(stringResource(R.string.home_no_summaries));OutlinedButton(onClick=onCourses){Text(stringResource(R.string.tab_courses))}}
@@ -99,7 +99,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
    Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
     missed.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
      pair.forEach{m->key(m.event.key){OutlinedCard(Modifier.weight(1f)){
-      Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){
        val course=courses.firstOrNull{it.id==m.rule.targetCourseId || it.name==m.rule.targetCourse}
        Text(course?.name?:m.event.title,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
        Text(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm").withZone(java.time.ZoneId.of("Asia/Jerusalem")).format(java.time.Instant.ofEpochMilli(m.event.start)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
@@ -120,7 +120,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 }
 @Composable fun DashboardLectureRow(l:Lecture,courses:List<Course>,onClick:()->Unit,detail:@Composable ()->Unit){
  OutlinedCard(onClick=onClick,modifier=Modifier.fillMaxWidth()){
-  Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(courses.firstOrNull{it.id==l.courseId}?.name.orEmpty()),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary);Text(bidi(l.title),style=MaterialTheme.typography.titleSmall);detail()}
+  Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(bidi(courses.firstOrNull{it.id==l.courseId}?.name.orEmpty()),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary);Text(bidi(l.title),style=MaterialTheme.typography.titleSmall);detail()}
  }
 }
 @Composable fun SearchScreen(app:LectureApp,onOpen:(String)->Unit){

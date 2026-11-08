@@ -37,4 +37,13 @@ class ActiveRecallTest{
   restore.emulateSavedInstanceStateRestore();compose.mainClock.advanceTimeBy(400)
   compose.onNodeWithText(text.trim()).assertExists();compose.onNodeWithTag("recall-known").assertIsEnabled()
  }
+ @Test fun statusHasOnlyOneIndicatorAndNeverUpdatedCopyHasNoPrefix(){
+  compose.setContent{AppTheme(darkMode=false){Column{
+   StatusChip("Updating",busy=true)
+   CourseUpdated(ApplicationProvider.getApplicationContext<Application>(),"never-updated-status-test")
+  }}}
+  compose.onAllNodes(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo)).assertCountEquals(1)
+  compose.onNodeWithText("Not updated yet").assertExists()
+ }
+
 }
