@@ -47,14 +47,29 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  CompactCalendarTypography {
 
  val all by app.repo.lectures.collectAsState();val courses by app.repo.courses.collectAsState();val unread by app.unread.ids.collectAsState()
- var calendar by remember{mutableStateOf<List<CalendarRuleMatch>>(emptyList())};var loading by remember{mutableStateOf(true)}
+ var calendar by remember{mutableStateOf<List<CalendarRuleMatch>>(emptyList())};var loading by remember{mutableStateOf(true)};var calendarReady by remember{mutableStateOf(false)}
  var watch by remember{mutableStateOf(false)};var available by remember{mutableStateOf(CalendarConnection.connected(app))};var selectedCalendars by remember{mutableStateOf(false)};var automatic by remember{mutableStateOf(false)};var lastScan by remember{mutableLongStateOf(0)};var scanError by remember{mutableStateOf(false)}
  var setup by remember{mutableStateOf(false)};var calendarError by remember{mutableStateOf(false)};var retry by remember{mutableIntStateOf(0)}
  val watchStore=remember{CalendarRuleStore(app)}
+ val coursesKey=remember(courses){courses.map{it.id to it.name}}
  DisposableEffect(Unit){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,_->retry++};val settingsPrefs=app.getSharedPreferences("settings",android.content.Context.MODE_PRIVATE);watchStore.prefs.registerOnSharedPreferenceChangeListener(listener);settingsPrefs.registerOnSharedPreferenceChangeListener(listener);onDispose{watchStore.prefs.unregisterOnSharedPreferenceChangeListener(listener);settingsPrefs.unregisterOnSharedPreferenceChangeListener(listener)}}
  androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME){available=CalendarConnection.connected(app);retry++}
+ // Clock tick updates next/missed filters only — do not reload calendar (that was flashing the whole home card every minute).
  val now by produceState(System.currentTimeMillis()){while(true){value=System.currentTimeMillis();delay(60_000)}}
- LaunchedEffect(courses.map{it.id to it.name},now/60_000,retry,setup,watch){loading=true;available=CalendarConnection.connected(app);selectedCalendars=watchStore.sources().isNotEmpty() || app.settings.calendarIds.isNotEmpty();automatic=app.settings.calendarRulesEnabled && (watchStore.automatic || il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app).let{it.retro||it.live});lastScan=watchStore.prefs.getLong("lastScan",0);scanError=watchStore.prefs.getBoolean("scanError",false);try{val result=withContext(Dispatchers.IO){runCatching{matchedClasses(app)}};calendarError=result.isFailure;calendar=result.getOrDefault(emptyList())}finally{loading=false}}
+ LaunchedEffect(coursesKey,retry,setup,watch){
+  // Skeleton only before the first successful load; later refreshes (resume, prefs, minute-adjacent) stay silent.
+  if(!calendarReady)loading=true
+  available=CalendarConnection.connected(app)
+  selectedCalendars=watchStore.sources().isNotEmpty() || app.settings.calendarIds.isNotEmpty()
+  automatic=app.settings.calendarRulesEnabled && (watchStore.automatic || il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app).let{it.retro||it.live})
+  lastScan=watchStore.prefs.getLong("lastScan",0)
+  scanError=watchStore.prefs.getBoolean("scanError",false)
+  try{
+   val result=withContext(Dispatchers.IO){runCatching{matchedClasses(app)}}
+   calendarError=result.isFailure
+   calendar=result.getOrDefault(emptyList())
+  }finally{loading=false;calendarReady=true}
+ }
  val next=calendar.filter{it.event.end>now}.minByOrNull{it.event.start}
  val missed=calendar.filter{it.event.end<now && it.event.start>now-7*86400_000L && !hasLectureFor(app,it)}.sortedByDescending{it.event.start}.distinctBy{it.rule.targetCourseId ?: it.rule.targetCourse}.take(3)
  AppScaffold(stringResource(R.string.home_title),logo=true,actions={IconButton(onClick=onSettings){Icon(Icons.Default.Settings,stringResource(R.string.settings))}}){pad->
