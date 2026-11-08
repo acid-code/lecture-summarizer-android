@@ -25,7 +25,7 @@ enum class RefreshPhase { IDLE,RUNNING,SUCCESS,ERROR }
     DisposableEffect(id){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,key->if(key==id)time=activity.updated(id)};activity.prefs.registerOnSharedPreferenceChangeListener(listener);onDispose{activity.prefs.unregisterOnSharedPreferenceChangeListener(listener)}}
     Text(stringResource(R.string.course_updated,relativeUpdated(time)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }
-@Composable fun RefreshStatusCard(phase:RefreshPhase,lastUpdated:Long,done:Int=0,total:Int=0,onRefresh:()->Unit){
+@Composable fun SearchIndexRefreshCard(phase:RefreshPhase,lastUpdated:Long,done:Int=0,total:Int=0,onRefresh:()->Unit){
     OutlinedCard(Modifier.fillMaxWidth()){
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Row(verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.refresh_title),Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)

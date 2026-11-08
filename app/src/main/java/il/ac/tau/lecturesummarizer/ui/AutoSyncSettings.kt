@@ -41,7 +41,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
     var lookback by remember { mutableIntStateOf(st.lookbackDays) }
     var upgrade by remember { mutableStateOf(false) }
     val runStatus by AutoSyncWorker.status
-    val scope=rememberCoroutineScope();val lectures by app.repo.lectures.collectAsState();var queueCategory by remember{mutableStateOf<String?>(null)};var queueTick by remember{mutableIntStateOf(0)};var actionError by remember{mutableStateOf(false)}
+    val scope=rememberCoroutineScope();val lectures by app.repo.lectures.collectAsState();var queueTick by remember{mutableIntStateOf(0)};var actionError by remember{mutableStateOf(false)}
     DisposableEffect(Unit){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,_->queueTick++};st.prefs.registerOnSharedPreferenceChangeListener(listener);onDispose{st.prefs.unregisterOnSharedPreferenceChangeListener(listener)}}
     val queueRows=remember(queueTick,lectures){st.entries(app.repo)}
     val QC = il.ac.tau.lecturesummarizer.autosync.QueueControl
@@ -75,7 +75,10 @@ fun AutoSyncSettingsSection(app: LectureApp) {
                     if (isPaused) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary,icon=if(isPaused)Icons.Default.PauseCircle else Icons.Default.Sync)
             }
             if (app.settings.showDeveloper) (runStatus ?: st.lastRun)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            SyncCountChips(queueRows){queueCategory=it}
+            SyncQueueDisclosure(queueRows,onRetry={row->actionError=false
+            if(row.category=="failed")row.lecture?.let{lecture->scope.launch{try{il.ac.tau.lecturesummarizer.upload.retryLecture(app,lecture.id)}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(_:Exception){actionError=true}}}
+            else if(st.retry(row.key))AutoSyncWorker.runNow(app)
+        },onDismiss={row->st.dismissNotFound(row.key)},error=actionError)
             (c["dismissed"] ?: 0).takeIf { it > 0 }?.let { n ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.sync_dismissed, n), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -145,13 +148,6 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         if (!pro) OutlinedButton(onClick = { upgrade = true }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_upgrade_to_pro)) }
         else ent.source?.let { Text(stringResource(R.string.sync_pro_active), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-    queueCategory?.let{category->ModalBottomSheet(onDismissRequest={queueCategory=null}){
-        if(actionError)Text(stringResource(R.string.queue_action_error),Modifier.padding(20.dp),color=MaterialTheme.colorScheme.error)
-        SyncQueueList(category,queueRows.filter{it.category==category},onRetry={row->actionError=false
-            if(row.category=="failed")row.lecture?.let{lecture->scope.launch{try{il.ac.tau.lecturesummarizer.upload.retryLecture(app,lecture.id)}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(_:Exception){actionError=true}}}
-            else if(st.retry(row.key))AutoSyncWorker.runNow(app)
-        },onDismiss={row->st.dismissNotFound(row.key)},modifier=Modifier.heightIn(max=650.dp))
-    }}
     if (upgrade) AlertDialog(onDismissRequest = { upgrade = false },
         title = { Row(verticalAlignment = Alignment.CenterVertically) { Text(stringResource(il.ac.tau.lecturesummarizer.R.string.brand_pro)); ProBadge() } },
         text = { Text(stringResource(R.string.sync_pro_body) + "\n\n" + stringResource(if (ent.canSelfActivate) R.string.sync_beta else R.string.sync_soon)) },

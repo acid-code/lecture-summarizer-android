@@ -70,7 +70,7 @@ class CalendarV2ScreenshotsTest {
             Button(onClick={},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.calendar_import_event_count,2))}
           }
           in 2..5->Column(Modifier.padding(pad).padding(20.dp)){
-            RefreshStatusCard(listOf(RefreshPhase.IDLE,RefreshPhase.RUNNING,RefreshPhase.SUCCESS,RefreshPhase.ERROR)[screen-2],if(screen==2)0 else now-5*60000,3,8){}
+            SearchIndexRefreshCard(listOf(RefreshPhase.IDLE,RefreshPhase.RUNNING,RefreshPhase.SUCCESS,RefreshPhase.ERROR)[screen-2],if(screen==2)0 else now-5*60000,3,8){}
           }
           6->Column(Modifier.padding(pad).padding(20.dp)){CalendarWatchStatus(matches,true,true,now-5*60000,false,{},{})}
           7->Column(Modifier.padding(pad).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){Text(stringResource(R.string.sync_last_run),style=MaterialTheme.typography.titleMedium);SyncCountChips(rows){};Text(stringResource(R.string.queue_wait_help))}

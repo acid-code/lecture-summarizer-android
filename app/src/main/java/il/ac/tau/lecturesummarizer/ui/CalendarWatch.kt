@@ -16,7 +16,27 @@ import il.ac.tau.lecturesummarizer.calendar.*
 import java.text.DateFormat
 import java.util.Date
 
-@Composable fun CalendarWatchStatus(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected){
+@Composable fun CalendarWatchStatus(matches:List<CalendarRuleMatch>,selected:Boolean,automatic:Boolean,lastScan:Long,error:Boolean,onWatch:()->Unit,onChoose:()->Unit,loading:Boolean=false,trackingEnabled:Boolean=true,watchConfigured:Boolean=selected,compact:Boolean=false){
+    if(compact){
+        HorizontalDivider(color=MaterialTheme.colorScheme.primary.copy(alpha=0.15f))
+        Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+            Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                Icon(Icons.Default.EventAvailable,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f)){
+                    Text(stringResource(if(selected)R.string.watch_connected else R.string.watch_available),style=MaterialTheme.typography.labelMedium)
+                    if(!loading)Text(stringResource(R.string.watch_counts,ltr(matches.size),ltr(matches.map{it.rule.targetCourseId ?: it.rule.targetCourse}.distinct().size)),style=MaterialTheme.typography.labelSmall)
+                }
+                TextButton(onClick=if(watchConfigured && trackingEnabled)onWatch else onChoose){Text(stringResource(if(watchConfigured && trackingEnabled)R.string.watch_open else R.string.calendar_pick_events),style=MaterialTheme.typography.labelMedium)}
+            }
+            if(error)Text(stringResource(R.string.calendar_rules_error),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+            else if(!trackingEnabled)Text(stringResource(R.string.watch_disabled),style=MaterialTheme.typography.labelSmall)
+            else if(automatic){
+                val estimate=(lastScan+30*60_000L).takeIf{lastScan>0 && it>System.currentTimeMillis()}
+                Text(if(estimate!=null)stringResource(R.string.watch_next_check,ltr(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(estimate))))else stringResource(R.string.watch_check_soon),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }else Text(stringResource(R.string.watch_manual_short),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     val upcoming=matches.filter{it.event.end>System.currentTimeMillis()}.sortedBy{it.event.start}.take(2)
     OutlinedCard(Modifier.fillMaxWidth()){
         Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){

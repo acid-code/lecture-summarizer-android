@@ -639,7 +639,7 @@
     <string name="updated_hours">לפני %1$s שעות</string>
     <string name="updated_days">לפני %1$s ימים</string>
     <string name="course_updated">עדכון קורס: %1$s</string>
-    <string name="refresh_title">חיפוש בתוכן שהורד</string>
+    <string name="refresh_title">עדכון החיפוש</string>
     <string name="refresh_action">רענון</string>
     <string name="refresh_running">מרעננים…</string>
     <string name="refresh_progress">נבדקו %1$s מתוך %2$s הרצאות</string>
@@ -699,4 +699,10 @@
     <string name="mapping_calendar_edit">בחירת אירועים ועריכת כללים</string>
     <string name="mapping_rule_on">במעקב</string>
     <string name="mapping_rule_off">המעקב כבוי</string>
+    <string name="home_connected_no_next">אין שיעור קרוב כרגע</string>
+    <string name="watch_manual_short">היומן מחובר · בדיקה ברקע כבויה</string>
+    <string name="queue_info_for">מידע על %1$s</string>
+    <string name="queue_expand">הצגת כל %1$s השיעורים</string>
+    <string name="queue_collapse">תצוגה מצומצמת</string>
+    <string name="queue_close">סגירה</string>
 </resources>

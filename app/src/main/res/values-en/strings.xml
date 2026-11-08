@@ -638,7 +638,7 @@
     <string name="updated_hours">%1$s hours ago</string>
     <string name="updated_days">%1$s days ago</string>
     <string name="course_updated">Course updated: %1$s</string>
-    <string name="refresh_title">Search downloaded content</string>
+    <string name="refresh_title">Refresh search index</string>
     <string name="refresh_action">Refresh</string>
     <string name="refresh_running">Refreshing…</string>
     <string name="refresh_progress">Checked %1$s of %2$s lectures</string>
@@ -698,4 +698,10 @@
     <string name="mapping_calendar_edit">Choose events and edit rules</string>
     <string name="mapping_rule_on">Watching</string>
     <string name="mapping_rule_off">Watching off</string>
+    <string name="home_connected_no_next">No upcoming class right now</string>
+    <string name="watch_manual_short">Calendar connected · background checks off</string>
+    <string name="queue_info_for">About %1$s</string>
+    <string name="queue_expand">Show all %1$s classes</string>
+    <string name="queue_collapse">Show less</string>
+    <string name="queue_close">Close</string>
 </resources>

@@ -55,7 +55,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  val next=calendar.filter{it.event.end>now}.minByOrNull{it.event.start}
  val missed=calendar.filter{it.event.end<now && it.event.start>now-7*86400_000L && !hasLectureFor(app,it)}.sortedByDescending{it.event.start}.distinctBy{it.rule.targetCourseId ?: it.rule.targetCourse}.take(3)
  AppScaffold(stringResource(R.string.home_title),logo=true,actions={IconButton(onClick=onSettings){Icon(Icons.Default.Settings,stringResource(R.string.settings))}}){pad->
-  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty())})else null)
+  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty(),compact=true)})else null)
  }
  if(setup)SemesterSetupSheet(app,{setup=false})
  if(watch)androidx.compose.ui.window.Dialog(onDismissRequest={watch=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){CalendarWatchListScreen(app,calendar,{watch=false})}
@@ -63,16 +63,17 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 @Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null){
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
-  calendarStatus?.let{status->item{status()}}
-  if(next!=null || calendarStatus==null)item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
+  item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
    Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
     Text(stringResource(if(next!=null && next.event.start<=System.currentTimeMillis())R.string.home_now else R.string.home_next),style=MaterialTheme.typography.labelMedium)
     if(calendarError){Text(stringResource(R.string.home_calendar_error));TextButton(onClick=onRetry){Text(stringResource(R.string.retry))}}
     else if(next!=null){Text(bidi(next.rule.targetCourse),style=MaterialTheme.typography.titleLarge);Text(bidi(next.event.title));Text(ltr(DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(Date(next.event.start))))
      val course=courses.firstOrNull{it.id==next.rule.targetCourseId || it.name==next.rule.targetCourse}
      if(course!=null)Button(onClick={onRecord(course.id)}){Icon(Icons.Default.Mic,null);Text(stringResource(R.string.copy_record_lecture))}
-    }else{Text(stringResource(R.string.home_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.home_no_next_body));TextButton(onClick=onSetup){Text(stringResource(R.string.semester_setup))}}
+    }else if(calendarStatus!=null){Text(stringResource(R.string.home_connected_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.watch_no_upcoming),style=MaterialTheme.typography.bodyMedium)}
+    else{Text(stringResource(R.string.home_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.home_no_next_body));TextButton(onClick=onSetup){Text(stringResource(R.string.semester_setup))}}
     if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
+    calendarStatus?.invoke()
    }
   }}
   val processing=all.filter{it.state in setOf(LectureState.UPLOADING,LectureState.PROCESSING) || it.state==LectureState.RECORDED && it.segments.any{segment->!segment.uploaded}}
@@ -114,7 +115,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 @Composable fun SearchContent(query:String,onQuery:(String)->Unit,hits:List<StudyIndex.Hit>,busy:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onIndex:()->Unit,refreshPhase:RefreshPhase=if(busy)RefreshPhase.RUNNING else RefreshPhase.IDLE,lastUpdated:Long=0L,refreshDone:Int=0,refreshTotal:Int=0){
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{OutlinedTextField(query,onQuery,Modifier.fillMaxWidth(),label={Text(stringResource(R.string.search_hint))},leadingIcon={Icon(Icons.Default.Search,null)},singleLine=true)}
-  item{RefreshStatusCard(refreshPhase,lastUpdated,refreshDone,refreshTotal,onIndex)}
+  item{SearchIndexRefreshCard(refreshPhase,lastUpdated,refreshDone,refreshTotal,onIndex)}
   if(query.trim().length>=2 && hits.isEmpty())item{Text(stringResource(R.string.search_empty))}
   items(hits,key={it.lecture.id}){hit->OutlinedCard(onClick={onOpen(hit.lecture.id)}){Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(hit.course),style=MaterialTheme.typography.labelMedium);Text(bidi(hit.lecture.title),style=MaterialTheme.typography.titleMedium);if(hit.snippet.isNotBlank())Text(bidi(hit.snippet),maxLines=3);LectureStatusChip(hit.lecture)}}}
  }
