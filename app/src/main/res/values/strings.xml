@@ -756,4 +756,23 @@
     <string name="memory_update">עדכון המושגים מהסיכום</string>
     <string name="memory_wait_summary">אפשר להוריד מושגים אחרי העלאת השיעור ויצירת סיכום.</string>
     <string name="memory_matched">זוג נמצא</string>
+    <string name="home_more_events">הצגת עוד</string>
+    <string name="home_fewer_events">הצגת פחות</string>
+    <string name="home_all_events">כל %1$s השיעורים במעקב</string>
+    <string name="calendar_import_series_count">שמירת הבחירה · ⁦%1$d⁩</string>
+    <string name="calendar_selected_series_count">נבחרו ⁦%1$d⁩ מתוך ⁦%2$d⁩ סדרות</string>
+    <string name="calendar_series_only">מוצגים רק שיעורים חוזרים, פעם אחת לכל סדרה.</string>
+    <string name="calendar_series_empty">לא נמצאו שיעורים חוזרים. נסו חיפוש אחר או יומן אחר.</string>
+    <string name="calendar_series_selection_explainer">בחירת סדרה כוללת את כל השיעורים שלה בסמסטר, גם אם מועד שיעור השתנה. הבחירה נשמרת למעקב; לא תתחיל הורדה אוטומטית.</string>
+    <string name="calendar_series_exceptions">כולל שיעורים שהמועד שלהם השתנה</string>
+    <string name="calendar_series_all_day">כל היום</string>
+    <string name="calendar_series_weekly">שבועי</string>
+    <string name="calendar_series_weeks">כל %1$s שבועות</string>
+    <string name="calendar_series_daily">יומי</string>
+    <string name="calendar_series_monthly">חודשי</string>
+    <string name="calendar_series_yearly">שנתי</string>
+    <string name="calendar_series_repeating">סדרה חוזרת</string>
+    <string name="calendar_series_days">כל %1$s ימים</string>
+    <string name="calendar_series_months">כל %1$s חודשים</string>
+    <string name="calendar_series_years">כל %1$s שנים</string>
 </resources>

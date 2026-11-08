@@ -55,19 +55,19 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  val next=calendar.filter{it.event.end>now}.minByOrNull{it.event.start}
  val missed=calendar.filter{it.event.end<now && it.event.start>now-7*86400_000L && !hasLectureFor(app,it)}.sortedByDescending{it.event.start}.distinctBy{it.rule.targetCourseId ?: it.rule.targetCourse}.take(3)
  AppScaffold(stringResource(R.string.home_title),logo=true,actions={IconButton(onClick=onSettings){Icon(Icons.Default.Settings,stringResource(R.string.settings))}}){pad->
-  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty(),compact=true)})else null)
+  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty(),compact=true)})else null,upcoming=upcomingClasses(calendar,now),onUpcomingAll={watch=true})
  }
  if(setup)SemesterSetupSheet(app,{setup=false})
  if(watch)androidx.compose.ui.window.Dialog(onDismissRequest={watch=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){CalendarWatchListScreen(app,calendar,{watch=false})}
 }
-@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null){
+@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null){
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
   item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
-   Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+   Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
     Text(stringResource(if(next!=null && next.event.start<=System.currentTimeMillis())R.string.home_now else R.string.home_next),style=MaterialTheme.typography.labelMedium)
     if(calendarError){Text(stringResource(R.string.home_calendar_error));TextButton(onClick=onRetry){Text(stringResource(R.string.retry))}}
-    else if(next!=null){Text(bidi(next.rule.targetCourse),style=MaterialTheme.typography.titleLarge);Text(bidi(next.event.title));Text(ltr(DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(Date(next.event.start))))
+    else if(next!=null){UpcomingLectureRows(upcoming,onUpcomingAll)
      val course=courses.firstOrNull{it.id==next.rule.targetCourseId || it.name==next.rule.targetCourse}
      if(course!=null)Button(onClick={onRecord(course.id)}){Icon(Icons.Default.Mic,null);Text(stringResource(R.string.copy_record_lecture))}
     }else if(calendarStatus!=null){Text(stringResource(R.string.home_connected_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.watch_no_upcoming),style=MaterialTheme.typography.bodyMedium)}

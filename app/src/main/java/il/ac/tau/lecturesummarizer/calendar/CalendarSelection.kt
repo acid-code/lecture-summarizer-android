@@ -2,7 +2,6 @@ package il.ac.tau.lecturesummarizer.calendar
 
 import android.content.Context
 import il.ac.tau.lecturesummarizer.data.*
-import java.security.MessageDigest
 
 /** Connection is permission + a device account, not an app OAuth flag. Metadata only. */
 object CalendarConnection {
@@ -22,23 +21,24 @@ object CalendarSelectionImporter {
         require(events.isNotEmpty() && sources.isNotEmpty())
         require(events.all{e->e.title.isNotBlank() && sources.any{it.id==e.calendarId}})
         val store=CalendarRuleStore(ctx,repo)
-        val before=store.rules()
-        val generated=events.distinctBy{it.calendarId to CalendarRules.norm(it.title)}.associate{e->
-            val parsed=TauEventParser.parse(CalEvent(e.title,e.snippet,null,e.start,e.end,null,e.allDay),requireClassHint=false)
-            val course=repo.findOrCreateCourse(parsed?.courseName ?: e.title,parsed?.courseNumber)
-            val hash=MessageDigest.getInstance("SHA-256").digest(CalendarRules.norm(e.title).toByteArray()).joinToString(""){"%02x".format(it)}
-            val key="selection:${e.calendarId}:$hash"
-            (e.calendarId to CalendarRules.norm(e.title)) to CalendarImportRule(key,e.title,enabled=true,title=e.title,targetCourse=course.name,calendars=setOf(e.calendarId),targetCourseId=course.id,exactTitle=true)
+        val before=CalendarSeriesSelection.migrateRules(store.rules(),events)
+        val series=CalendarSeriesSelection.groups(events);require(series.isNotEmpty() && events.all{it.recurring})
+        val generated=series.map{s->
+            val e=s.instances.first()
+            val parsed=TauEventParser.parse(CalEvent(s.title,e.snippet,null,e.start,e.end,null,e.allDay),requireClassHint=false)
+            val previous=before.firstOrNull{CalendarSeriesSelection.pickerRule(it)&&s.key in it.seriesKeys}
+            val course=previous?.targetCourseId?.let{repo.course(it)} ?: repo.findOrCreateCourse(parsed?.courseName ?: s.title,parsed?.courseNumber)
+            CalendarImportRule("series-selection:${s.key}",s.title,enabled=true,targetCourse=course.name,calendars=setOf(s.calendarId),targetCourseId=course.id,recurringOnly=true,seriesKeys=setOf(s.key))
         }
         // The picker is the explicit active source selection: deselection must revoke future reads.
         store.sources(sources.distinctBy{it.id})
-        val ids=generated.values.map{it.id}.toSet()
-        store.saveRules(generated.values.toList()+before.filterNot{it.id in ids})
+        val ids=generated.map{it.id}.toSet()
+        store.saveRules(generated+before.filterNot{it.id in ids}.map{r->if(CalendarSeriesSelection.pickerRule(r) && r.calendars.any{id->sources.any{it.id==id}})r.copy(enabled=false)else r})
         Settings(ctx).apply{calendarIds=store.sources().map{it.id}.toSet();calendarRulesEnabled=true}
         val applier=CalendarRuleApplier(ctx,repo)
-        val approved=CalendarRules.preview(generated.values.toList(),events)
+        val approved=CalendarRules.preview(generated,events)
         approved.forEach{applier.apply(it)}
         store.pending(store.pending().filterNot{applier.current(it)})
-        return Result(generated.values.map{it.targetCourseId}.distinct().size,approved.size)
+        return Result(generated.map{it.targetCourseId}.distinct().size,approved.size)
     }
 }

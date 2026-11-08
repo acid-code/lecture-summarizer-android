@@ -36,7 +36,7 @@ import java.util.TimeZone
 class CalendarV2ScreenshotsTest {
  @get:Rule val compose=createComposeRule()
  @Test fun bulkActionsAndCounterAreWired(){
-    val events=(1..40).map{CalendarImportEvent("event-$it",1,it.toLong(),"שיעור $it","",1000,2000,false,"Asia/Jerusalem")}
+    val events=(1..40).map{CalendarImportEvent("event-$it",1,it.toLong(),"שיעור $it","",1000,2000,false,"Asia/Jerusalem",recurring=true,seriesId=it.toLong(),recurrenceRule="FREQ=WEEKLY")}
     var selected by mutableStateOf(emptySet<String>())
     compose.setContent{AppTheme(darkMode=false){CalendarEventPickerContent(events,selected,"",{},{selected=it},modifier=Modifier.fillMaxSize())}}
     compose.onNodeWithText("בחירת הכול").performClick();compose.runOnIdle{assertEquals(40,selected.size)}

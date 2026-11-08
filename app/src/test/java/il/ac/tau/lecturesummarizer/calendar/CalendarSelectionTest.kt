@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 class CalendarSelectionTest {
     private val ctx get()=ApplicationProvider.getApplicationContext<Application>()
     private val source=CalendarSource(12,"University","student@example.invalid","com.google","Asia/Jerusalem")
-    private fun event(key:String,title:String="Biology",time:Long=1_800_000_000_000)=CalendarImportEvent(key,12,key.hashCode().toLong(),title,"",time,time+3600000,false,"Asia/Jerusalem",true)
+    private fun event(key:String,title:String="Biology",time:Long=1_800_000_000_000)=CalendarImportEvent(key,12,key.hashCode().toLong(),title,"",time,time+3600000,false,"Asia/Jerusalem",true,seriesId=title.hashCode().toLong())
     @Test fun connectedAccountDoesNotRequireSeparateAppLogin(){
         assertTrue(CalendarConnection.connected(true,emptySet(),setOf(12)))
         assertTrue(CalendarConnection.connected(true,setOf(12),emptySet()))
@@ -28,7 +28,7 @@ class CalendarSelectionTest {
         assertEquals(1,result.courses);assertEquals(2,result.events)
         assertEquals(1,reopened.courses.value.size);assertEquals(2,reopened.lectures.value.size)
         assertEquals(listOf(source),store.sources());assertEquals(1,store.rules().size)
-        assertTrue(store.rules().single().enabled);assertTrue(store.rules().single().exactTitle)
+        assertTrue(store.rules().single().enabled);assertTrue(store.rules().single().recurringOnly);assertFalse(store.rules().single().exactTitle);assertTrue(store.rules().single().seriesKeys.isNotEmpty())
         assertEquals(2,CalendarRules.preview(store.rules(),chosen).size)
         assertEquals(0,CalendarRules.preview(store.rules(),listOf(event("unselected","Biology exam"))).size)
         assertTrue(Settings(ctx).calendarRulesEnabled);assertEquals(setOf(12L),Settings(ctx).calendarIds)

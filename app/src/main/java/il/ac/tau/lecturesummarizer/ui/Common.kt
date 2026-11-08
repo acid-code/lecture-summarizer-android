@@ -25,6 +25,7 @@ fun AppScaffold(
     logo: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     fab: (@Composable () -> Unit)? = null,
+    bottomBar: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
@@ -42,6 +43,7 @@ fun AppScaffold(
             )
         },
         floatingActionButton = { fab?.invoke() },
+        bottomBar = bottomBar,
         content = content,
     )
 }

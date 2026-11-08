@@ -755,4 +755,23 @@
     <string name="memory_update">Update concepts from the summary</string>
     <string name="memory_wait_summary">Upload the lecture and create a summary before downloading concepts.</string>
     <string name="memory_matched">Pair matched</string>
+    <string name="home_more_events">Show more</string>
+    <string name="home_fewer_events">Show less</string>
+    <string name="home_all_events">All %1$s watched classes</string>
+    <string name="calendar_import_series_count">Save selection · ⁦%1$d⁩</string>
+    <string name="calendar_selected_series_count">⁦%1$d⁩ of ⁦%2$d⁩ series selected</string>
+    <string name="calendar_series_only">Only recurring classes are shown, once per series.</string>
+    <string name="calendar_series_empty">No recurring classes found. Try another search or calendar.</string>
+    <string name="calendar_series_selection_explainer">Choosing a series includes every class in the current term, including rescheduled instances. Selection is saved for tracking; downloads do not start automatically.</string>
+    <string name="calendar_series_exceptions">Includes rescheduled classes</string>
+    <string name="calendar_series_all_day">All day</string>
+    <string name="calendar_series_weekly">Weekly</string>
+    <string name="calendar_series_weeks">Every %1$s weeks</string>
+    <string name="calendar_series_daily">Daily</string>
+    <string name="calendar_series_monthly">Monthly</string>
+    <string name="calendar_series_yearly">Yearly</string>
+    <string name="calendar_series_repeating">Recurring series</string>
+    <string name="calendar_series_days">Every %1$s days</string>
+    <string name="calendar_series_months">Every %1$s months</string>
+    <string name="calendar_series_years">Every %1$s years</string>
 </resources>
