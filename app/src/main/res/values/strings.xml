@@ -299,7 +299,9 @@
     <string name="listen_no_audio">אין הקלטה במכשיר הזה — אפשר לקרוא את התמלול.</string>
     <string name="transcript_partial">תמלול חלקי — התמלול עדיין מתבצע</string>
     <string name="transcript_copy">העתקת הכול</string>
-    <string name="transcript_export">ייצוא תמלול</string>
+    <string name="transcript_export">שיתוף תמלול</string>
+    <string name="transcript_share_busy">מכין את התמלול…</string>
+    <string name="transcript_share_empty">אין תמלול זמין לשיתוף עדיין.</string>
     <string name="transcript_follow">מעקב אחר ההשמעה</string>
     <string name="moodle_attach">צירוף מ־Moodle</string>
     <string name="moodle_change">בחירת קורס אחר</string>
@@ -539,7 +541,7 @@
     <string name="reprocessing_existing">מעדכנים מהתמלול הקיים</string>
     <string name="reprocessing_audio_missing">השמע אינו זמין. נעדכן מהתמלול הקיים.</string>
     <string name="transcript_loading">טוענים תמלול…</string>
-    <string name="transcript_share">שמירה או שיתוף תמלול</string>
+    <string name="transcript_share">שיתוף תמלול (טקסט או קובץ)</string>
     <string name="share_recording">שיתוף הקלטה</string>
     <string name="cover_color">צבע</string>
     <string name="cover_style">סגנון כריכה</string>

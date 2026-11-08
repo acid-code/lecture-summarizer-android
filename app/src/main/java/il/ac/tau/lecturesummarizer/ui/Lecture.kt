@@ -490,10 +490,34 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
 
             // 4) Listen / transcript
             val audio = l.segments.count { File(it.path).exists() }
+            var sharingTranscript by remember { mutableStateOf(false) }
             if (audio > 0 || l.remoteId != null) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_listen_and_transcript), Icons.Default.Headphones) {
                 Text(if (audio > 0) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_help) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_no_audio),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TonalAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_transcript), Icons.Default.PlayArrow, Modifier.fillMaxWidth(), onClick = onListen)
+                if (l.remoteId != null) OutlineAction(
+                    if (sharingTranscript) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_share_busy)
+                    else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export),
+                    Icons.Default.Share, Modifier.fillMaxWidth(), enabled = !sharingTranscript,
+                ) {
+                    val remote = l.remoteId ?: return@OutlineAction
+                    sharingTranscript = true
+                    scope.launch(Dispatchers.IO) {
+                        val result = runCatching {
+                            val tr = ApiProvider.get(app.settings).transcript(remote)
+                            val lines = tr?.lines.orEmpty()
+                            if (lines.isEmpty()) error("empty")
+                            lines
+                        }
+                        sharingTranscript = false
+                        launch(Dispatchers.Main) {
+                            result.onSuccess { shareTranscriptTxt(ctx, l.title, it) }
+                                .onFailure {
+                                    Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_share_empty), Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    }
+                }
             }
 
             if(l.remoteId!=null||pdf!=null)StudyToolsEntry(onMemory,onTutor)

@@ -11,10 +11,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Forward
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -294,7 +295,10 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             cm.setPrimaryClip(android.content.ClipData.newPlainText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_clipboard_label), transcriptText(l.title, lines)))
                             android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_copied, lines.size), android.widget.Toast.LENGTH_SHORT).show()
                         }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_copy), maxLines = 1) }
-                        TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export), maxLines = 1) }
+                        TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Icon(Icons.Default.Share, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export), maxLines = 1)
+                        }
                         FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_follow), maxLines = 1) })
                     }
                 }
@@ -334,17 +338,27 @@ internal fun transcriptText(title: String, lines: List<TranscriptLine>): String 
     lines.forEach { append('[').append(mmss((it.t0 * 1000).toLong())).append("] ").append(it.text.trim()).append('\n') }
 }
 
-/** Writes the transcript to files/shared/ and opens the share sheet (Save to Files/Drive, send, etc.). */
+/**
+ * Opens the system share sheet with the full transcript as plain text (pasteable into ChatGPT/Claude/etc.)
+ * and as a .txt attachment (Drive / Files / mail).
+ */
 internal fun shareTranscriptTxt(ctx: android.content.Context, title: String, lines: List<TranscriptLine>) {
     runCatching {
+        require(lines.isNotEmpty()) { "empty transcript" }
+        val body = transcriptText(title, lines)
         val dir = java.io.File(ctx.filesDir, "shared").apply { mkdirs() }
         val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80).ifBlank { "lecture" }
         val f = java.io.File(dir, "$safe - transcript.txt")
-        f.writeText("\uFEFF" + transcriptText(title, lines), Charsets.UTF_8)
+        f.writeText("\uFEFF$body", Charsets.UTF_8)
         val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
         val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "$title — transcript")
+            .putExtra(android.content.Intent.EXTRA_SUBJECT, "$title — transcript")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$title — transcript")
             .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // Prefer inline text for AI chat apps; skip only if the binder payload would be huge.
+        if (body.length <= 700_000) send.putExtra(android.content.Intent.EXTRA_TEXT, body)
+        send.putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        send.clipData = android.content.ClipData.newUri(ctx.contentResolver, "transcript", uri)
         ctx.startActivity(android.content.Intent.createChooser(send, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_share)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
     }.onFailure { android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_export_failed), android.widget.Toast.LENGTH_LONG).show() }
 }

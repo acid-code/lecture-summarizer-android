@@ -298,7 +298,9 @@
     <string name="listen_no_audio">No recording on this device — read the transcript.</string>
     <string name="transcript_partial">Partial transcript — transcription is still running</string>
     <string name="transcript_copy">Copy all</string>
-    <string name="transcript_export">Export transcript</string>
+    <string name="transcript_export">Share transcript</string>
+    <string name="transcript_share_busy">Preparing transcript…</string>
+    <string name="transcript_share_empty">No transcript is ready to share yet.</string>
     <string name="transcript_follow">Follow playback</string>
     <string name="moodle_attach">Add from Moodle</string>
     <string name="moodle_change">Choose another course</string>
@@ -527,7 +529,7 @@
     <string name="reprocessing_existing">Updating from the existing transcript</string>
     <string name="reprocessing_audio_missing">Audio is unavailable. We will update from the existing transcript.</string>
     <string name="transcript_loading">Loading transcript…</string>
-    <string name="transcript_share">Save or share transcript</string>
+    <string name="transcript_share">Share transcript (text or file)</string>
     <string name="share_recording">Share recording</string>
     <string name="cover_color">Color</string>
     <string name="cover_style">Cover style</string>
