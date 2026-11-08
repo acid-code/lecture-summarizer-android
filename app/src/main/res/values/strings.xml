@@ -573,8 +573,8 @@
     <string name="sync_battery_choose">בחירת סף עצירה</string>
     <string name="sync_battery_run">המשך עד ⁦%1$d%%⁩</string>
     <string name="sync_battery_wait">המתנה</string>
-    <string name="slides_search_setting">הצעת שקפים מ־Moodle</string>
-    <string name="slides_search_setting_body">בדיקה אחרי התמלול, רק ברשת ללא חיוב לפי נפח. מציעים קבצים לבחירה, ולא מצרפים אותם אוטומטית.</string>
+    <string name="slides_search_setting">שקפים מ־Moodle</string>
+    <string name="slides_search_setting_body">מצרפים מצגת חד־משמעית לפני הסיכום כשאפשר. אחרי התמלול מציעים גם קבצים נוספים ב־Wi‑Fi לאישורכם.</string>
     <string name="shared_file_list">⁦%1$d⁩ קבצים ששותפו: %2$s</string>
     <string name="transcript_clipboard_label">תמלול</string>
     <string name="upload_paused">ההעלאה נעצרה. ההקלטות שמורות, ואפשר לנסות שוב.</string>

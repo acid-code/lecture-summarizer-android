@@ -561,8 +561,8 @@
     <string name="sync_battery_choose">Choose stop threshold</string>
     <string name="sync_battery_run">Continue until ⁦%1$d⁩%%</string>
     <string name="sync_battery_wait">Wait</string>
-    <string name="slides_search_setting">Moodle slide suggestions</string>
-    <string name="slides_search_setting_body">Check after transcription, on an unmetered network only. Files are suggested for your approval, never attached automatically.</string>
+    <string name="slides_search_setting">Moodle slides</string>
+    <string name="slides_search_setting_body">Attach an unambiguous matching deck before summarizing when possible. After transcription, also suggest other Moodle files on Wi‑Fi for your approval.</string>
     <string name="shared_file_list">⁦%1$d⁩ shared files: %2$s</string>
     <string name="transcript_clipboard_label">Transcript</string>
     <string name="upload_paused">Upload paused. Your recordings are saved; you can retry the upload.</string>

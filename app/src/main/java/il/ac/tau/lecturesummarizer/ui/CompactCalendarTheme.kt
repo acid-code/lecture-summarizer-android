@@ -2,6 +2,7 @@ package il.ac.tau.lecturesummarizer.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.sp
 
 /** Only Home/calendar journeys use this scale. Respect device fontScale; never shrink it away. */

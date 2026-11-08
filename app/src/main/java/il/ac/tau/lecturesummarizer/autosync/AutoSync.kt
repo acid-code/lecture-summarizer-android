@@ -319,8 +319,13 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             st.setStatus(it.key, "done:${l.id}")
             repo.updateLecture(l.id) { x -> x.copy(recordedAtMs = c.beginMs, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl) }
             if(mc.id>0)store.setLectureSource(l.id, mc.id, rec.title,if(explicit)binding?.firstOrNull{it.providerId=="moodle"}?.baseUrl else null)
-            // Very-high-confidence slides: attach before the summary job starts so they're folded in.
-            // Suggestions are searched after ASR. Real-data validation did not justify any automatic attachment.
+            // Unambiguous Moodle deck before captions/audio so figures land in the first PDF.
+            // Post-DONE term search (SlideMatchWorker) only suggests; never auto-attaches.
+            if(st.autoAttach && mc.id>0) runCatching{
+                val site=store.lectureBase(l.id)
+                val slideClient=if(site==store.baseUrl)client else MoodleClient.of(site)
+                autoAttachSlides(app,l.id,slideClient,store,mc,rec.title,dm.d to dm.m)
+            }.onFailure{e->if(e is MoodleAuthRequired)throw e}
             val caps = runCatching { client.captionStatus(rec) }.getOrDefault(CaptionStatus.UNKNOWN)
             if (caps == CaptionStatus.AUTH) throw PanoptoAuthRequired(rec.viewerUrl)
             val ok = if (caps == CaptionStatus.HAS) runCatching { PanoptoImporter.importCaptions(app, l.id, client, rec) }.onFailure { e -> if (e is PanoptoAuthRequired) throw e }.isSuccess else false
@@ -336,6 +341,26 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val remaining = items.size - started - missing - waiting
         if (started > 0 && remaining > 0 && !st.paused) enqueueDrain(app, allowCell, inputData.getInt(KEY_DRAIN, 0) + 1)
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
+    }
+
+    /** Near-certain Moodle PDF/PPTX only (MoodleMatch.autoPick). Ambiguous → leave for post-ASR suggestions. */
+    private fun autoAttachSlides(app: LectureApp, lectureId: String, client: MoodleClient, store: MoodleStore, mc: MoodleCourse, recTitle: String?, dayMonth: Pair<Int, Int>) {
+        if (mc.id <= 0) return
+        val site = store.lectureBase(lectureId)
+        val files = client.sections(mc.id).flatMap { it.files }.filter { !store.isUsed(it.cmid) }
+            .filter { f -> MoodleMatch.matchesRecording(f.name, recTitle) || MoodleMatch.suggested(f.name, dayMonth) }
+            .take(6).map { f -> f to (client.fileName(f) ?: f.name) }
+        val pick = MoodleMatch.autoPick(files, recTitle, dayMonth) ?: return
+        if (il.ac.tau.lecturesummarizer.slides.SlideChoices(app).isManual(lectureId) || !app.repo.lecture(lectureId)?.allSlides.isNullOrEmpty()) return
+        val file = store.cached(pick.cmid, site) ?: client.download(pick, store.cacheDir(site)).also { store.putCached(pick.cmid, it, site) }
+        store.markUsed(pick.cmid)
+        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).auto(lectureId, file.name, listOf("same_course", "lecture_number"))
+        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).phase(lectureId, "done")
+        val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", file)
+        app.repo.updateLecture(lectureId) { x ->
+            if (x.slidesUri == null) x.copy(slidesUri = uri.toString())
+            else x.copy(extraSlides = (x.extraSlides + uri.toString()).distinct())
+        }
     }
 
     private fun TauNorm(s:String)=il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)

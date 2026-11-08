@@ -12,9 +12,7 @@
 - Keep PDF/PPT/PPTX only, not already used (`MoodleStore.isUsed`).
 - Exactly **one** distinct file stem must remain; a same-stem PDF+PPTX pair counts as one (PDF wins). Any ambiguity → no auto-attach.
 - Download via shared cache (`MoodleStore.cached/putCached`), `markUsed`, add to lecture slides **before** the captions job starts so the summary includes them.
-- Best-effort: errors (except Moodle auth) never block the import. Pref `AutoSyncStore.autoAttach` (default on; no UI toggle yet).
+- Best-effort: errors (except Moodle auth) never block the import. Pref `AutoSyncStore.autoAttach` (default on; Settings → Moodle slides).
 
-## Next batch (not in this commit)
-- **Battery:** before a pass, if not charging and <75% → notification asking to continue (like the cellular ask); stop/defer the queue under 30% (`BatteryManager`, re-enqueue with `setRequiresCharging` or battery-not-low).
-- **Notifications:** include lecture name ("Lecture 3 · Algorithms – downloading audio"), plus "slides attached: lec3.pdf" line.
-- **Single progress:** one ongoing foreground notification for the whole auto-sync queue ("2/5 · <lecture>") instead of one per worker; per-lecture workers update it via a shared id.
+## Post-ASR suggestions (separate path)
+`SlideMatchWorker` runs after DONE on Wi‑Fi and may **suggest** extra decks from transcript terms. Real Biotech validation found false winners there, so that path must never attach or rebuild without a user tap. Early `autoPick` is the only automatic attach.
