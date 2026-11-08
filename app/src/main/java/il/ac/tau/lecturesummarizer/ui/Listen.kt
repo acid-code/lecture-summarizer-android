@@ -36,7 +36,7 @@ import java.io.File
  */
 private class Timeline(val files: List<File>, val offsetsMs: List<Long>, val lengthsMs: List<Long>, val totalMs: Long)
 
-private class MultiPlayer(private val tl: Timeline) {
+private class MultiPlayer(private val tl: Timeline,private val ctx:android.content.Context) {
     private var mp: MediaPlayer? = null
     private var next: MediaPlayer? = null
     var index = 0; private set
@@ -55,7 +55,7 @@ private class MultiPlayer(private val tl: Timeline) {
 
     private fun create(i: Int): MediaPlayer? = runCatching {
         MediaPlayer().apply { setDataSource(tl.files[i].absolutePath); prepare() }
-    }.onFailure { error = "Can't play segment ${i + 1}: ${it.message}" }.getOrNull()
+    }.onFailure { error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.audio_part_failed, i+1) }.getOrNull()
 
     private fun open(i: Int, posInFileMs: Long, play: Boolean) {
         next?.release(); next = null
@@ -133,6 +133,7 @@ private fun lineAt(lines: List<TranscriptLine>, posMs: Long): Int {
 
 @Composable
 fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
     val segKey = l.segments.map { it.seq to it.durationMs }
@@ -143,21 +144,20 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
         for (s in segs) { val f = File(s.path); if (f.exists()) { files += f; offs += off; lens += s.durationMs }; off += s.durationMs }
         Timeline(files, offs, lens, off)
     }
-    val player = remember(tl) { if (tl.files.isEmpty()) null else MultiPlayer(tl) }
+    val player = remember(tl) { if (tl.files.isEmpty()) null else MultiPlayer(tl,ctx) }
     DisposableEffect(player) { onDispose { player?.release() } }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("listenSpeed", 1f)) }
     LaunchedEffect(player) { player?.setSpeed(speed) }
 
     var transcript by remember { mutableStateOf<Transcript?>(null) }
-    var tMsg by remember { mutableStateOf("Loading transcript…") }
+    var tMsg by remember { mutableStateOf(ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_loading)) }
     LaunchedEffect(l.remoteId, l.stage) {
-        val rid = l.remoteId ?: run { tMsg = "No transcript yet — this lecture hasn't been uploaded. You can still listen to the local audio."; return@LaunchedEffect }
+        val rid = l.remoteId ?: run { tMsg = ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_unuploaded); return@LaunchedEffect }
         runCatching { ApiProvider.get(app.settings).transcript(rid) }
             .onSuccess { t -> transcript = t?.copy(lines = t.lines.sortedBy { it.t0 })
-                tMsg = if (t == null || t.lines.isEmpty()) "Transcript isn't ready yet. Audio still plays below." else "" }
-            .onFailure { e -> tMsg = "Couldn't load transcript (${e.message}). Audio still plays." }
+                tMsg = if (t == null || t.lines.isEmpty()) ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_not_ready) else "" }
+            .onFailure { e -> tMsg = ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_load_failed) }
     }
 
     var pos by remember { mutableLongStateOf(0L) }
@@ -206,45 +206,45 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
     }
     fun seek(ms: Long) { player?.seekTo(ms); pos = ms.coerceIn(0, total) }
 
-    AppScaffold("Listen", onBack = onBack) { pad ->
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_title), onBack = onBack) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             ElevatedCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(l.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    if (player == null) Text("No local recording on this phone — transcript only.", style = MaterialTheme.typography.bodySmall)
+                    if (player == null) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.listen_no_audio), style = MaterialTheme.typography.bodySmall)
                     else {
                         Slider(value = dragging ?: (pos.toFloat() / total).coerceIn(0f, 1f),
                             onValueChange = { dragging = it },   // highlight follows the thumb while scrubbing
                             onValueChangeFinished = { dragging?.let { seek((it * total).toLong()) }; dragging = null })
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(mmss(shownPos), style = MaterialTheme.typography.labelMedium)
+                            Text(ltr(mmss(shownPos)), style = MaterialTheme.typography.labelMedium)
                             Spacer(Modifier.weight(1f))
-                            Text("−" + mmss(total - shownPos), style = MaterialTheme.typography.labelMedium)
+                            Text(ltr("−" + mmss(total - shownPos)), style = MaterialTheme.typography.labelMedium)
                         }
                         var speedOpen by remember { mutableStateOf(false) }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalButton(onClick = { seek(pos - 15_000) }) { Text("↺ 15") }
+                            FilledTonalButton(onClick = { seek(pos - 15_000) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_back15)) }
                             Spacer(Modifier.width(16.dp))
                             Button(onClick = { player.toggle(); playing = player.isPlaying || player.wantPlay },
                                 modifier = Modifier.size(64.dp), shape = RoundedCornerShape(50), contentPadding = PaddingValues(0.dp)) {
-                                Text(if (playing) "❚❚" else "▶", fontSize = 22.sp)
+                                Text(if(playing)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_pause)else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_play))
                             }
                             Spacer(Modifier.width(16.dp))
-                            FilledTonalButton(onClick = { seek(pos + 15_000) }) { Text("15 ↻") }
+                            FilledTonalButton(onClick = { seek(pos + 15_000) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.player_forward15)) }
                             Spacer(Modifier.width(8.dp))
                             // Compact speed button; tap to expand/collapse the speed slider.
                             OutlinedButton(onClick = { speedOpen = !speedOpen }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                                Text("%sx".format(if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0')))
+                                Text(ltr("%sx".format(if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0'))))
                             }
                         }
                         if (speedOpen) Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("0.5x", style = MaterialTheme.typography.labelSmall)
+                            Text(ltr("0.5x"), style = MaterialTheme.typography.labelSmall)
                             // 0.5x..2x in 0.25 steps (5 intermediate stops)
                             Slider(value = speed, valueRange = 0.5f..2f, steps = 5, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                                 onValueChange = { speed = (Math.round(it * 4) / 4f); player.setSpeed(speed) },
                                 onValueChangeFinished = { prefs.edit().putFloat("listenSpeed", speed).apply() })
-                            Text("2x", style = MaterialTheme.typography.labelSmall)
+                            Text(ltr("2x"), style = MaterialTheme.typography.labelSmall)
                         }
                         player.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     }
@@ -252,17 +252,17 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
             }
             Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    transcript?.let { if (!it.complete) Text("Partial transcript (ASR still running)", style = MaterialTheme.typography.bodySmall) }
+                    transcript?.let { if (!it.complete) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_partial), style = MaterialTheme.typography.bodySmall) }
                     if (tMsg.isNotEmpty()) Text(tMsg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (lines.isNotEmpty()) {
                     TextButton(onClick = {
                         val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Transcript", transcriptText(l.title, lines)))
-                        android.widget.Toast.makeText(ctx, "Transcript copied (${lines.size} lines)", android.widget.Toast.LENGTH_SHORT).show()
-                    }) { Text("Copy all") }
-                    TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }) { Text(".txt") }
-                    FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text("Follow") })
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_clipboard_label), transcriptText(l.title, lines)))
+                        android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_copied, lines.size), android.widget.Toast.LENGTH_SHORT).show()
+                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_copy)) }
+                    TextButton(onClick = { shareTranscriptTxt(ctx, l.title, lines) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_export)) }
+                    FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.transcript_follow)) })
                 }
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp)) {
@@ -277,7 +277,7 @@ fun ListenScreen(app: LectureApp, lectureId: String, onBack: () -> Unit) {
                             player?.play(); playing = true
                         }
                         .padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        Text(mmss((line.t0 * 1000).toLong()), style = MaterialTheme.typography.labelMedium,
+                        Text(ltr(mmss((line.t0 * 1000).toLong())), style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(56.dp).padding(top = 3.dp))
                         Text(if (rtl) isolateLatinRuns(line.text) else line.text,
                             textAlign = TextAlign.Start,
@@ -311,8 +311,8 @@ internal fun shareTranscriptTxt(ctx: android.content.Context, title: String, lin
         val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
             .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "$title — transcript")
             .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        ctx.startActivity(android.content.Intent.createChooser(send, "Save / share transcript").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-    }.onFailure { android.widget.Toast.makeText(ctx, "Couldn't export: ${it.message}", android.widget.Toast.LENGTH_LONG).show() }
+        ctx.startActivity(android.content.Intent.createChooser(send, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_share)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.onFailure { android.widget.Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.transcript_export_failed), android.widget.Toast.LENGTH_LONG).show() }
 }
 
 internal fun isMostlyHebrew(s: String): Boolean {

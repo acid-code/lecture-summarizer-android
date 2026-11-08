@@ -57,11 +57,14 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 repo.updateLecture(id) { it.copy(remoteId = rid) }
             }
 
+            val freshness=il.ac.tau.lecturesummarizer.slides.SummaryFreshness(app)
+            val slideRevision=freshness.revision(lecture)
+            if(!live && lecture.allSlides.isEmpty())api.clearSlides(remote)
             // Live runs send slides once (ASR spelling hints) and skip course context; the final run sends everything.
             if (!live || lecture.uploadedSlides.isEmpty()) for ((i, s) in lecture.allSlides.withIndex()) {
                 val uri = Uri.parse(s)
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
-                applicationContext.contentResolver.openInputStream(uri)?.let { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
+                (applicationContext.contentResolver.openInputStream(uri) ?: error(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.slides_error))).use { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
                 repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
             // Course context: lecture override (single) or all course files (max 3). First replaces, rest are added.
@@ -75,7 +78,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             val pending = lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
             for ((n, seg) in pending.withIndex()) {
                 if (isStopped) return interrupted(id)
-                runCatching { setForeground(info("Uploading part ${n + 1} of ${pending.size}…")) }
+                runCatching { setForeground(info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.upload_part, n+1,pending.size))) }
                 api.uploadSegment(remote, seg, File(seg.path))
                 repo.updateLecture(id) { l -> l.copy(segments = l.segments.map { if (it.seq == seg.seq) it.copy(uploaded = true) else it }) }
             }
@@ -90,6 +93,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobPollWorker.enqueue(applicationContext, id)
                 return Result.success()
             }
+            if(freshness.revision(cur)!=slideRevision)return Result.retry()
             val panoptoOnly = cur.fromPanopto && cur.segments.isEmpty()
             val jobId = if (panoptoOnly) {
                 // Panopto entry: captions replace ASR (never fall back to a slides-only job). Slides above are already uploaded.
@@ -101,6 +105,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 api.importTranscript(remote, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", cur.panoptoId!!, cur.panoptoTitle ?: cur.title,
                     il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: error("Server didn't start a captions job (transcript import returned no job id)")
             } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote, densities = (applicationContext as il.ac.tau.lecturesummarizer.LectureApp).settings.summaryDensities) } else cur.jobId
+            if(cur.jobId==null || jobId!=cur.jobId || cur.liveJob)freshness.started(id,jobId,slideRevision)
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)
             Result.success()
@@ -123,7 +128,7 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         return Result.retry()
     }
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = info("Uploading for summary…")
+    override suspend fun getForegroundInfo(): ForegroundInfo = info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.upload_for_summary))
 
     private fun info(text: String): ForegroundInfo {
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)

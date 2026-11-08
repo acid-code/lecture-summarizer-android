@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.data.*
@@ -28,6 +29,7 @@ import org.json.JSONArray
 fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
     val ctx = LocalContext.current
     val choices = remember { SlideChoices(app) }
+    val work by remember(l.id){androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("slides-match-${l.id}")}.collectAsStateWithLifecycle(initialValue=emptyList())
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tick by remember { mutableIntStateOf(0) }
@@ -60,22 +62,45 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.slides_title), style = MaterialTheme.typography.titleMedium)
-            l.allSlides.forEach { Text(displayName(ctx, it), style = MaterialTheme.typography.bodyMedium) }
+            l.allSlides.forEach { Text(bidi(displayName(ctx, it)), style = MaterialTheme.typography.bodyMedium) }
             if (auto && l.allSlides.isNotEmpty()) {
                 StatusChip(stringResource(R.string.slides_auto), MaterialTheme.colorScheme.primary)
-                StatusChip(stringResource(R.string.slides_high), MaterialTheme.colorScheme.primary)
+                StatusChip(stringResource(R.string.slides_possible), MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { why = true }) { Text(stringResource(R.string.slides_why)) }
             }
             if (l.allSlides.isEmpty()) {
-                if (candidates.isEmpty()) Text(stringResource(if (choices.phase(l.id) in setOf("queued", "checking")) R.string.slides_checking else R.string.slides_missing), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else {
+                val phase=remember(tick,l.id){choices.phase(l.id)}
+                val (online,_)=rememberOnline()
+                val metered=(app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).isActiveNetworkMetered
+                val battery=app.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+                val lowBattery= !battery.isCharging && battery.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) in 0..14
+                val queued=work.any{it.state==androidx.work.WorkInfo.State.ENQUEUED || it.state==androidx.work.WorkInfo.State.BLOCKED} || phase=="queued"
+                val stateText=when {
+                    !il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app).autoAttach -> R.string.slides_disabled
+                    queued && (!online || metered) -> R.string.slides_wait_wifi
+                    queued && lowBattery -> R.string.slides_wait_battery
+                    queued -> R.string.slides_queued
+                    phase=="checking" -> R.string.slides_checking
+                    phase=="partial" -> R.string.slides_partial
+                    phase=="auth" -> R.string.slides_signin
+                    phase=="error" -> R.string.slides_search_error
+                    phase=="no_course" -> R.string.slides_choose_course
+                    phase=="no_match" -> R.string.slides_missing
+                    phase=="disabled" -> R.string.slides_disabled
+                    else -> R.string.slides_not_checked
+                }
+                if(phase!="suggestions" || candidates.isEmpty())Text(stringResource(stateText),color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(phase=="auth")TextButton(onClick=onMoodle){Text(stringResource(R.string.connect))}
+                if(l.state==LectureState.DONE)TextButton(enabled=il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app).autoAttach,onClick={il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app,l.id,again=true)}){Text(stringResource(R.string.slides_check_again))}
+                if(candidates.isNotEmpty()) {
                     Text(stringResource(R.string.slides_suggest), style = MaterialTheme.typography.titleSmall)
                     candidates.take(3).forEach { candidate ->
-                        Text(candidate.getString("name"))
+                        Text(bidi(candidate.getString("name")),maxLines=2)
                         StatusChip(stringResource(R.string.slides_possible))
+                        Text(stringResource(R.string.slides_provenance, candidate.optInt("termCount",candidate.optJSONArray("terms")?.length() ?: 0)),style=MaterialTheme.typography.bodySmall)
                         Row {
                             TextButton(enabled = !busy && l.state !in setOf(LectureState.UPLOADING, LectureState.PROCESSING), onClick = {
-                                val file = MoodleStore(app).cached(candidate.getLong("id"))
+                                val file = MoodleStore(app).let{it.cached(candidate.getLong("id"),it.lectureBase(l.id))}
                                 if (file != null) changed(FileProvider.getUriForFile(app, app.packageName + ".files", file).toString()) else onMoodle()
                             }) { Text(stringResource(R.string.slides_attach)) }
                             TextButton(onClick = { choices.reject(l.id, candidate.getLong("id")) }) { Text(stringResource(R.string.slides_reject)) }
@@ -87,12 +112,15 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
                 TextButton(enabled = !busy && l.state !in setOf(LectureState.UPLOADING, LectureState.PROCESSING), onClick = { picker = true }) { Text(stringResource(if (l.allSlides.isEmpty()) R.string.slides_upload else R.string.slides_swap)) }
                 if (l.allSlides.isNotEmpty()) TextButton(enabled = !busy && l.state !in setOf(LectureState.UPLOADING, LectureState.PROCESSING), onClick = {
                     val old = l.allSlides
+                    val freshness=il.ac.tau.lecturesummarizer.slides.SummaryFreshness(app)
+                    val before=freshness.checkpoint(l.id)
                     choices.manual(l.id)
+                    val afterGeneration=freshness.checkpoint(l.id).generation
                     app.repo.updateLecture(l.id) { it.copy(slidesUri = null, extraSlides = emptyList(), uploadedSlides = emptyList()) }
                     scope.launch {
                         val result = withTimeoutOrNull(8_000) { snackbar.showSnackbar(removedText, undoText, duration = SnackbarDuration.Indefinite) }
                         snackbar.currentSnackbarData?.dismiss()
-                        if (result == SnackbarResult.ActionPerformed) app.repo.updateLecture(l.id) { it.copy(slidesUri = old.firstOrNull(), extraSlides = old.drop(1)) }
+                        if (result == SnackbarResult.ActionPerformed){app.repo.updateLecture(l.id) { it.copy(slidesUri = old.firstOrNull(), extraSlides = old.drop(1)) };freshness.restore(l.id,before,afterGeneration)}
                         else if (l.jobId != null && l.remoteId != null) offer = true
                     }
                 }) { Text(stringResource(R.string.slides_remove)) }
@@ -108,9 +136,9 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
             Text(stringResource(R.string.slides_swap), style = MaterialTheme.typography.titleLarge)
             candidates.take(5).forEach { candidate -> TextButton(onClick = {
                 picker = false
-                val file = MoodleStore(app).cached(candidate.getLong("id"))
+                val file = MoodleStore(app).let{it.cached(candidate.getLong("id"),it.lectureBase(l.id))}
                 if (file != null) changed(FileProvider.getUriForFile(app, app.packageName + ".files", file).toString()) else onMoodle()
-            }) { Text(candidate.getString("name")) } }
+            }) { Text(bidi(candidate.getString("name")),maxLines=2) } }
             OutlinedButton(onClick = { picker = false; onMoodle() }) { Text(stringResource(R.string.slides_moodle)) }
             OutlinedButton(onClick = { picker = false; filePicker.launch(SLIDE_MIMES) }) { Text(stringResource(R.string.slides_upload)) }
         }
@@ -129,25 +157,8 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
     if (offer) AlertDialog(onDismissRequest = { offer = false }, title = { Text(stringResource(R.string.slides_update_question)) },
         text = { Text(stringResource(R.string.slides_no_asr)) }, confirmButton = { TextButton(onClick = {
             offer = false; busy = true; error = false
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        val current = app.repo.lecture(l.id) ?: return@withContext
-                        val api = ApiProvider.get(app.settings)
-                        if (current.allSlides.isEmpty()) api.clearSlides(current.remoteId!!)
-                        current.allSlides.forEachIndexed { index, raw ->
-                            val uri = Uri.parse(raw)
-                            ctx.contentResolver.openInputStream(uri)!!.use { api.uploadSlides(current.remoteId!!, displayName(ctx, raw),
-                                ctx.contentResolver.getType(uri) ?: "application/pdf", it, replaceAll = index == 0) }
-                        }
-                        val status = api.resummarizeJob(current.jobId!!)
-                        app.repo.updateLecture(l.id) { it.copy(uploadedSlides = it.allSlides, jobId = status.jobId ?: it.jobId,
-                            state = LectureState.PROCESSING, stage = null, stageDetail = null, progress = status.progress, pdfPath = null, error = null) }
-                        JobPollWorker.enqueue(app, l.id)
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (_: Exception) { error = true }
-                finally { busy = false }
-            }
+            il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,l.id)
+            busy=false
+
         }) { Text(stringResource(R.string.slides_update)) } }, dismissButton = { TextButton(onClick = { offer = false }) { Text(stringResource(R.string.skip)) } })
 }

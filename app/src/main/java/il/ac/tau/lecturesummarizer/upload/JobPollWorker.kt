@@ -42,17 +42,21 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     delay(15_000); continue
                 }
                 if (st.state == "done") {
-                    val dest = File(app.repo.pdfDir(), "$id.pdf")
-                    runCatching { api.downloadSummaryPdf(l.remoteId!!, dest) }
-                        .onSuccess { app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100, error = null) } }
-                        .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = "PDF download failed: ${e.message}") } }
+                    val density=st.density?.takeIf{d->il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.any{it.api==d}}
+                    val dest = File(app.repo.pdfDir(), if(density!=null)"$id-$density.pdf"else "$id.pdf")
+                    runCatching { api.downloadSummaryPdf(l.remoteId!!, dest,density) }
+                        .onSuccess {
+                            if(density!=null){val f=il.ac.tau.lecturesummarizer.slides.SummaryFreshness(app);f.sourceRevision(id,jobId)?.let{f.built(id,density,it)}}
+                            app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, pdfPath = dest.absolutePath, progress = 100, error = null) }
+                        }
+                        .onFailure { e -> app.repo.updateLecture(id) { it.copy(state = LectureState.DONE, error = applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_download_failed)) } }
                     il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueue(app, id)
-                    notify(id, "Study summary ready", named(app, l))
+                    notify(id, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_ready_notification), named(app, l))
                     return Result.success()
                 }
                 if (st.state == "failed") {
                     app.repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }
-                    notify(id, "Processing failed · ${named(app, l)}", (st.error ?: named(app, l)).take(200))
+                    notify(id, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_failed_notification, il.ac.tau.lecturesummarizer.ui.bidi(named(app,l))), applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_failure_body))
                     return Result.success()
                 }
             }

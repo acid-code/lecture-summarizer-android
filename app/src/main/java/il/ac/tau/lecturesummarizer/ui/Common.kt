@@ -33,9 +33,9 @@ fun AppScaffold(
                 title = { Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
                 navigationIcon = {
-                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.nav_back)) }
                     else if (logo) androidx.compose.foundation.Image(
-                        androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), "Lecture Summarizer logo",
+                        androidx.compose.ui.res.painterResource(il.ac.tau.lecturesummarizer.R.drawable.ic_logo), androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.logo_description),
                         androidx.compose.ui.Modifier.padding(start = 12.dp).size(36.dp))
                 },
                 actions = actions,

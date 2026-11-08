@@ -1,3 +1,5 @@
+> Superseded locally: Asaf clarified this is calendar-account event import, not email reading. See [CALENDAR_SOURCE_AUTOMATION.md](CALENDAR_SOURCE_AUTOMATION.md). The email-rule prototype described below has been removed; this document records the previous published batch only.
+
 # Polish / email rules / slides batch
 
 Based on `9241771`, with WIP `034dce8` cherry-picked and conflicts resolved preserving unread badges, not-found dismiss/restore and queue ticks.

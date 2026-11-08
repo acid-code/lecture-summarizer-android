@@ -46,9 +46,9 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
             }
         }
         runCatching { cm?.registerDefaultNetworkCallback(cb) }
-        try { setForeground(info("Starting audio download…", 0)) } catch (_: Exception) {}
+        try { setForeground(info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.audio_download_start), 0)) } catch (_: Exception) {}
         status[id] = "0"
-        repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stageDetail = "Downloading Panopto audio…", progress = 0) }
+        repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null, stageDetail = applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.panopto_audio_downloading), progress = 0) }
         val tmpDir = File(app.cacheDir, "panopto-$id").apply { deleteRecursively(); mkdirs() }
         var tx: AudioTranscoder? = null
         // Resume: keep the contiguous run of already-extracted parts (0..k-1) whose files still exist.
@@ -67,7 +67,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 if (status[id] != pct.toString()) {
                     status[id] = pct.toString()
                     repo.updateLecture(id) { it.copy(progress = pct, stageDetail = "Panopto audio $pct% · ${fmt(done)} / ${fmt(total)}") }
-                    runCatching { setForeground(info("Downloading audio · part ${(parts[id] ?: 0).let { n -> if (n > 0) "${minOf(n, (pct * n / 100) + 1)}/$n · " else "" }}$pct% · ${fmt(done)} / ${fmt(total)}", pct)) }
+                    runCatching { setForeground(info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.audio_download_progress, pct,il.ac.tau.lecturesummarizer.ui.ltr(fmt(done)),il.ac.tau.lecturesummarizer.ui.ltr(fmt(total))), pct)) }
                 }
             }
             val stream = PanoptoMedia.pickStream(di)
@@ -156,7 +156,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     private fun fmt(s: Double) = "%d:%02d".format((s / 3600).toInt(), ((s % 3600) / 60).toInt())
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = info("Starting audio download…", 0)
+    override suspend fun getForegroundInfo(): ForegroundInfo = info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.audio_download_start), 0)
 
     /** One shared queue notification: "<course> · <lecture>", this lecture's progress, and how many more are queued. */
     private fun info(text: String, pct: Int): ForegroundInfo {
@@ -170,7 +170,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)
             .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(title).setContentText(text).setSubText(sub)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))
-            .addAction(0, "Pause queue", il.ac.tau.lecturesummarizer.autosync.QueueControl.pi(app, il.ac.tau.lecturesummarizer.autosync.QueueControl.ACTION_PAUSE, 1))
+            .addAction(0, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.queue_pause), il.ac.tau.lecturesummarizer.autosync.QueueControl.pi(app, il.ac.tau.lecturesummarizer.autosync.QueueControl.ACTION_PAUSE, 1))
             .setOngoing(true).setOnlyAlertOnce(true).setProgress(100, pct, pct == 0).build()
         val nid = QUEUE_NID
         return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(nid, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else ForegroundInfo(nid, n)
@@ -204,11 +204,11 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 android.content.Intent(ctx, CellularChoiceReceiver::class.java).setAction(action).putExtra(KEY_LECTURE, id),
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
             val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
-                .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Panopto download paused — mobile data")
-                .setContentText("Continue on mobile data (~300 MB/hour) or wait for Wi‑Fi? · להמשיך בסלולר?")
+                .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(ctx.getString(il.ac.tau.lecturesummarizer.R.string.panopto_mobile_pause_title))
+                .setContentText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.panopto_mobile_pause_body))
                 .setAutoCancel(true)
-                .addAction(0, "Use mobile data", pi(ACTION_USE_CELL, 1))
-                .addAction(0, "Wait for Wi‑Fi", pi(ACTION_WAIT_WIFI, 2)).build()
+                .addAction(0, ctx.getString(il.ac.tau.lecturesummarizer.R.string.use_mobile), pi(ACTION_USE_CELL, 1))
+                .addAction(0, ctx.getString(il.ac.tau.lecturesummarizer.R.string.wait_wifi), pi(ACTION_WAIT_WIFI, 2)).build()
             try { androidx.core.app.NotificationManagerCompat.from(ctx).notify(promptId(id), n) } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
         }
         fun cancelPrompt(ctx: Context, id: String) = androidx.core.app.NotificationManagerCompat.from(ctx).cancel(promptId(id))

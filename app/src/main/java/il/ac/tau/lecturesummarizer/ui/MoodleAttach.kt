@@ -74,7 +74,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
         state = MState.Loading
         val res = withContext(Dispatchers.IO) { runCatching { client.courses() } }
         val courses = res.getOrElse { state = if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error"); return@LaunchedEffect }
-        // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped "Change course".
+        // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_change).
         if (!pickAny && lecture != null) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         val ranked = MoodleMatch.rank(courses, course?.courseNumber, kind, course?.name)
@@ -83,19 +83,19 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
         else state = MState.PickCourse(ranked.map { it.course } + courses.filterNot { c -> ranked.any { it.course.id == c.id } })
     }
 
-    AppScaffold("Attach from Moodle", onBack = onBack, actions = {
-        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); pickAny = true; reload++ }) { Icon(Icons.Default.SwapHoriz, "Change course") }
+    AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_attach), onBack = onBack, actions = {
+        if (state is MState.Files || state is MState.PickCourse) IconButton(onClick = { store.mapCourse(mapKey, -1); pickAny = true; reload++ }) { Icon(Icons.Default.SwapHoriz, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_change)) }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
                 MState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 MState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 is MState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
+                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.retry_action)) }
                 }
                 is MState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium)
-                        Text("${course?.name.orEmpty()} ${course?.courseNumber?.let { "· $it" }.orEmpty()} ${kind.he}", style = MaterialTheme.typography.bodySmall) }
+                    item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium)
+                        Text("${course?.name.orEmpty()} ${course?.courseNumber?.let { "· ${ltr(it)}" }.orEmpty()} ${classKindLabel(kind)}", style = MaterialTheme.typography.bodySmall) }
                     items(s.options, key = { it.id }) { c ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth().clickable { store.mapCourse(mapKey, c.id); scope.launch { openCourse(c) } }) {
@@ -112,10 +112,10 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
                             added = all.size - c.allContext.size
                             c.copy(contextPdfUri = all.firstOrNull(), extraContext = all.drop(1))
                         }
-                        Toast.makeText(ctx, "Added $added course file(s)" + if (added < files.size) " (max $MAX_COURSE_CONTEXT)" else "", Toast.LENGTH_SHORT).show(); onBack()
+                        Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.background_added, added, MAX_COURSE_CONTEXT), Toast.LENGTH_SHORT).show(); onBack()
                     } else {
                         addSlides(app, lectureId, uris)
-                        Toast.makeText(ctx, "Attached ${files.size} file(s)", Toast.LENGTH_SHORT).show(); onBack()
+                        Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.files_attached, files.size), Toast.LENGTH_SHORT).show(); onBack()
                     }
                 }
             }
@@ -151,13 +151,13 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                         Column(Modifier.weight(1f)) {
                             Text(s.course.fullname, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("$total files · ${s.sections.size} sections · בחר קבצים לצירוף", style = MaterialTheme.typography.bodySmall,
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_counts, total, s.sections.size), style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                         }
                     }
                 }
             }
-            if (s.sections.isEmpty()) item { Text("No files in this course.", Modifier.padding(top = 12.dp)) }
+            if (s.sections.isEmpty()) item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_empty), Modifier.padding(top = 12.dp)) }
             s.sections.forEach { sec ->
                 item(key = "h:" + sec.title + sec.files.firstOrNull()?.cmid) {
                     Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -192,12 +192,12 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.height(4.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    FileBadge(type.label, type.color.copy(alpha = 0.15f), type.color)
-                                    if (used) FileBadge("Used", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-                                    if (cached) FileBadge("💾 Cached", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (suggested) FileBadge("⭐ Suggested", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                                    FileBadge(fileTypeLabel(type), type.color.copy(alpha = 0.15f), type.color)
+                                    if (used) FileBadge(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.file_used), MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                                    if (cached) StatusChip(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.file_cached))
+                                    if (suggested) StatusChip(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.file_suggested),MaterialTheme.colorScheme.primary)
                                 }
-                                if (fn == null) Text("Loading file name…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (fn == null) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_loading_name), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Checkbox(selected, { if (it) sel.add(f.cmid) else sel.remove(f.cmid) })
                         }
@@ -208,7 +208,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
         Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (sel.isNotEmpty()) {
-                    TextButton(onClick = { sel.clear() }, enabled = !busy) { Text("Clear · נקה") }
+                    TextButton(onClick = { sel.clear() }, enabled = !busy) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_clear)) }
                     Spacer(Modifier.width(8.dp))
                 }
                 Button(enabled = sel.isNotEmpty() && !busy, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp), onClick = {
@@ -221,13 +221,13 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                             }.onSuccess { store.markUsed(f.cmid) } }
                         }
                         busy = false
-                        res.mapNotNull { it.exceptionOrNull() }.firstOrNull()?.let { Toast.makeText(ctx, it.message ?: "Download failed", Toast.LENGTH_LONG).show() }
+                        res.mapNotNull { it.exceptionOrNull() }.firstOrNull()?.let { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.moodle_download_failed), Toast.LENGTH_LONG).show() }
                         val ok = res.mapNotNull { it.getOrNull() }
                         if (ok.isNotEmpty()) onAttach(ok)
                     }
                 }) {
-                    if (busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text("Downloading…") }
-                    else Text(if (sel.isEmpty()) "Select files · בחר קבצים" else "Attach ${sel.size} · צרף")
+                    if (busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_downloading)) }
+                    else Text(if (sel.isEmpty()) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_select) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.files_attach_count, sel.size))
                 }
             }
         }
@@ -261,9 +261,9 @@ internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index
         while (!done) { if (runCatching { sessionReady() }.getOrDefault(false)) finish(); kotlinx.coroutines.delay(1500) }
     }
     Column(Modifier.fillMaxSize()) {
-        Text("Sign in with your TAU username and password on the page below (Android Autofill can fill the password). The app keeps only the session cookie.",
+        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_signin_help),
             Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
-        if (sessionReady != null) TextButton(onClick = { finish() }, Modifier.padding(horizontal = 4.dp)) { Text("I'm signed in — continue · המשך") }
+        if (sessionReady != null) TextButton(onClick = { finish() }, Modifier.padding(horizontal = 4.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_signed_in)) }
         AndroidView(modifier = Modifier.fillMaxWidth().weight(1f), factory = { c ->
             WebView(c).apply {
                 settings.javaScriptEnabled = true; settings.domStorageEnabled = true

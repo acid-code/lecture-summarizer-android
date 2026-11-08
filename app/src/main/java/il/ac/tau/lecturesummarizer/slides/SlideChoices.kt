@@ -6,7 +6,7 @@ import org.json.JSONArray
 /** Per-lecture provenance and user veto survive restarts. A manual choice always wins. */
 class SlideChoices(private val ctx: Context) {
     private val p = ctx.getSharedPreferences("slide_choices", Context.MODE_PRIVATE)
-    fun manual(id: String) { androidx.work.WorkManager.getInstance(ctx).cancelUniqueWork("slides-match-$id"); p.edit().putBoolean("manual:$id", true).putBoolean("auto:$id", false).apply() }
+    fun manual(id: String) { SummaryFreshness(ctx).changed(id); androidx.work.WorkManager.getInstance(ctx).cancelUniqueWork("slides-match-$id"); p.edit().putBoolean("manual:$id", true).putBoolean("auto:$id", false).putString("phase:$id","manual").apply() }
     fun isManual(id: String) = p.getBoolean("manual:$id", false)
     fun isAuto(id: String) = p.getBoolean("auto:$id", false)
     fun name(id: String) = p.getString("name:$id", "").orEmpty()

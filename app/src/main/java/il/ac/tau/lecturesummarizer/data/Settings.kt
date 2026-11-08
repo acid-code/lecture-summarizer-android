@@ -24,7 +24,7 @@ class Settings(context: Context) {
             prefs.edit().putString("deviceId", it).commit()
         }
 
-    /** Density levels to create on first summarize (multi-select; one summary per level). Default: standard. */
+    /** Density levels to create on first summarize (multi-select; one summary per level). Default: standard + detailed. */
     var summaryDensities: Set<String>
         get() = prefs.getStringSet("summaryDensities", null)?.takeIf { it.isNotEmpty() } ?: setOf("standard", "detailed")
         set(v) = prefs.edit().putStringSet("summaryDensities", v.ifEmpty { setOf("standard") }).apply()
@@ -40,19 +40,19 @@ class Settings(context: Context) {
         get() = prefs.getStringSet("calendarIds", emptySet())!!.mapNotNull { it.toLongOrNull() }.toSet()
         set(v) = prefs.edit().putStringSet("calendarIds", v.map { it.toString() }.toSet()).apply()
 
-    /** Experimental, deliberately off until a secure mail provider is implemented. */
-    var emailRulesEnabled: Boolean
-        get() = prefs.getBoolean("emailRulesEnabled", false)
-        set(v) = prefs.edit().putBoolean("emailRulesEnabled", v).apply()
+    /** Opt-in, device-calendar-only rule automation. Source calendars are never written. */
+    var calendarRulesEnabled: Boolean
+        get() = prefs.getBoolean("calendarRulesEnabled", false)
+        set(v) = prefs.edit().putBoolean("calendarRulesEnabled", v).apply()
 
     /** First-launch onboarding (3 screens) finished or skipped through to the end. */
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboardingDone", false)
         set(v) = prefs.edit().putBoolean("onboardingDone", v).apply()
 
-    /** Developer menu unlocked by tapping the version row 7×. Always visible in debug builds. */
+    /** Legacy preference retained for compatibility; release ignores it entirely. */
     var devUnlocked: Boolean
         get() = prefs.getBoolean("devUnlocked", false)
         set(v) = prefs.edit().putBoolean("devUnlocked", v).apply()
-    val showDeveloper: Boolean get() = BuildConfig.DEBUG || devUnlocked
+    val showDeveloper: Boolean get() = BuildConfig.DEBUG
 }

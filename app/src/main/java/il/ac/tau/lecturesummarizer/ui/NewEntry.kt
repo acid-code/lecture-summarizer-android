@@ -30,9 +30,9 @@ fun NewEntryScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onRec
         Column(Modifier.padding(pad).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(l.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_where_is_this_lecture_from), style = MaterialTheme.typography.bodyMedium)
-            ChoiceCard(Icons.Default.Mic, "Record · הקלטה", "Record now in class (or import an audio file later).", onRecord)
-            ChoiceCard(Icons.Default.UploadFile, "Upload summaries / presentations · העלאת קבצים",
-                "Summarize slides, PDFs or notes (file or Moodle) without a recording. Panopto: use “Import from Panopto” on the course screen.", onUpload)
+            ChoiceCard(Icons.Default.Mic, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_record), androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_record_body), onRecord)
+            ChoiceCard(Icons.Default.UploadFile, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_files),
+                androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_files_body), onUpload)
             TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) }
         }
     }

@@ -108,7 +108,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 JobPollWorker.enqueue(ctx.applicationContext, lectureId, replace = true)
                 null
             }.getOrElse { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) }
-        } ?: run { Toast.makeText(ctx, "Imported captions · התחיל סיכום", Toast.LENGTH_SHORT).show(); onStarted(); return }
+        } ?: run { Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.captions_imported_toast), Toast.LENGTH_SHORT).show(); onStarted(); return }
     }
 
     fun importAudio(course: MoodleCourse, rec: PanoptoRecording, wifiOnly: Boolean) {
@@ -117,20 +117,18 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
             panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = null, panoptoAudio = true,
             segments = emptyList(), error = null) }
         il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(ctx.applicationContext, lectureId, wifiOnly)
-        Toast.makeText(ctx, if (wifiOnly && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx)) "Audio download waits for Wi‑Fi · ממתין ל-Wi‑Fi" else "Downloading audio · מוריד אודיו", Toast.LENGTH_SHORT).show()
+        Toast.makeText(ctx, if (wifiOnly && il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx)) ctx.getString(il.ac.tau.lecturesummarizer.R.string.audio_wait_wifi) else ctx.getString(il.ac.tau.lecturesummarizer.R.string.audio_downloading), Toast.LENGTH_SHORT).show()
         onStarted()
     }
 
     confirmAudio?.let { (c, r) ->
         val cell = remember { il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.onCellular(ctx) }
         AlertDialog(onDismissRequest = { confirmAudio = null },
-            title = { Text("No captions — use audio? · אין כתוביות") },
-            text = { Text("The phone downloads the lowest-quality video (~300 MB per hour of lecture), keeps only the audio (~15 MB/hour) and sends it for transcription + summary." +
-                (if (cell) "\n\nYou're on mobile data. Wait for Wi‑Fi, or use mobile data anyway." else "") +
-                "\n\nהטלפון יוריד את הווידאו באיכות הנמוכה, ישמור רק את השמע וישלח לתמלול.") },
-            confirmButton = { TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = true) }) { Text(if (cell) "On Wi‑Fi · ב-Wi‑Fi" else "Download audio · הורד") } },
+            title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_audio_question)) },
+            text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_audio_cost))},
+            confirmButton = { TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = true) }) { Text(if (cell) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.wait_wifi) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.download_audio)) } },
             dismissButton = { Row {
-                if (cell) TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = false) }) { Text("Use mobile data") }
+                if (cell) TextButton(onClick = { confirmAudio = null; importAudio(c, r, wifiOnly = false) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.use_mobile)) }
                 TextButton(onClick = { confirmAudio = null }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) }
             } })
     }
@@ -202,32 +200,32 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
 
     fun pickAnother() { store.mapCourse(mapKey, -1); store.mapCourse("$mapKey:manual", -1); forcePick = true; reload++ }
 
-    AppScaffold(if (newEntry) "Choose Panopto recording" else "Import from Panopto", onBack = onBack, actions = {
-        if (state is PState.Recordings || state is PState.PickCourse) IconButton(onClick = { pickAnother() }) { Icon(Icons.Default.SwapHoriz, "Change course") }
+    AppScaffold(if (newEntry) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_choose) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_import), onBack = onBack, actions = {
+        if (state is PState.Recordings || state is PState.PickCourse) IconButton(onClick = { pickAnother() }) { Icon(Icons.Default.SwapHoriz, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_change)) }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
                 PState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 is PState.Importing -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text("Fetching captions… ${s.title}")
+                    CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_fetching, bidi(s.title)))
                 }
                 PState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 // Panopto has its own SAML session; open the viewer once so tau.cloud.panopto.eu cookies land in CookieManager.
                 is PState.PanoptoLogin -> MoodleLoginView(store.baseUrl, startUrl = s.url,
                     isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text("Retry") }
+                    ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.retry_action)) }
                     if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text("Which Moodle course? · באיזה קורס?", style = MaterialTheme.typography.titleMedium) }
+                    item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium) }
                     items(s.options, key = { it.id }) { c ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth().clickable { store.mapCourse(mapKey, c.id); store.mapCourse("$mapKey:manual", c.id); scope.launch { openCourse(c) } }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(c.fullname)
                                 val n = recCounts[c.id]
-                                Text(c.shortname + (if (c in siblings) (if (n == null) " · checking…" else " · $n recordings") else ""), style = MaterialTheme.typography.bodySmall)
+                                Text(c.shortname + (if (c in siblings) (if (n == null) " · "+androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.checking) else " · "+androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_recordings_count, n)) else ""), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -235,7 +233,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 is PState.Recordings -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         Text(s.course.fullname, style = MaterialTheme.typography.titleMedium)
-                        Text("${s.recs.size} recordings · ${Panopto.BLOCK_TITLE}", style = MaterialTheme.typography.bodySmall)
+                        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_recordings_count, s.recs.size), style = MaterialTheme.typography.bodySmall)
                         if (siblings.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             siblings.forEach { c ->
                                 val n = recCounts[c.id]
@@ -246,26 +244,26 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     }
                     if (s.recs.isEmpty()) item {
                         Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("📭", style = MaterialTheme.typography.displaySmall)
-                            Text("No Panopto recordings for this course · אין הקלטות Panopto לקורס הזה", style = MaterialTheme.typography.titleSmall)
-                            Text("Not every course records to Panopto, or the recording isn't published yet.", style = MaterialTheme.typography.bodySmall)
+                            EmptyIllustration(Modifier.size(72.dp))
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_empty), style = MaterialTheme.typography.titleSmall)
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_empty_body), style = MaterialTheme.typography.bodySmall)
                             if (newEntry) Button(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }
-                            OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text("Refresh") }
-                            TextButton(onClick = { pickAnother() }) { Text("Wrong course? Pick another") }
-                            TextButton(onClick = onBack) { Text("Back") }
+                            OutlinedButton(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.refresh)) }
+                            TextButton(onClick = { pickAnother() }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_change)) }
+                            TextButton(onClick = onBack) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.nav_back)) }
                         }
                     }
                     if (s.recs.isNotEmpty()) item {
                         val none = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.NONE }
                         val has = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.HAS }
                         if (s.recs.any { capStatus[it.deliveryId] == CaptionStatus.AUTH }) Column {
-                            Text("Sign in to Panopto to check captions · התחבר ל-Panopto כדי לבדוק כתוביות", style = MaterialTheme.typography.bodySmall)
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_signin_check), style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { scope.launch { import(s.course, s.recs.first { capStatus[it.deliveryId] == CaptionStatus.AUTH }) } }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_sign_in_to_panopto)) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Switch(checked = onlyWithCaptions, onCheckedChange = { onlyWithCaptions = it })
                             Spacer(Modifier.width(8.dp))
-                            Text("רק עם כתוביות · only with captions ($has ✓ / $none ✗, ${s.recs.count { audioOk[it.deliveryId] == true && capStatus[it.deliveryId] == CaptionStatus.NONE }} 🔊)", style = MaterialTheme.typography.bodySmall)
+                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_captions_only), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     items(s.recs.filter { !onlyWithCaptions || capStatus[it.deliveryId] != CaptionStatus.NONE }, key = { it.deliveryId }) { r ->
@@ -279,21 +277,21 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             color = if (disabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth().clickable(enabled = !disabled && !(noCaps && audio == null)) { if (audioPath || (cs == CaptionStatus.UNKNOWN && audio == true)) confirmAudio = s.course to r else scope.launch { import(s.course, r) } }) {
                             Column(Modifier.padding(12.dp)) {
-                                Text("🎬 " + r.title, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                Text(bidi(r.title), modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(MoodleMatch.kindFromTitle(r.title).he, style = MaterialTheme.typography.bodySmall, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                    Text(classKindLabel(MoodleMatch.kindFromTitle(r.title)), style = MaterialTheme.typography.bodySmall, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                     val (label, color) = when (cs) {
-                                        CaptionStatus.HAS -> "✓ יש כתוביות" to Color(0xFF2E7D32)
+                                        CaptionStatus.HAS -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_available) to Color(0xFF2E7D32)
                                         CaptionStatus.NONE -> when (audio) {
-                                            true -> "🔊 audio · אין כתוביות" to Color(0xFF1565C0)
-                                            null -> "✗ אין כתוביות · checking audio…" to MaterialTheme.colorScheme.onSurfaceVariant
-                                            else -> "✗ אין כתוביות ואין שמע · no captions, no stream" to Color(0xFFD32F2F)
+                                            true -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.audio_no_captions) to Color(0xFF1565C0)
+                                            null -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.checking_audio) to MaterialTheme.colorScheme.onSurfaceVariant
+                                            else -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.no_audio_captions) to Color(0xFFD32F2F)
                                         }
-                                        CaptionStatus.AUTH -> "🔒 sign in to check" to MaterialTheme.colorScheme.onSurfaceVariant
-                                        CaptionStatus.CHECKING -> "בודק כתוביות…" to MaterialTheme.colorScheme.onSurfaceVariant
-                                        CaptionStatus.UNKNOWN -> "? couldn't check" to MaterialTheme.colorScheme.onSurfaceVariant
+                                        CaptionStatus.AUTH -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.signin_check) to MaterialTheme.colorScheme.onSurfaceVariant
+                                        CaptionStatus.CHECKING -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.checking_captions) to MaterialTheme.colorScheme.onSurfaceVariant
+                                        CaptionStatus.UNKNOWN -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.check_unavailable) to MaterialTheme.colorScheme.onSurfaceVariant
                                     }
-                                    Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+                                    StatusChip(label,if(cs==CaptionStatus.HAS)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }

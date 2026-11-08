@@ -25,8 +25,8 @@ object Panopto {
             .findAll(html).map { it.groupValues[1].toLong() to it.groupValues[2].trim() }.distinctBy { it.first }.toList()
 
     /** True when the WebView already holds a Panopto forms-auth session (Viewer loaded = signed in). */
-    fun hasSessionCookie(): Boolean {
-        val c = android.webkit.CookieManager.getInstance().getCookie(HOST) ?: return false
+    fun hasSessionCookie(host:String=HOST): Boolean {
+        val c = android.webkit.CookieManager.getInstance().getCookie(host) ?: return false
         return c.split(';').any { val n = it.substringBefore('=').trim(); n.equals(".ASPXAUTH", true) }
     }
     const val BLOCK_TITLE = "הקלטות הקורס בשרת הוידאו Panopto"
@@ -37,8 +37,10 @@ object Panopto {
     fun isLoginRedirect(location: String?): Boolean =
         location != null && (location.contains("/Auth/", true) || location.contains("Login", true))
 
-    fun captionsUrl(deliveryId: String, language: Int = 0) =
-        "$HOST/Panopto/Pages/Transcription/GenerateSRT.ashx?id=$deliveryId&language=$language"
+    fun origin(url:String):String=runCatching{val u=java.net.URI(url);require(u.scheme=="https" && u.userInfo==null && !u.host.isNullOrBlank());java.net.URI("https",null,u.host,u.port,null,null,null).toString()}.getOrDefault(HOST)
+
+    fun captionsUrl(deliveryId: String, language: Int = 0,host:String=HOST) =
+        "$host/Panopto/Pages/Transcription/GenerateSRT.ashx?id=$deliveryId&language=$language"
 
     /**
      * Recordings from a Moodle course page. Scopes to the Panopto block (by its title) when present,

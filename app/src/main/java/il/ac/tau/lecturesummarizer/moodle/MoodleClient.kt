@@ -157,6 +157,24 @@ class MoodleClient(private val base: String) {
             all.also { if (block.isSuccess) recCache.put(courseId, it) }
         }
 
+    /** Panopto public folder REST API. Uses this host's existing WebView session; never another host's cookies.
+     * Some tenants require administrator-enabled API/OAuth access; 401/403 is an honest sign-in/access state. */
+    fun panoptoFolderSessions(host:String,folder:String):List<PanoptoRecording> {
+        require(folder.matches(Regex("[0-9a-fA-F-]{36}")))
+        val origin=Panopto.origin(host);val all=mutableListOf<PanoptoRecording>()
+        for(page in 0 until 10){
+            val url="$origin/Panopto/api/v1/folders/$folder/sessions?pageNumber=$page&maxResults=100"
+            val json=http.newCall(req(url).build()).execute().use{r->
+                if(r.isRedirect || r.code==401 || r.code==403)throw PanoptoAuthRequired("$origin/Panopto/Pages/Sessions/List.aspx#folderID=$folder")
+                check(r.isSuccessful){"panopto_folder_api"};JSONObject(r.body!!.string())}
+            val items=json.optJSONArray("Results") ?: json.optJSONArray("results") ?: error("panopto_folder_schema")
+            for(i in 0 until items.length()){val o=items.getJSONObject(i);val id=o.optString("Id",o.optString("id"));val title=o.optString("Name",o.optString("name"));val start=runCatching{java.time.Instant.parse(o.optString("StartTime",o.optString("startTime"))).toEpochMilli()}.getOrNull()
+                if(id.isNotBlank())all+=PanoptoRecording(id,title,"$origin/Panopto/Pages/Viewer.aspx?id=$id",start)}
+            if(items.length()<100)return all.distinctBy{it.deliveryId}
+        }
+        error("panopto_folder_partial")
+    }
+
     private val hvpCache = TtlCache<Long, String>(24 * 60 * 60_000L) // cmid → Panopto delivery id ("" = none)
 
     /** mod/hvp (H5P interactive video) activities in the course: (cmid, activity title). */
@@ -209,7 +227,7 @@ class MoodleClient(private val base: String) {
      * Throws [PanoptoAuthRequired] when Panopto redirects to its sign-in (open the viewer once in the WebView).
      */
     fun downloadCaptions(rec: PanoptoRecording, language: Int = 0): String {
-        var u = Panopto.captionsUrl(rec.deliveryId, language)
+        var u = Panopto.captionsUrl(rec.deliveryId, language,Panopto.origin(rec.viewerUrl))
         repeat(8) {
             http.newCall(req(u).build()).execute().use { r ->
                 if (r.isRedirect) {
@@ -246,7 +264,7 @@ class MoodleClient(private val base: String) {
     }
 
     private fun probeCaptions(rec: PanoptoRecording): CaptionStatus = runCatching {
-        http.newCall(req(Panopto.captionsUrl(rec.deliveryId)).build()).execute().use { r ->
+        http.newCall(req(Panopto.captionsUrl(rec.deliveryId,host=Panopto.origin(rec.viewerUrl))).build()).execute().use { r ->
             if (r.isRedirect) return@runCatching if (Panopto.isLoginRedirect(r.header("Location"))) CaptionStatus.AUTH else CaptionStatus.UNKNOWN
             if (r.code == 401 || r.code == 403) return@runCatching CaptionStatus.AUTH
             if (!r.isSuccessful) return@runCatching CaptionStatus.UNKNOWN
@@ -273,7 +291,7 @@ class MoodleClient(private val base: String) {
      */
     fun deliveryInfo(rec: PanoptoRecording): DeliveryInfo {
         val body = PanoptoMedia.deliveryInfoForm(rec.deliveryId).toRequestBody("application/x-www-form-urlencoded".toMediaType())
-        http.newCall(req(PanoptoMedia.DELIVERY_INFO).post(body).build()).execute().use { r ->
+        http.newCall(req(Panopto.origin(rec.viewerUrl)+"/Panopto/Pages/Viewer/DeliveryInfo.aspx").post(body).build()).execute().use { r ->
             if (r.isRedirect || r.code == 401 || r.code == 403) throw PanoptoAuthRequired(rec.viewerUrl)
             if (!r.isSuccessful) error("Panopto DeliveryInfo HTTP ${r.code}")
             val txt = r.body?.string().orEmpty()
@@ -309,7 +327,7 @@ class MoodleClient(private val base: String) {
 
     /** True if the Panopto viewer for [rec] opens without redirecting to Panopto sign-in. */
     fun panoptoSignedIn(rec: PanoptoRecording): Boolean = runCatching {
-        http.newCall(req("${Panopto.HOST}/Panopto/Pages/Viewer.aspx?id=${rec.deliveryId}").build()).execute().use { r ->
+        http.newCall(req("${Panopto.origin(rec.viewerUrl)}/Panopto/Pages/Viewer.aspx?id=${rec.deliveryId}").build()).execute().use { r ->
             !(r.isRedirect && Panopto.isLoginRedirect(r.header("Location"))) && r.code != 401 && r.code != 403
         }
     }.getOrDefault(true)
@@ -420,14 +438,17 @@ class MoodleStore(private val ctx: Context) {
     /** Moodle course + Panopto recording a lecture was imported from: Attach-from-Moodle goes straight there. */
     fun lectureCourse(lectureId: String): Long? = p.getLong("lcourse:$lectureId", -1).takeIf { it > 0 }
     fun lectureRecording(lectureId: String): String? = p.getString("lrec:$lectureId", null)
-    fun setLectureSource(lectureId: String, courseId: Long, recordingTitle: String) =
-        p.edit().putLong("lcourse:$lectureId", courseId).putString("lrec:$lectureId", recordingTitle).apply()
+    fun lectureBase(lectureId:String)=p.getString("lbase:$lectureId",null) ?: baseUrl
+    fun setLectureSource(lectureId: String, courseId: Long, recordingTitle: String,site:String?=null) =
+        p.edit().putLong("lcourse:$lectureId", courseId).putString("lrec:$lectureId", recordingTitle).putString("lbase:$lectureId",site ?: baseUrl).apply()
 
     fun mappedCourse(key: String): Long? = p.getLong("map:$key", -1).takeIf { it > 0 }
     fun mapCourse(key: String, id: Long) = p.edit().putLong("map:$key", id).apply()
 
-    fun cached(cmid: Long): File? = p.getString("file:$cmid", null)?.let(::File)?.takeIf { it.exists() }
-    fun putCached(cmid: Long, f: File) = p.edit().putString("file:$cmid", f.absolutePath).apply()
+    fun cacheDir(site:String)=File(cacheDir,"site-${site.hashCode().toUInt()}").apply{mkdirs()}
+    private fun fileKey(cmid:Long,site:String)=if(site==baseUrl)"file:$cmid"else"file:${site.hashCode()}:$cmid"
+    fun cached(cmid: Long,site:String=baseUrl): File? = p.getString(fileKey(cmid,site), null)?.let(::File)?.takeIf { it.exists() }
+    fun putCached(cmid: Long, f: File,site:String=baseUrl) = p.edit().putString(fileKey(cmid,site), f.absolutePath).apply()
     fun isUsed(cmid: Long) = p.getBoolean("used:$cmid", false)
     fun markUsed(cmid: Long) = p.edit().putBoolean("used:$cmid", true).apply()
 }

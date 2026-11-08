@@ -34,6 +34,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
     var pro by remember { mutableStateOf(ent.isPro) }
     var retro by remember { mutableStateOf(st.retro) }
     var live by remember { mutableStateOf(st.live) }
+    var slidesSearch by remember{mutableStateOf(st.autoAttach)}
     var lookback by remember { mutableIntStateOf(st.lookbackDays) }
     var upgrade by remember { mutableStateOf(false) }
     val runStatus by AutoSyncWorker.status
@@ -49,6 +50,12 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         if (on) AutoSyncWorker.runNow(ctx.applicationContext)
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SyncCard(stringResource(R.string.slides_search_setting)){
+            ToggleRow(stringResource(R.string.slides_search_setting),stringResource(R.string.slides_search_setting_body),slidesSearch){on->
+                slidesSearch=on;st.autoAttach=on
+                if(!on)app.repo.lectures.value.forEach{l->androidx.work.WorkManager.getInstance(app).cancelUniqueWork("slides-match-${l.id}");il.ac.tau.lecturesummarizer.slides.SlideChoices(app).phase(l.id,"disabled")}
+            }
+        }
         // ── 1. Last run / results (read-only status) ──
         if (pro && (retro || live)) SyncCard(stringResource(R.string.sync_last_run)) {
             val pausedLive by QC.paused
@@ -61,14 +68,14 @@ fun AutoSyncSettingsSection(app: LectureApp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_queue), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
                 StatusChip(stringResource(if (isPaused) R.string.sync_paused else if (runStatus?.startsWith("Stopped") == true) R.string.sync_stopped else R.string.sync_active),
-                    if (isPaused) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                    if (isPaused) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary)
             }
             if (app.settings.showDeveloper) (runStatus ?: st.lastRun)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusChip(stringResource(R.string.sync_imported, c["done"] ?: 0))
                 StatusChip(stringResource(R.string.sync_existing, c["skip"] ?: 0))
                 StatusChip(stringResource(R.string.sync_waiting, c["wait"] ?: 0))
-                StatusChip(stringResource(R.string.sync_missing, c["notfound"] ?: 0), if ((c["notfound"] ?: 0) > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant)
+                StatusChip(stringResource(R.string.sync_missing, c["notfound"] ?: 0), if ((c["notfound"] ?: 0) > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             NotFoundList(nf, c["notfound"] ?: 0, legacy = remember(runStatus) { st.notFoundSample },
                 onDismiss = { k -> st.dismissNotFound(k); nfTick++; cTick++ })
@@ -142,7 +149,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
         else ent.source?.let { Text(stringResource(R.string.sync_pro_active), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
     if (upgrade) AlertDialog(onDismissRequest = { upgrade = false },
-        title = { Row(verticalAlignment = Alignment.CenterVertically) { Text("Lecture Summarizer Pro  "); ProBadge() } },
+        title = { Row(verticalAlignment = Alignment.CenterVertically) { Text(stringResource(il.ac.tau.lecturesummarizer.R.string.brand_pro)); ProBadge() } },
         text = { Text(stringResource(R.string.sync_pro_body) + "\n\n" + stringResource(if (ent.canSelfActivate) R.string.sync_beta else R.string.sync_soon)) },
         confirmButton = { if (ent.canSelfActivate) TextButton(onClick = { ent.setPro(true, "beta"); pro = true; upgrade = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_activate_beta_pro)) } },
         dismissButton = { TextButton(onClick = { upgrade = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_later)) } })
@@ -185,7 +192,7 @@ private fun NotFoundList(items: List<il.ac.tau.lecturesummarizer.autosync.NotFou
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(i.course, style = MaterialTheme.typography.bodyMedium)
-                            Text(listOfNotNull(i.kind.ifEmpty { null }, fmt.format(java.util.Date(i.classMs))).joinToString(" · "),
+                            Text(listOfNotNull(classKindLabel(il.ac.tau.lecturesummarizer.moodle.MoodleMatch.kindFromTitle(i.kind)), fmt.format(java.util.Date(i.classMs))).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = { onDismiss(i.key) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_dismiss_forever)) }

@@ -1,5 +1,10 @@
 package il.ac.tau.lecturesummarizer.autosync
 
+import il.ac.tau.lecturesummarizer.calendar.CalendarRuleStore
+import il.ac.tau.lecturesummarizer.calendar.CalendarRuleProvider
+import il.ac.tau.lecturesummarizer.calendar.CalendarRuleApplier
+import il.ac.tau.lecturesummarizer.calendar.CalendarRules
+import il.ac.tau.lecturesummarizer.sources.*
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
@@ -195,12 +200,20 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     private suspend fun pass(app: LectureApp, st: AutoSyncStore, allowCell: Boolean): String {
         val now = System.currentTimeMillis()
         val from = now - maxOf(if (st.retro) st.lookbackDays else 0, if (st.live) AutoSyncPlanner.PENDING_MAX_DAYS else 0) * 86_400_000L
-        val classes = CalendarResolver.pastClasses(app, app.settings.calendarIds, from, now).filter(st::allowed)
+        val ruleStore=CalendarRuleStore(app)
+        val customRules=app.settings.calendarRulesEnabled && ruleStore.prefs.getBoolean("configured",false)
+        val matchedEvents=if(customRules)CalendarRules.preview(ruleStore.rules(),CalendarRuleProvider.read(app,ruleStore.sources(),now).events).filter{it.event.start>=from && it.event.end<=now && ((ruleStore.autoApprove && !ruleStore.undone(it)) || CalendarRuleApplier(app).current(it))}else emptyList()
+        val classes=if(customRules)matchedEvents.map{m->TauClass(m.rule.targetCourse,MoodleMatch.kindFromTitle(m.event.title),app.repo.courses.value.firstOrNull{it.name==m.rule.targetCourse}?.courseNumber,null,null,m.event.start,m.event.end,false)}
+            else CalendarResolver.pastClasses(app,app.settings.calendarIds,from,now).filter(st::allowed)
+        val managed=CalendarRuleApplier(app).managedIds()
+        val mappingStore=SourceMappingStore(app)
+        val sourceRegistry=DataSourceRegistry()
+        val sourceCache=mutableMapOf<SourceConfig,SourceListing>()
         val repo = app.repo
         fun have(c: TauClass): Boolean {
             val course = repo.courses.value.firstOrNull { c.courseNumber != null && it.courseNumber == c.courseNumber }
                 ?: repo.courses.value.firstOrNull { TauNorm(it.name) == TauNorm(c.courseName) } ?: return false
-            return repo.lectures.value.any { l -> l.courseId == course.id && RecordingMatcher.sameDay(l.recordedAtMs, c.beginMs) &&
+            return repo.lectures.value.any { l -> !(l.id in managed && l.state==LectureState.DRAFT && l.segments.isEmpty() && l.panoptoId==null) && l.courseId == course.id && RecordingMatcher.sameDay(l.recordedAtMs, c.beginMs) &&
                 MoodleMatch.kindFromTitle(l.title).let { k -> k == c.kind || k == ClassKind.UNKNOWN || c.kind == ClassKind.UNKNOWN } }
         }
         val items = AutoSyncPlanner.plan(classes, now, st.retro, st.live, st::status, ::have)
@@ -209,7 +222,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         if (items.isEmpty()) return "Up to date · ${classes.size} classes checked"
         val store = MoodleStore(app)
         val client = MoodleClient.of(store.baseUrl)
-        val courses = client.courses()
+        val courses by lazy { client.courses() }
         var started = 0; var waiting = 0; var missing = 0; var dIFetches = 0
         val nfSample = mutableListOf<String>()
         // Moodle's Panopto list carries no dates → fill session start from DeliveryInfo (cached per delivery id) for recordings whose title lacks the day.
@@ -228,15 +241,37 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val active = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
             if (active >= MAX_ACTIVE || started >= MAX_PER_RUN) break
             val c = it.cls
-            val ranked = MoodleMatch.rank(courses, c.courseNumber, c.kind, c.courseName)
-            // Right Moodle course for the kind (…01 lecture / …09 recitation groups) + same-prefix siblings as fallback.
-            val pool = (listOfNotNull(MoodleMatch.confident(ranked)) + MoodleMatch.siblings(courses, c.courseNumber) + ranked.take(2).map { r -> r.course }).distinctBy { m -> m.id }
-            var hit: Pair<MoodleCourse, PanoptoRecording>? = null
-            for (mc in pool) {
-                val recs = runCatching { client.panoptoRecordings(mc.id) }.getOrElse { e -> if (e is MoodleAuthRequired) throw e; emptyList() }
-                if (recs.any { r -> repo.lectures.value.any { l -> l.panoptoId == r.deliveryId } && RecordingMatcher.score(r, c.beginMs, c.kind, c.lecturer) != null }) { hit = null; st.setStatus(it.key, "skip"); break }
-                (RecordingMatcher.best(recs, c.beginMs, c.kind, c.lecturer) ?: RecordingMatcher.best(withDates(recs, c.beginMs), c.beginMs, c.kind, c.lecturer))?.let { r -> hit = mc to r }
-                if (hit != null) break
+            val binding=mappingStore.forName(app,c.courseName)
+            val explicit=binding?.any{!it.legacy}==true
+            if(customRules && !explicit && binding?.any{it.courseId!=null}!=true){
+                st.setStatus(it.key,"notfound:$now");st.addNotFound(NotFoundItem(it.key,c.courseName,c.kind.name,c.beginMs,now));missing++;continue
+            }
+            var hit:Pair<MoodleCourse,PanoptoRecording>?=null
+            if(explicit){
+                val eventMatch=matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}
+                val sourceEvent=SourceEvent(eventMatch?.event?.title ?: c.courseName,c.beginMs,c.endMs,eventMatch?.event?.zone ?: "Asia/Jerusalem")
+                val pin=eventMatch?.let{mappingStore.pinned(it.event.key,it.event.start)}
+                val panConfig=binding!!.firstOrNull{it.providerId=="panopto"}
+                val picked=pin ?: panConfig?.let{cfg->
+                    val provider=sourceRegistry.provider(cfg.providerId) ?: error("unsupported_provider")
+                    val listing=sourceCache[cfg] ?: provider.items(cfg).also{sourceCache[cfg]=it}
+                    if(listing.partial)null else SourceMatcher.clearRecording(provider.matcher.rank(sourceEvent,cfg,listing.items))
+                }
+                if(picked!=null){
+                    if(repo.lectures.value.any{it.panoptoId==picked.id})st.setStatus(it.key,"skip")
+                    else hit=MoodleCourse(binding.firstOrNull{it.providerId=="moodle"}?.courseId ?: panConfig?.courseId ?: 0,c.courseName,"","") to PanoptoRecording(picked.id,picked.title,picked.url,picked.start)
+                }
+            }else{
+                // Migrated legacy defaults preserve existing TAU detection. Explicit per-course mappings never fall back here.
+                val ranked=MoodleMatch.rank(courses,c.courseNumber,c.kind,c.courseName)
+                val mapped=binding?.firstOrNull{it.providerId=="moodle"}?.courseId?.let{id->courses.firstOrNull{it.id==id}}
+                val pool=(listOfNotNull(mapped,MoodleMatch.confident(ranked))+MoodleMatch.siblings(courses,c.courseNumber)+ranked.take(2).map{r->r.course}).distinctBy{m->m.id}
+                for(mc in pool){
+                    val recs=runCatching{client.panoptoRecordings(mc.id)}.getOrElse{e->if(e is MoodleAuthRequired)throw e;emptyList()}
+                    if(recs.any{r->repo.lectures.value.any{l->l.panoptoId==r.deliveryId} && RecordingMatcher.score(r,c.beginMs,c.kind,c.lecturer)!=null}){st.setStatus(it.key,"skip");break}
+                    (RecordingMatcher.best(recs,c.beginMs,c.kind,c.lecturer) ?: RecordingMatcher.best(withDates(recs,c.beginMs),c.beginMs,c.kind,c.lecturer))?.let{r->hit=mc to r}
+                    if(hit!=null)break
+                }
             }
             if (st.status(it.key) == "skip") { st.dropNotFound(it.key); continue }
             val (mc, rec) = hit ?: run {
@@ -252,13 +287,13 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             st.setStatus(it.key, "claim:$now")
             val course = repo.findOrCreateCourse(c.courseName, c.courseNumber)
             val dm = RecordingMatcher.ymdOf(c.beginMs)
-            val title = "${c.kind.he.ifEmpty { "שיעור" }} ${"%02d/%02d".format(dm.d, dm.m)}"
-            val l = repo.addLecture(course.id, title)
+            val title = app.getString(when(c.kind){ClassKind.RECITATION->il.ac.tau.lecturesummarizer.R.string.generated_recitation;else->il.ac.tau.lecturesummarizer.R.string.generated_lecture},"%02d/%02d".format(dm.d,dm.m))
+            val l = repo.lectures.value.firstOrNull{x->x.id in managed && x.courseId==course.id && x.recordedAtMs==c.beginMs && x.state==LectureState.DRAFT && x.segments.isEmpty() && x.panoptoId==null} ?: repo.addLecture(course.id, title)
             st.setStatus(it.key, "done:${l.id}")
             repo.updateLecture(l.id) { x -> x.copy(recordedAtMs = c.beginMs, panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl) }
-            store.setLectureSource(l.id, mc.id, rec.title)
+            if(mc.id>0)store.setLectureSource(l.id, mc.id, rec.title,if(explicit)binding?.firstOrNull{it.providerId=="moodle"}?.baseUrl else null)
             // Very-high-confidence slides: attach before the summary job starts so they're folded in.
-            if (st.autoAttach) runCatching { autoAttachSlides(app, l.id, client, store, mc, rec.title, dm.d to dm.m) }.onFailure { e -> if (e is MoodleAuthRequired) throw e }
+            // Suggestions are searched after ASR. Real-data validation did not justify any automatic attachment.
             val caps = runCatching { client.captionStatus(rec) }.getOrDefault(CaptionStatus.UNKNOWN)
             if (caps == CaptionStatus.AUTH) throw PanoptoAuthRequired(rec.viewerUrl)
             val ok = if (caps == CaptionStatus.HAS) runCatching { PanoptoImporter.importCaptions(app, l.id, client, rec) }.onFailure { e -> if (e is PanoptoAuthRequired) throw e }.isSuccess else false
@@ -276,22 +311,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
     }
 
-    /** Reuses the manual attach path (MoodleMatch + MoodleStore cache/used + addSlides); only files whose Moodle title already matches are resolved. */
-    private fun autoAttachSlides(app: LectureApp, lectureId: String, client: MoodleClient, store: MoodleStore, mc: MoodleCourse, recTitle: String?, dayMonth: Pair<Int, Int>) {
-        val files = client.sections(mc.id).flatMap { it.files }.distinctBy { it.cmid }
-        val names = files.map { it to (client.fileName(it) ?: it.name) }.filter { it.second.substringAfterLast('.', "").lowercase() in setOf("pdf", "pptx") }
-        val id = il.ac.tau.lecturesummarizer.slides.SlideMatcher.early(names.map { it.first.cmid to it.second }, recTitle.orEmpty()) ?: return
-        val pick = files.single { it.cmid == id }
-        val file = store.cached(pick.cmid) ?: client.download(pick, store.cacheDir).also { store.putCached(pick.cmid, it) }
-        if (il.ac.tau.lecturesummarizer.slides.SlideChoices(app).isManual(lectureId) || app.repo.lecture(lectureId)?.allSlides?.isNotEmpty() != false) return
-        store.markUsed(pick.cmid)
-        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).auto(lectureId, file.name, listOf("same_course", "lecture_number"))
-        il.ac.tau.lecturesummarizer.slides.SlideChoices(app).phase(lectureId, "done")
-        val uri = androidx.core.content.FileProvider.getUriForFile(app, app.packageName + ".files", file)
-        app.repo.updateLecture(lectureId) { x -> if (x.slidesUri == null) x.copy(slidesUri = uri.toString()) else x.copy(extraSlides = (x.extraSlides + uri.toString()).distinct()) }
-    }
-
-    private fun TauNorm(s: String) = il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)
+    private fun TauNorm(s:String)=il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)
 
     companion object {
         private val PASS_LOCK = kotlinx.coroutines.sync.Mutex()
@@ -340,11 +360,11 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 android.content.Intent(ctx, AutoSyncChoiceReceiver::class.java).setAction(action),
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
             val n = NotificationCompat.Builder(ctx, LectureApp.CHANNEL_JOBS)
-                .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("Auto-sync lectures — on mobile data")
-                .setContentText("Download new Panopto lectures on mobile data, or wait for Wi‑Fi? · להמשיך בסלולר?")
+                .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(ctx.getString(il.ac.tau.lecturesummarizer.R.string.auto_sync_mobile_title))
+                .setContentText(ctx.getString(il.ac.tau.lecturesummarizer.R.string.auto_sync_mobile_body))
                 .setAutoCancel(true)
-                .addAction(0, "Use mobile data", pi(ACTION_USE_CELL, 1))
-                .addAction(0, "Wait for Wi‑Fi", pi(ACTION_WAIT_WIFI, 2)).build()
+                .addAction(0, ctx.getString(il.ac.tau.lecturesummarizer.R.string.use_mobile), pi(ACTION_USE_CELL, 1))
+                .addAction(0, ctx.getString(il.ac.tau.lecturesummarizer.R.string.wait_wifi), pi(ACTION_WAIT_WIFI, 2)).build()
             try { androidx.core.app.NotificationManagerCompat.from(ctx).notify(PROMPT_ID, n) } catch (_: SecurityException) { /* Notifications disabled by the user. */ }
         }
         fun cancelPrompt(ctx: Context) = androidx.core.app.NotificationManagerCompat.from(ctx).cancel(PROMPT_ID)

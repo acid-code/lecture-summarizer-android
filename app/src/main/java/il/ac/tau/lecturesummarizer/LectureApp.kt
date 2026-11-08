@@ -29,10 +29,10 @@ class LectureApp : Application() {
             NotificationChannel(CHANNEL_RECORDING, getString(R.string.recording_channel), NotificationManager.IMPORTANCE_LOW)
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_UPLOAD, "Uploads", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_UPLOAD, getString(il.ac.tau.lecturesummarizer.R.string.uploads_channel), NotificationManager.IMPORTANCE_LOW)
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_JOBS, "Summary ready / failed", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(CHANNEL_JOBS, getString(il.ac.tau.lecturesummarizer.R.string.summary_channel), NotificationManager.IMPORTANCE_DEFAULT)
         )
     }
 

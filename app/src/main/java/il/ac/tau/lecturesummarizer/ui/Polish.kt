@@ -33,8 +33,8 @@ import il.ac.tau.lecturesummarizer.moodle.Panopto
 // ---------- Brand colors for statuses / illustrations ----------
 val Navy = Color(0xFF1E3A8A)
 val BrandYellow = Color(0xFFF2B705)
-private val Green = Color(0xFF2E7D32)
-private val Amber = Color(0xFFB26A00)
+private val Green = Color(0xFF1B5E20)
+private val Amber = Color(0xFF7A4700)
 
 // ---------- Connection status (reuses the existing WebView-cookie sessions; no new auth) ----------
 object Connections {
@@ -51,10 +51,13 @@ object Connections {
 fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null) {
     Column {
-        AssistChip(onClick = onClick ?: {}, label = { Text(text, style = MaterialTheme.typography.labelMedium) },
-            leadingIcon = if (offline) ({ Icon(Icons.Default.CloudOff, null, Modifier.size(16.dp)) })
-                else if (onClick != null) ({ Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }) else null,
-            colors = AssistChipDefaults.assistChipColors(containerColor = color.copy(alpha = 0.12f), labelColor = color, leadingIconContentColor = color))
+        if(onClick==null) Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small) {
+            Row(Modifier.padding(horizontal=10.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                if(offline)Icon(Icons.Default.CloudOff,null,Modifier.size(16.dp))
+                Text(text,style=MaterialTheme.typography.labelMedium)
+            }
+        } else AssistChip(onClick=onClick,label={Text(text)},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(16.dp))},
+            colors=AssistChipDefaults.assistChipColors(containerColor=color.copy(alpha=0.12f),labelColor=color,leadingIconContentColor=color))
         if (progress != null) LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f }, modifier = Modifier.width(120.dp).height(3.dp), color = color)
         else if (busy) LinearProgressIndicator(Modifier.width(120.dp).height(3.dp), color = color)
     }
@@ -62,7 +65,7 @@ fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceV
 
 @Composable
 fun ConnectionChip(connected: Boolean) = StatusChip(stringResource(if (connected) R.string.connected else R.string.not_connected),
-    if (connected) Green else MaterialTheme.colorScheme.onSurfaceVariant)
+    if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
 fun ConnectionRow(title: String, connected: Boolean, onDisconnect: (() -> Unit)? = null, onConnect: () -> Unit) {
@@ -86,15 +89,15 @@ fun LectureStatusChip(l: Lecture, partial: Boolean = false, onRetry: (() -> Unit
     val pct = if (l.segments.isEmpty()) l.progress.coerceIn(0, 100) else 100 * l.segments.count { it.uploaded } / l.segments.size
     val processing = l.state == LectureState.PROCESSING
     val (res, color) = when {
-        partial && l.state != LectureState.FAILED -> R.string.st_partial to Amber
+        partial && l.state != LectureState.FAILED -> R.string.st_partial to if(androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFFFFDA8A) else Amber
         else -> when (l.state) {
             LectureState.DRAFT -> R.string.st_draft to cs.onSurfaceVariant
             LectureState.RECORDING -> R.string.st_recording to cs.error
             LectureState.RECORDED -> R.string.st_waiting to cs.onSurfaceVariant
-            LectureState.UPLOADING -> R.string.st_uploading to Color(0xFF2B5BB5)
+            LectureState.UPLOADING -> R.string.st_uploading to cs.primary
             LectureState.PROCESSING -> (if (l.stage in setOf("asr", "repair", "uploaded", "normalized", "transcribed", "queued", "asr_wait")) R.string.st_transcribing else R.string.st_summarizing) to cs.primary
-            LectureState.DONE -> R.string.st_done to Green
-            LectureState.FAILED -> R.string.st_failed to cs.error
+            LectureState.DONE -> R.string.st_done to if(androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF95D5A0) else Green
+            LectureState.FAILED -> (if(online)R.string.st_failed else R.string.st_failed_offline) to cs.error
         }
     }
     Box(modifier) { StatusChip(if (l.state == LectureState.UPLOADING) stringResource(res, pct) else stringResource(res), color,

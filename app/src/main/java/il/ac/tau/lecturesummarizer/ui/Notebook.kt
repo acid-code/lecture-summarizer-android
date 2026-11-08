@@ -104,23 +104,23 @@ fun NotebookEditor(initial: Course?, onDismiss: () -> Unit, onSave: (name: Strin
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onDismiss) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) }
                 Spacer(Modifier.weight(1f))
-                Text(if (initial == null) "New notebook" else "Edit notebook", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(if (initial == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_course) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.edit_course), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), emoji, color, pattern.name) }) { Text(if (initial == null) "Create" else "Done", fontWeight = FontWeight.Bold) }
+                TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), emoji, color, pattern.name) }) { Text(if (initial == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.create) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.done_save), fontWeight = FontWeight.Bold) }
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                NotebookCover(name.ifBlank { "Course name" }, "", emoji, Color(color), pattern, Modifier.width(140.dp))
+                NotebookCover(name.ifBlank { androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_name) }, "", emoji, Color(color), pattern, Modifier.width(140.dp))
             }
-            OutlinedTextField(name, { name = it }, label = { Text("Course name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            OutlinedTextField(name, { name = it }, label = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp))
-            SectionLabel("Color")
+            SectionLabel(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.cover_color))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 coverPalette.take(6).forEach { c -> ColorChip(c, c == color) { color = c } }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 coverPalette.drop(6).forEach { c -> ColorChip(c, c == color) { color = c } }
             }
-            SectionLabel("Cover style")
+            SectionLabel(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.cover_style))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CoverPattern.entries.forEach { p ->
                     Column(Modifier.weight(1f).clickable { pattern = p }, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -128,11 +128,11 @@ fun NotebookEditor(initial: Course?, onDismiss: () -> Unit, onSave: (name: Strin
                             .border(if (p == pattern) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp))) {
                             CoverBackground(Color(color), p, false, Modifier.matchParentSize())
                         }
-                        Text(p.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                        Text(coverPatternLabel(p), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
             }
-            SectionLabel("Icon")
+            SectionLabel(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.cover_icon))
             LazyVerticalGrid(GridCells.Fixed(7), Modifier.fillMaxWidth().heightIn(max = 260.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(studyEmojis) { e ->
@@ -171,7 +171,7 @@ fun CourseHeader(course: Course, subtitle: String, onEdit: () -> Unit) {
                 Text(course.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            FilledTonalButton(onClick = onEdit) { Text("Cover") }
+            FilledTonalButton(onClick = onEdit) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_appearance)) }
         }
     }
 }

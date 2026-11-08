@@ -39,6 +39,8 @@ fun OnboardingScreen(app: LectureApp, onMoodle: () -> Unit, onPanopto: () -> Uni
                 repeat(3) { i -> Surface(Modifier.size(if (i == step) 24.dp else 8.dp, 8.dp), shape = MaterialTheme.shapes.small,
                     color = if (i == step) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant) {} }
             }
+            Text(stringResource(R.string.onboarding_step,step+1),style=MaterialTheme.typography.labelLarge)
+            if(step>0)TextButton(onClick={step--}){Text(stringResource(R.string.onboarding_back))}
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 when (step) {
                     0 -> CalendarStep(onNext = { step = 1 })
@@ -62,11 +64,8 @@ private fun Title(text: String, body: String?) {
 @Composable
 private fun ColumnScope.CalendarStep(onNext: () -> Unit) {
     val ctx = LocalContext.current
-    fun importCourses() { LectureActions.scope.launch(kotlinx.coroutines.Dispatchers.IO) { il.ac.tau.lecturesummarizer.calendar.CalendarCourses.import(ctx.applicationContext as LectureApp) } }
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) importCourses(); onNext() }
     Title(stringResource(R.string.ob1_title), stringResource(R.string.ob1_body))
-    Button(onClick = { if (Connections.calendar(ctx)) { importCourses(); onNext() } else perm.launch(Manifest.permission.READ_CALENDAR) },
-        Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.ob1_cta)) }
+    CalendarImportButton(ctx.applicationContext as LectureApp,onImported=onNext)
     TextButton(onClick = onNext) { Text(stringResource(R.string.skip)) }
     Spacer(Modifier.height(8.dp))
     Text(stringResource(R.string.ob1_small), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -102,6 +101,7 @@ private fun ColumnScope.LevelsStep(app: LectureApp, onFinish: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(full, { if (it || regular) full = it }); Text(stringResource(R.string.ob3_full)) }
         Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(regular, { if (it || full) regular = it }); Text(stringResource(R.string.ob3_regular)) }
     }
+    Text(stringResource(R.string.onboarding_levels_hint),style=MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(20.dp))
     Button(onClick = {
         app.settings.summaryDensities = buildSet { if (full) add(SummaryDensity.DETAILED.api); if (regular) add(SummaryDensity.STANDARD.api) }

@@ -40,7 +40,7 @@ fun ShareImportScreen(app: LectureApp, uris: List<Uri>, onCancel: () -> Unit, on
     val scope = rememberCoroutineScope()
 
     fun importInto(lectureId: String) {
-        busy = "Importing ${uris.size} file(s)…"
+        busy = ctx.getString(il.ac.tau.lecturesummarizer.R.string.shared_importing, uris.size)
         scope.launch {
             val errs = withContext(Dispatchers.IO) {
                 val docs = mutableListOf<String>(); val errs = mutableListOf<String>()
@@ -62,29 +62,29 @@ fun ShareImportScreen(app: LectureApp, uris: List<Uri>, onCancel: () -> Unit, on
                 }
                 errs
             }
-            if (errs.isNotEmpty()) app.repo.updateLecture(lectureId) { it.copy(error = "Import failed: " + errs.joinToString("; ")) }
+            if (errs.isNotEmpty()) app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.import_failed)) }
             busy = null; onDone(lectureId)
         }
     }
 
     val cid = courseId
-    AppScaffold(if (cid == null) "Add to course" else "Add to lecture", onBack = { if (cid != null) courseId = null else onCancel() }) { pad ->
+    AppScaffold(if (cid == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_course) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_lecture), onBack = { if (cid != null) courseId = null else onCancel() }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("${uris.size} shared file(s): " + uris.take(3).joinToString { displayName(ctx, it.toString()) } + if (uris.size > 3) "…" else "",
+            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.shared_file_list,uris.size,uris.take(3).joinToString { bidi(displayName(ctx,it.toString())) } + if(uris.size>3)"…"else ""),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             busy?.let { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text(it) }; return@Column }
-            Text(if (cid == null) "Step 1 · Choose a course" else "Step 2 · Choose a lecture in ${app.repo.course(cid)?.name ?: ""}", style = MaterialTheme.typography.titleMedium)
+            Text(if (cid == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_step1) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_step2, bidi(app.repo.course(cid)?.name.orEmpty())), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(newName, { newName = it }, label = { Text(if (cid == null) "New course name" else "New lecture title") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(newName, { newName = it }, label = { Text(if (cid == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_course_name) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.new_lecture_title)) }, singleLine = true, modifier = Modifier.weight(1f))
                 Button(enabled = newName.isNotBlank(), onClick = {
                     if (cid == null) courseId = app.repo.addCourse(newName.trim()).id
                     else importInto(app.repo.addLecture(cid, newName.trim()).id)
-                }) { Text("Create") }
+                }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.create)) }
             }
             HorizontalDivider()
             val rows = if (cid == null) courses.map { it.id to ((it.emoji?.let { e -> "$e " } ?: "") + it.name) }
                 else lectures.filter { it.courseId == cid }.sortedByDescending { it.recordedAtMs }.map { it.id to it.title }
-            if (rows.isEmpty()) Text(if (cid == null) "No courses yet — create one above." else "No lectures yet — create one above.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (rows.isEmpty()) Text(if (cid == null) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_no_courses) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.share_no_lectures), color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(rows, key = { it.first }) { (id, label) ->
                     ListItem(headlineContent = { Text(label) },
