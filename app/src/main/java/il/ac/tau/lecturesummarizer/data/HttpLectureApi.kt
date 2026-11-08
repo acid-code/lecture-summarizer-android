@@ -118,8 +118,16 @@ class HttpLectureApi(
         } finally { f.delete() }
     }
 
-    override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean) =
-        uploadDoc("/v1/lectures/$lectureRemoteId/slides" + if (replaceAll) "?replace=all" else "", fileName, mime, data)
+    override suspend fun supportsSlideRanges(lectureRemoteId:String):Boolean = try{call(req("/v1/lectures/$lectureRemoteId/slides").get().build()){JSONObject(it.body!!.string()).optBoolean("range_support")}}catch(e:HttpStatusException){if(e.code in setOf(404,405))false else throw e}
+
+    override suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean, range:SlideRange?) {
+        if(range!=null){
+            val supported=supportsSlideRanges(lectureRemoteId)
+            if(!supported)throw IOException("Slide ranges require an updated API")
+        }
+        val query=listOfNotNull(if(replaceAll)"replace=all"else null,range?.let{"slide_start=${it.start}&slide_end=${it.end}&approximate=${it.approximate}"}).joinToString("&").let{if(it.isBlank())""else "?$it"}
+        uploadDoc("/v1/lectures/$lectureRemoteId/slides$query",fileName,mime,data)
+    }
 
     override suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String, add: Boolean) =
         uploadDoc("/v1/lectures/$lectureRemoteId/context" + if (add) "?mode=add" else "", fileName, mime, data)

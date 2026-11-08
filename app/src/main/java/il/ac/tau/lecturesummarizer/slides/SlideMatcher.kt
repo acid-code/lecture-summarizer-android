@@ -7,7 +7,7 @@ import java.time.LocalDate
 
 /** Deliberately conservative: dates and bare numbers are NOT lecture numbers. */
 object SlideMatcher {
-    data class Deck(val id: Long, val name: String, val text: String, val taughtOn: LocalDate? = null)
+    data class Deck(val id: Long, val name: String, val text: String, val taughtOn: LocalDate? = null, val pages:List<String> = if(text.contains('\u000c'))text.split('\u000c')else emptyList())
     data class Match(val deck: Deck, val terms: List<String>, val score: Double)
     private val index = Regex("""(?i)(?:הרצאה|שיעור|lecture|lec|ppt|מצגת)[\s_#.:\-]*0*(\d{1,2})(?!\d|\s*[/.-]\s*\d)""")
     fun lectureNumber(title: String): Int? = index.find(title)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }

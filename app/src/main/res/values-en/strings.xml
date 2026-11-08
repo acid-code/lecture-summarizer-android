@@ -601,4 +601,23 @@
     <string name="summary_changed_title">What changed?</string>
     <string name="summary_changed_body">Rebuilt with ⁦%1$d⁩ slide files using the existing transcript, without transcribing again. Updated levels:</string>
     <string name="home_calendar_error">Calendar could not be read right now</string>
+    <string name="slides_full_deck">Whole deck</string>
+    <string name="slides_range_approx">Slides %1$s–%2$s · approximate</string>
+    <string name="slides_range_exact">Slides %1$s–%2$s</string>
+    <string name="slides_edit_range">Slide range</string>
+    <string name="slides_add_deck">Add another deck</string>
+    <string name="slides_continue_previous">Continues from the previous lecture</string>
+    <string name="slides_coverage_suggestion">Suggested decks for this lecture</string>
+    <string name="slides_named_range">%1$s · approximately slides %2$s–%3$s</string>
+    <string name="slides_range_disclaimer">Transcript-based suggestion only. Check the slide range before attaching.</string>
+    <string name="slides_attach_selection">Attach suggested decks</string>
+    <string name="slides_range_help">Use original slide numbers. Leave both fields empty to use the whole deck.</string>
+    <string name="slides_range_start">First slide</string>
+    <string name="slides_range_end">Last slide</string>
+    <string name="slides_approximate">Approximate range</string>
+    <string name="slides_range_invalid">Enter a valid range starting at slide 1 or later</string>
+    <string name="slides_range_server_required">Slide ranges need an updated server. You can use the whole deck in the meantime.</string>
+    <string name="slides_order">Deck order</string>
+    <string name="slides_order_value">Deck %1$s</string>
+    <string name="slides_order_help">Set the course sequence when a filename has no deck number. Used only for suggestions in this course. Leave blank to use the filename.</string>
 </resources>

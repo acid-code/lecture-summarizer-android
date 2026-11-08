@@ -602,4 +602,23 @@
     <string name="summary_changed_title">מה השתנה בסיכום?</string>
     <string name="summary_changed_body">נבנה מחדש עם ⁦%1$d⁩ קובצי שקפים, מתוך התמלול הקיים וללא תמלול מחדש. רמות שעודכנו:</string>
     <string name="home_calendar_error">לא ניתן לקרוא את היומן כרגע</string>
+    <string name="slides_full_deck">כל המצגת</string>
+    <string name="slides_range_approx">שקפים %1$s–%2$s · טווח משוער</string>
+    <string name="slides_range_exact">שקפים %1$s–%2$s</string>
+    <string name="slides_edit_range">טווח שקפים</string>
+    <string name="slides_add_deck">הוספת מצגת נוספת</string>
+    <string name="slides_continue_previous">המשך מההרצאה הקודמת</string>
+    <string name="slides_coverage_suggestion">הצעת מצגות לשיעור הזה</string>
+    <string name="slides_named_range">%1$s · שקפים %2$s–%3$s בקירוב</string>
+    <string name="slides_range_disclaimer">זו הצעה בלבד לפי התמליל. כדאי לבדוק את הטווח לפני צירוף.</string>
+    <string name="slides_attach_selection">צירוף המצגות המוצעות</string>
+    <string name="slides_range_help">מספור השקפים המקורי בקובץ. השאירו את שני השדות ריקים לשימוש בכל המצגת.</string>
+    <string name="slides_range_start">משקף</string>
+    <string name="slides_range_end">עד שקף</string>
+    <string name="slides_approximate">טווח משוער</string>
+    <string name="slides_range_invalid">יש לבחור טווח תקין, החל משקף 1</string>
+    <string name="slides_range_server_required">טווחי שקפים דורשים עדכון שרת. אפשר בינתיים לבחור שימוש בכל המצגת.</string>
+    <string name="slides_order">מספר המצגת</string>
+    <string name="slides_order_value">מצגת %1$s</string>
+    <string name="slides_order_help">אפשר לקבוע סדר למצגות ששמן אינו כולל מספר. ההגדרה משמשת רק להצעות באותו קורס. שדה ריק משתמש בשם הקובץ.</string>
 </resources>

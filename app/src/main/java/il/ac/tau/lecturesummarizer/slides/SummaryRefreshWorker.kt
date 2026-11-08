@@ -24,11 +24,12 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
         val api=ApiProvider.get(app.settings)
         try {
             f.state(id,"updating")
+            if(l.slideRanges.keys.any{it in l.allSlides} && !api.supportsSlideRanges(remote)){f.state(id,"api_required");return Result.failure()}
             // First attempt syncs all current decks. Later attempts resume already-started density jobs.
             if(densities.none{f.pendingJob(id,it,rev)!=null}) {
                 if(l.allSlides.isEmpty())api.clearSlides(remote)
                 l.allSlides.forEachIndexed{index,raw->val uri=Uri.parse(raw);app.contentResolver.openInputStream(uri)!!.use{
-                    api.uploadSlides(remote,displayName(app,raw),app.contentResolver.getType(uri) ?: "application/pdf",it,replaceAll=index==0)
+                    api.uploadSlides(remote,slideUploadName(l,raw){displayName(app,it)},app.contentResolver.getType(uri) ?: "application/pdf",it,replaceAll=index==0,range=l.slideRanges[raw])
                 }}
                 app.repo.updateLecture(id){it.copy(uploadedSlides=it.allSlides)}
             }

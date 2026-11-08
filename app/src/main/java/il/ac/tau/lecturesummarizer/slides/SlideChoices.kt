@@ -16,6 +16,10 @@ class SlideChoices(private val ctx: Context) {
     fun reject(id: String, deck: Long) { p.edit().putStringSet("reject:$id", rejected(id) + deck.toString()).apply() }
     fun candidates(id: String) = p.getString("candidates:$id", null)
     fun candidates(id: String, json: String?) { p.edit().putString("candidates:$id", json).apply() }
+    fun order(course:String,name:String)=p.getInt("order:$course:$name",0).takeIf{it in 1..99}
+    fun order(course:String,name:String,value:Int?){require(value==null || value in 1..99);p.edit().putInt("order:$course:$name",value ?: 0).apply()}
+    fun bundle(id:String)=p.getString("bundle:$id",null)
+    fun bundle(id:String,json:String?){p.edit().putString("bundle:$id",json).apply()}
     fun phase(id: String) = p.getString("phase:$id", null)
     fun phase(id: String, value: String) { p.edit().putString("phase:$id", value).commit() }
 }

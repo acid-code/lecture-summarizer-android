@@ -59,12 +59,13 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
             val freshness=il.ac.tau.lecturesummarizer.slides.SummaryFreshness(app)
             val slideRevision=freshness.revision(lecture)
+            if(lecture.slideRanges.keys.any{it in lecture.allSlides} && !api.supportsSlideRanges(remote))throw IllegalStateException("Slide ranges require an updated API")
             if(!live && lecture.allSlides.isEmpty())api.clearSlides(remote)
             // Live runs send slides once (ASR spelling hints) and skip course context; the final run sends everything.
             if (!live || lecture.uploadedSlides.isEmpty()) for ((i, s) in lecture.allSlides.withIndex()) {
                 val uri = Uri.parse(s)
                 val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
-                (applicationContext.contentResolver.openInputStream(uri) ?: error(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.slides_error))).use { api.uploadSlides(remote, displayName(uri), mime, it, replaceAll = i == 0) }
+                (applicationContext.contentResolver.openInputStream(uri) ?: error(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.slides_error))).use { api.uploadSlides(remote, il.ac.tau.lecturesummarizer.slides.slideUploadName(lecture,s){displayName(Uri.parse(it))}, mime, it, replaceAll = i == 0,range=lecture.slideRanges[s]) }
                 repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
             // Course context: lecture override (single) or all course files (max 3). First replaces, rest are added.

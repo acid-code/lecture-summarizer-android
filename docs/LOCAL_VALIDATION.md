@@ -1,3 +1,9 @@
+# Current local continuation checkpoint
+
+Branch `feature/deck-continuation` off `c3a8282`: **124 debug + 124 release tests passed, zero skipped**, including private real continuation and Biotech fixtures. `assembleDebug` and `lintDebug` succeeded: 0 errors, 58 warnings (4 informational). API companion `2331196`: typecheck + 66 tests passed. No missing English translatable keys. No push/deploy/live changes. See `DECK_CONTINUATION.md` for code audit, real results, local API requirement and known limits. Screenshot evidence below belongs to the prior UI checkpoint; no new multi-deck screen renders/device E2E are claimed.
+
+---
+
 # Local validation — matcher V2 + UX/Home/search checkpoint
 
 Branch: `feature/email-pull-biotech`. Local only: no push, merge, release or deploy.

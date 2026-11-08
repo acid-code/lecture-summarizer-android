@@ -24,6 +24,13 @@ data class Segment(val seq: Int, val path: String, val startedAtMs: Long, val du
 
 enum class LectureState { DRAFT, RECORDING, RECORDED, UPLOADING, PROCESSING, DONE, FAILED }
 
+/** 1-based original slide numbers; approximate ranges are suggestions, never certainty. */
+data class SlideRange(val start:Int,val end:Int,val approximate:Boolean=true){
+    init{require(start>=1 && end>=start && end<=10000)}
+    fun toJson()=JSONObject().put("start",start).put("end",end).put("approximate",approximate)
+}
+fun slideRangeFromJson(o:JSONObject)=SlideRange(o.getInt("start"),o.getInt("end"),o.optBoolean("approximate",true))
+
 data class Lecture(
     val id: String,
     val courseId: String,
@@ -57,13 +64,14 @@ data class Lecture(
     val panoptoDurationMs: Long = 0,
     /** No-captions Panopto import: audio pulled on the phone (PanoptoAudioWorker) → normal ASR instead of captions. */
     val panoptoAudio: Boolean = false,
+    val slideRanges:Map<String,SlideRange> = emptyMap(),
 ) {
     val fromPanopto get() = panoptoId != null
     /** Duration shown in list/detail: recorded audio, else Panopto recording length. */
     val displayDurationMs: Long get() = segments.sumOf { it.durationMs }.takeIf { it > 0 } ?: panoptoDurationMs
 }
 
-val Lecture.allSlides: List<String> get() = listOfNotNull(slidesUri) + extraSlides
+val Lecture.allSlides: List<String> get() = (listOfNotNull(slidesUri) + extraSlides).distinct()
 
 data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?, val detail: String? = null, val jobId: String? = null, val density: String? = null)
 /** Summary density levels (server: compact | standard | detailed). */
@@ -93,6 +101,7 @@ fun Lecture.toJson(): JSONObject = JSONObject()
             .put("durationMs", it.durationMs).put("uploaded", it.uploaded)
     }))
     .put("markers", JSONArray(markers.map { JSONObject().put("tSec", it.tSec).put("label", it.label) }))
+    .put("slideRanges",JSONObject().apply{slideRanges.filterKeys{it in allSlides}.forEach{(uri,range)->put(uri,range.toJson())}})
     .put("slidesUri", slidesUri).put("extraSlides", JSONArray(extraSlides)).put("uploadedSlides", JSONArray(uploadedSlides)).put("contextPdfUri", contextPdfUri)
     .put("remoteId", remoteId).put("jobId", jobId).put("liveJob", liveJob).put("state", state.name)
     .put("stage", stage).put("progress", progress).put("stageDetail", stageDetail).put("error", error).put("pdfPath", pdfPath)
@@ -108,6 +117,7 @@ fun lectureFromJson(o: JSONObject): Lecture {
             Segment(it.getInt("seq"), it.getString("path"), it.getLong("startedAtMs"), it.getLong("durationMs"), it.optBoolean("uploaded"))
         },
         markers = (0 until marks.length()).map { marks.getJSONObject(it) }.map { Marker(it.getLong("tSec"), it.optStringOrNull("label")) },
+        slideRanges = o.optJSONObject("slideRanges")?.let{ranges->ranges.keys().asSequence().mapNotNull{uri->runCatching{uri to slideRangeFromJson(ranges.getJSONObject(uri))}.getOrNull()}.toMap()} ?: emptyMap(),
         slidesUri = o.optStringOrNull("slidesUri"),
         extraSlides = o.optJSONArray("extraSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         uploadedSlides = o.optJSONArray("uploadedSlides")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),

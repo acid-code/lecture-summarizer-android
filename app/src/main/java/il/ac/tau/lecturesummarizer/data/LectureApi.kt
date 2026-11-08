@@ -12,7 +12,8 @@ interface LectureApi {
     suspend fun createLecture(courseRemoteId: String, title: String, recordedAtMs: Long): String
     /** Adds one deck (several per lecture). replaceAll=true clears the server's previous decks first (first deck of a full upload). */
     suspend fun clearSlides(lectureRemoteId: String) { error("Slides removal is not supported by this API") }
-    suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean = false)
+    suspend fun supportsSlideRanges(lectureRemoteId:String):Boolean = false
+    suspend fun uploadSlides(lectureRemoteId: String, fileName: String, mime: String, data: InputStream, replaceAll: Boolean = false, range:SlideRange?=null)
     suspend fun uploadCourseContext(lectureRemoteId: String, fileName: String, data: InputStream, mime: String = "application/pdf", add: Boolean = false)
     suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File)
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
