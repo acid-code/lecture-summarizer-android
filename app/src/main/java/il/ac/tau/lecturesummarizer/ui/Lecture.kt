@@ -624,12 +624,14 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_re_summarize), Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) { pickDensity = true }
                     if (pickDensity) AlertDialog(onDismissRequest = { pickDensity = false },
                         title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_summary_level)) },
-                        text = { Column {
-                            il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
-                                TextButton(onClick = {
-                                    pickDensity = false
-                                    il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,lectureId,d.api)
-                                }) { Text(densityLabel(d)) }
+                        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
+                                    TextButton(onClick = {
+                                        pickDensity = false
+                                        il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,lectureId,d.api)
+                                    }) { Text(densityLabel(d)) }
+                                }
                             }
                             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_a_different_level_is_saved_as_an_additional_summary_the_existing), style = MaterialTheme.typography.bodySmall)
                         } },
