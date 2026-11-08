@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+
 import java.io.File
 
 import androidx.compose.foundation.layout.*
@@ -44,7 +46,7 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  LaunchedEffect(id,l.pdfPath){cache=withContext(Dispatchers.IO){l.pdfPath?.let{store.delivered(id,File(it),densityOf(l) ?: "standard",l.jobId.orEmpty())};store.cached(id,densityOf(l))};busy=false}
  fun reload(){if(busy||l.remoteId==null)return;scope.launch{busy=true;error=false;try{withContext(Dispatchers.IO){store.refresh(ApiProvider.get(app.settings),id,l.remoteId,densityOf(l),l.jobId.orEmpty())};cache=withContext(Dispatchers.IO){store.cached(id,densityOf(l))}}catch(e:CancellationException){throw e}catch(_:Exception){error=true}finally{busy=false}}}
  AppScaffold(stringResource(R.string.memory_title),onBack=onBack,actions={if(cache!=null)IconButton(enabled=!busy&&online&&l.remoteId!=null,onClick={reload()}){Icon(Icons.Default.Download,stringResource(R.string.memory_update))}}){pad->
-   if(cache?.entries?.size?.let{it>=2}==true)Column(Modifier.padding(pad).fillMaxSize()){
+   if(cache?.entries?.size?.let{it>=1}==true)Column(Modifier.padding(pad).fillMaxSize()){
      if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
      if(error)Text(stringResource(R.string.memory_load_error),Modifier.padding(horizontal=20.dp),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
      MemoryGameContent(l.title,cache!!.entries,cache!!.fingerprint,Modifier.weight(1f))
@@ -56,9 +58,9 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
 @Composable fun MemoryAvailabilityContent(title:String,hasCache:Boolean,busy:Boolean,error:Boolean,online:Boolean,hasRemote:Boolean,modifier:Modifier=Modifier,onDownload:()->Unit){
  Column(modifier.fillMaxSize().padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
    Text(bidi(title),style=MaterialTheme.typography.titleLarge)
-   SectionCard(stringResource(if(hasCache)R.string.memory_empty_title else R.string.memory_download_title),Icons.Default.GridView){
+   if(busy)SkeletonLoader()
+   else SectionCard(stringResource(if(hasCache)R.string.memory_empty_title else R.string.memory_download_title),Icons.Default.GridView){
      Text(stringResource(if(hasCache)R.string.memory_empty_body else R.string.memory_download_body))
-     if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
      if(error)Text(stringResource(R.string.memory_load_error),color=MaterialTheme.colorScheme.error)
      if(!hasRemote)Text(stringResource(R.string.memory_wait_summary),style=MaterialTheme.typography.bodySmall)
      if(!online)Text(stringResource(R.string.study_offline),style=MaterialTheme.typography.bodySmall)
@@ -66,37 +68,48 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
    }
  }
 }
-private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.matched.size)+it.matched+it.open},restore={MemoryRound(it.drop(2+it[1]),it.drop(2).take(it[1]),it[0])})
-/** Four pairs at a time; no timer. A mismatch stays readable until the learner closes it. */
-@Composable fun MemoryGameContent(title:String,entries:List<Concept>,version:String,modifier:Modifier=Modifier,initialSeed:Int=Random.nextInt()){
- var group by rememberSaveable(version){mutableIntStateOf(0)};var seed by rememberSaveable(version){mutableIntStateOf(initialSeed)}
- val groups=remember(entries){memoryGroups(entries)};if(groups.isEmpty())return
- val current=groups[group.coerceIn(groups.indices)];val cards=remember(current,seed){memoryCards(current,seed)}
- var round by rememberSaveable(version,group,seed,stateSaver=RoundSaver){mutableStateOf(MemoryRound())}
- var detail by remember{mutableStateOf<String?>(null)}
- Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   Text(bidi(title),style=MaterialTheme.typography.titleLarge)
-   Text(stringResource(R.string.memory_help),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(stringResource(R.string.memory_pairs,ltr(round.matched.size),ltr(current.size)),style=MaterialTheme.typography.labelMedium);Text(stringResource(R.string.memory_attempts,ltr(round.attempts)),style=MaterialTheme.typography.labelMedium)}
-   cards.indices.chunked(2).forEach{row->Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){
-     row.forEach{index->val card=cards[index];val matched=card.pair in round.matched;val face=matched||index in round.open
-       OutlinedCard(onClick={round=round.flip(index,cards)},enabled=!matched&&round.open.size<2,modifier=Modifier.weight(1f).height(120.dp).testTag("memory-card-$index"),colors=CardDefaults.outlinedCardColors(containerColor=if(matched)MaterialTheme.colorScheme.secondaryContainer else if(face)MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer,disabledContainerColor=if(matched)MaterialTheme.colorScheme.secondaryContainer else if(face)MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer,disabledContentColor=if(matched)MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)){
-         Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){
-           if(face){Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)){if(matched)Icon(Icons.Default.CheckCircle,stringResource(R.string.memory_matched),Modifier.size(14.dp),tint=MaterialTheme.colorScheme.primary);Text(stringResource(if(card.definition)R.string.memory_definition else R.string.memory_term),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)};Text(bidi(card.text),Modifier.weight(1f,fill=false),style=MaterialTheme.typography.bodyMedium,maxLines=3,overflow=TextOverflow.Ellipsis);if(card.text.length>85)TextButton(onClick={detail=card.text},contentPadding=PaddingValues(0.dp)){Text(stringResource(R.string.memory_read_more),style=MaterialTheme.typography.labelSmall)}}
-           else{Icon(Icons.Default.QuestionMark,null,tint=MaterialTheme.colorScheme.primary);Text(stringResource(R.string.memory_card,ltr(index+1)),style=MaterialTheme.typography.labelSmall)}
-         }
-       }
-     }
-   }}
-   if(round.open.size==2){Text(stringResource(R.string.memory_mismatch),style=MaterialTheme.typography.bodySmall);OutlinedButton(onClick={round=round.conceal()},Modifier.fillMaxWidth()){Text(stringResource(R.string.memory_close_cards))}}
-   if(round.complete(current.size)){
-     Text(stringResource(R.string.memory_complete),style=MaterialTheme.typography.titleMedium)
-     Button(onClick={if(group<groups.lastIndex)group++ else group=0;seed=Random.nextInt()},Modifier.fillMaxWidth()){Text(stringResource(if(group<groups.lastIndex)R.string.memory_next else R.string.memory_restart))}
-   }else TextButton(onClick={seed=Random.nextInt()}){Icon(Icons.Default.Refresh,null,Modifier.size(18.dp));Text(stringResource(R.string.memory_shuffle))}
-   Text(stringResource(R.string.memory_round,ltr(group+1),ltr(groups.size)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-   Text(stringResource(R.string.memory_local),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+/** Active recall: review repeats a concept; understanding removes it from the queue. */
+@Composable fun MemoryGameContent(title:String,entries:List<Concept>,version:String,modifier:Modifier=Modifier,initialSeed:Int=0){
+ val concepts=remember(entries){cleanConcepts(entries)}
+ var pending by rememberSaveable(version,concepts){mutableStateOf(concepts.indices.toList())}
+ var known by rememberSaveable(version,concepts){mutableIntStateOf(0)}
+ var attempts by rememberSaveable(version,concepts){mutableIntStateOf(0)}
+ Column(modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+  Text(title,Modifier.fillMaxWidth().heightIn(max=96.dp).verticalScroll(rememberScrollState()),style=MaterialTheme.typography.titleMedium.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content))
+  Text(stringResource(R.string.flashcard_progress,ltr(known),ltr(concepts.size)),style=MaterialTheme.typography.labelMedium.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content))
+  LinearProgressIndicator(progress={if(concepts.isEmpty())1f else known.toFloat()/concepts.size},modifier=Modifier.fillMaxWidth())
+  if(pending.isEmpty())Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){
+   Icon(Icons.Default.CheckCircle,null,Modifier.size(56.dp),tint=MaterialTheme.colorScheme.primary)
+   Text(stringResource(R.string.flashcard_finished),style=MaterialTheme.typography.titleLarge.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content))
+   Button(onClick=hapticAction{pending=concepts.indices.toList();known=0;attempts=0}){Text(stringResource(R.string.memory_restart))}
+  }else key(pending.first(),attempts){
+   ActiveRecallCard(concepts[pending.first()],Modifier.weight(1f),onAnswer={understood->
+    pending=if(understood)pending.drop(1)else pending.drop(1)+pending.first()
+    if(understood)known++;attempts++
+   })
+  }
  }
- detail?.let{body->AlertDialog(modifier=Modifier.testTag("memory-full-text"),onDismissRequest={detail=null},title={Text(stringResource(R.string.memory_read_more))},text={Text(bidi(body),Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()))},confirmButton={TextButton(onClick={detail=null}){Text(stringResource(R.string.queue_close))}})}
+}
+@Composable private fun ActiveRecallCard(concept:Concept,modifier:Modifier,onAnswer:(Boolean)->Unit){
+ var flipped by rememberSaveable{mutableStateOf(false)}
+ val angle by androidx.compose.animation.core.animateFloatAsState(if(flipped)180f else 0f,androidx.compose.animation.core.tween(320),label="flashcard-flip")
+ val back=angle>90f
+ Column(modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)){
+  OutlinedCard(onClick=hapticAction{if(angle==0f||angle==180f)flipped=!flipped},modifier=Modifier.weight(1f).fillMaxWidth().testTag("recall-card").graphicsLayer{rotationY=angle;cameraDistance=12*density}){
+   Column(Modifier.fillMaxSize().testTag("recall-text").graphicsLayer{rotationY=if(back)180f else 0f}.padding(24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){
+    Text(stringResource(if(back)R.string.memory_definition else R.string.memory_term),style=LocalTextStyle.current.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content),color=MaterialTheme.colorScheme.primary)
+    Spacer(Modifier.height(16.dp))
+    Text(if(back)concept.explanation else concept.term,Modifier.fillMaxWidth(),style=(if(back)MaterialTheme.typography.bodyLarge else MaterialTheme.typography.headlineSmall).copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+    Spacer(Modifier.height(16.dp));Text(stringResource(R.string.flashcard_tap),style=MaterialTheme.typography.labelSmall.copy(textDirection=androidx.compose.ui.text.style.TextDirection.Content),color=MaterialTheme.colorScheme.onSurfaceVariant)
+   }
+  }
+  Row(Modifier.fillMaxWidth().heightIn(min=48.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+   if(flipped){
+   OutlinedButton(enabled=flipped&&angle>=179f,onClick=hapticAction{onAnswer(false)},modifier=Modifier.weight(1f).testTag("recall-review")){Icon(Icons.Default.Close,null);Text(stringResource(R.string.flashcard_review))}
+   Button(enabled=flipped&&angle>=179f,onClick=hapticAction{onAnswer(true)},modifier=Modifier.weight(1f).testTag("recall-known")){Icon(Icons.Default.Check,null);Text(stringResource(R.string.flashcard_known))}
+   }
+  }
+ }
 }
 
 @Composable fun TutorScreen(app:LectureApp,id:String,onBack:()->Unit){
@@ -107,7 +120,7 @@ private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.
  LaunchedEffect(id){val saved=withContext(Dispatchers.IO){store.turns(id) to store.cached(id,densityOf(l))?.entries.orEmpty()};turns=saved.first;concepts=saved.second}
  LaunchedEffect(retryAt){while(System.currentTimeMillis()<retryAt){delay(1000);now=System.currentTimeMillis()};now=System.currentTimeMillis()}
  AppScaffold(stringResource(R.string.tutor_title),onBack=onBack,actions={IconButton(enabled=turns.isNotEmpty()&&!busy,onClick={clear=true}){Icon(Icons.Default.DeleteSweep,stringResource(R.string.tutor_clear))}}){pad->
-   TutorConversation(l.title,turns,question,{question=it.take(1200)},busy,online&&l.remoteId!=null&&now>=retryAt,if(!online)ctx.getString(R.string.tutor_offline)else if(l.remoteId==null)ctx.getString(R.string.tutor_not_ready)else if(retryAt>now)ctx.getString(R.string.tutor_limit_until,ltr(java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(retryAt))))else if(error!=0)ctx.getString(error)else null,concepts.take(3),Modifier.padding(pad)){
+   TutorConversation(l.title,turns,question,{question=it.take(1200)},busy,online&&l.remoteId!=null&&now>=retryAt,if(!online)ctx.getString(R.string.tutor_offline)else if(l.remoteId==null)ctx.getString(R.string.tutor_not_ready)else if(retryAt>now)ctx.getString(R.string.tutor_limit_until,ltr(java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(retryAt))))else if(error!=0)ctx.getString(error)else null,concepts.take(3),Modifier.padding(pad).consumeWindowInsets(pad)){
      if(busy||question.isBlank())return@TutorConversation
      val text=question.trim();busy=true;error=0
      scope.launch{try{
@@ -122,34 +135,35 @@ private val RoundSaver=Saver<MemoryRound,List<Int>>(save={listOf(it.attempts,it.
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun TutorConversation(title:String,turns:List<TutorTurn>,question:String,onQuestion:(String)->Unit,busy:Boolean,canSend:Boolean,error:String?,concepts:List<Concept>,modifier:Modifier=Modifier,onSend:()->Unit){
  val ctx=LocalContext.current;val list=androidx.compose.foundation.lazy.rememberLazyListState()
- LaunchedEffect(turns.size,busy){if(turns.isNotEmpty())list.animateScrollToItem((turns.size-1).coerceAtLeast(0))}
+ LaunchedEffect(turns.lastOrNull()?.id,busy){list.animateScrollToItem(((if(turns.isEmpty())1 else turns.size)+(if(busy)2 else 0)-1).coerceAtLeast(0))}
  Column(modifier.fillMaxSize().navigationBarsPadding().imePadding()){
    OutlinedCard(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth()){
-     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(title),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_scope),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(title),Modifier.heightIn(max=112.dp).verticalScroll(rememberScrollState()),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_scope),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
    }
    LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=list,contentPadding=PaddingValues(horizontal=20.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-     if(turns.isEmpty())item{Column(verticalArrangement=Arrangement.spacedBy(12.dp)){Text(stringResource(R.string.tutor_empty),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_empty_body),style=MaterialTheme.typography.bodyMedium);FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){concepts.forEach{c->SuggestionChip(onClick={onQuestion(ctx.getString(R.string.tutor_suggestion,c.term))},label={Text(bidi(c.term))})}}}}
-     itemsIndexed(turns){index,turn->Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+     if(turns.isEmpty())item(key="StudyTools:static:1"){Column(verticalArrangement=Arrangement.spacedBy(12.dp)){Text(stringResource(R.string.tutor_empty),style=MaterialTheme.typography.titleMedium);Text(stringResource(R.string.tutor_empty_body),style=MaterialTheme.typography.bodyMedium);FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){concepts.forEach{c->SuggestionChip(onClick={onQuestion(ctx.getString(R.string.tutor_suggestion,c.term))},label={Text(bidi(c.term))})}}}}
+     itemsIndexed(turns,key={_,turn->turn.id}){index,turn->Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
        Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.primaryContainer,modifier=Modifier.fillMaxWidth()){Text(bidi(turn.question),Modifier.padding(16.dp),style=MaterialTheme.typography.bodyMedium)}
        OutlinedCard(Modifier.fillMaxWidth()){
          Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){Icon(if(turn.reply.kind=="answer")Icons.Default.School else Icons.Default.Info,null,Modifier.size(18.dp));Text(stringResource(R.string.tutor_label),style=MaterialTheme.typography.labelMedium)}
            Text(bidi(turn.reply.answer),style=MaterialTheme.typography.bodyMedium)
            if(turn.reply.citations.isNotEmpty()){
-             var expanded by rememberSaveable(index,turn.question){mutableStateOf(false)}
+             var expanded by rememberSaveable(turn.id){mutableStateOf(false)}
              TextButton(onClick={expanded=!expanded}){Text(stringResource(R.string.tutor_sources,ltr(turn.reply.citations.size)));Icon(if(expanded)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null)}
-             if(expanded)turn.reply.citations.forEach{c->HorizontalDivider();Text(stringResource(when(c.kind){"transcript"->R.string.tutor_source_transcript;"summary"->R.string.tutor_source_summary;else->R.string.tutor_source_slides}),style=MaterialTheme.typography.labelSmall);if(c.kind=="slides")Text(bidi(c.label),style=MaterialTheme.typography.labelSmall);Text(bidi(c.quote),style=MaterialTheme.typography.bodySmall)}
+             if(expanded)turn.reply.citations.forEach{c->HorizontalDivider();Text(stringResource(when(c.kind){"transcript"->R.string.tutor_source_transcript;"summary"->R.string.tutor_source_summary;else->R.string.tutor_source_slides}),style=MaterialTheme.typography.labelSmall);Text(bidi(c.label),style=MaterialTheme.typography.labelSmall);Text(bidi(c.quote),style=MaterialTheme.typography.bodySmall)}
            }
          }
        }
      }}
-     if(busy)item{Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp);Text(stringResource(R.string.tutor_thinking),style=MaterialTheme.typography.bodySmall)}}
+     if(busy)item(key="tutor-pending-question"){Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.medium){Text(bidi(question),Modifier.fillMaxWidth().padding(12.dp))}}
+     if(busy)item(key="StudyTools:static:2"){Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp);Text(stringResource(R.string.tutor_thinking),style=MaterialTheme.typography.bodySmall)}}
    }
    Column(Modifier.fillMaxWidth().padding(horizontal=20.dp).padding(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
      if(error!=null)Text(error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
      Row(verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.spacedBy(8.dp)){
        OutlinedTextField(question,onQuestion,Modifier.weight(1f).testTag("tutor-question"),enabled=!busy,label={Text(stringResource(R.string.tutor_question))},maxLines=4)
-       IconButton(enabled=canSend&&!busy&&question.isNotBlank(),onClick=onSend){Icon(Icons.AutoMirrored.Filled.Send,stringResource(R.string.tutor_send),tint=if(canSend&&!busy&&question.isNotBlank())MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)}
+       IconButton(enabled=canSend&&!busy&&question.isNotBlank(),onClick=hapticAction(onSend)){Icon(Icons.AutoMirrored.Filled.Send,stringResource(R.string.tutor_send),tint=if(canSend&&!busy&&question.isNotBlank())MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)}
      }
      Text(stringResource(R.string.tutor_privacy),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
    }

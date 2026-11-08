@@ -54,11 +54,11 @@ private fun BtnContent(icon: ImageVector?, text: String) {
     Text(text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
 }
 @Composable fun PrimaryAction(text: String, icon: ImageVector?, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
-    Button(onClick, modifier.heightIn(min = 52.dp), enabled = enabled) { BtnContent(icon, text) }
+    Button(hapticAction(onClick), modifier.heightIn(min = 52.dp), enabled = enabled) { BtnContent(icon, text) }
 @Composable fun TonalAction(text: String, icon: ImageVector?, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
-    FilledTonalButton(onClick, modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
+    FilledTonalButton(hapticAction(onClick), modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
 @Composable fun OutlineAction(text: String, icon: ImageVector?, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
-    OutlinedButton(onClick, modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
+    OutlinedButton(hapticAction(onClick), modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
 
 @Composable
 fun SectionCard(title: String, icon: ImageVector, trailing: (@Composable () -> Unit)? = null, onHeaderClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {

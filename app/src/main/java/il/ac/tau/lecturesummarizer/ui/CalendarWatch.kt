@@ -77,8 +77,8 @@ import java.util.Date
     var manage by remember{mutableStateOf(false)}
     AppScaffold(stringResource(R.string.watch_title),onBack=onBack,actions={TextButton(onClick={manage=true}){Text(stringResource(R.string.mapping_edit))}}){pad->
         LazyColumn(Modifier.padding(pad),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            item{CalendarImportButton(app);Text(stringResource(R.string.watch_list_explanation),style=MaterialTheme.typography.bodySmall)}
-            if(matches.isEmpty())item{Text(stringResource(R.string.watch_no_upcoming))}
+            item(key="CalendarWatch:static:1"){CalendarImportButton(app);Text(stringResource(R.string.watch_list_explanation),style=MaterialTheme.typography.bodySmall)}
+            if(matches.isEmpty())item(key="CalendarWatch:static:2"){Text(stringResource(R.string.watch_no_upcoming))}
             items(matches.sortedWith(compareBy<CalendarRuleMatch>{it.event.end<System.currentTimeMillis()}.thenBy{it.event.start}),key={it.event.key}){m->OutlinedCard(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                 Text(bidi(m.rule.targetCourse),style=MaterialTheme.typography.titleMedium);Text(bidi(m.event.title));Text(ltr(DateFormat.getDateTimeInstance().format(Date(m.event.start))),style=MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.calendar_rule_fired,bidi(m.rule.name)),style=MaterialTheme.typography.labelSmall)

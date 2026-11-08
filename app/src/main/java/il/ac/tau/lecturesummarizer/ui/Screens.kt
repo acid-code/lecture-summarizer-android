@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.ui
 
+import il.ac.tau.lecturesummarizer.R
+
 import androidx.compose.foundation.combinedClickable
 
 import il.ac.tau.lecturesummarizer.data.allSlides
@@ -144,10 +146,9 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 Column {
                     Box(Modifier.fillMaxWidth()) {
                     NotebookCover(c.name, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, n) + (if (c.allContext.isNotEmpty()) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.background_count, c.allContext.size) else ""),
-                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth(),onLongClick={courseActions=c}) { onOpen(c.id) }
+                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth(),footer={CourseUpdated(ctx,c.id)},onLongClick={courseActions=c}) { onOpen(c.id) }
                     if (newCount > 0) UnreadCountBadge(newCount, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
                     }
-                    CourseUpdated(ctx,c.id)
                 }
             }
         }
@@ -206,8 +207,8 @@ fun LecturesScreen(
 
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            course?.let { c -> item { CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true };CourseUpdated(ctx,c.id) };item { CourseSourcesButton(app,c) } }
-            item {
+            course?.let { c -> item(key="Screens:static:1"){ CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true };CourseUpdated(ctx,c.id) };item(key="Screens:static:2"){ CourseSourcesButton(app,c) } }
+            item(key="Screens:static:3"){
                 var backgroundOpen by remember{mutableStateOf(false)}
                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -237,7 +238,7 @@ fun LecturesScreen(
                     }
                 }
             }
-            if (lectures.isEmpty()) item {
+            if (lectures.isEmpty()) item(key="Screens:static:4"){
                 EmptyState(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_title),
                     androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_body)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -654,21 +655,24 @@ private fun CalendarSourceSection(app: LectureApp) {
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     var sel by remember { mutableStateOf(app.settings.calendarIds) }
     fun set(v: Set<Long>) { sel = v; app.settings.calendarIds = v }
+    var expanded by remember { mutableStateOf(false) }
     HorizontalDivider()
-    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_source), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-    if (!granted) { OutlinedButton(onClick = { perm.launch(Manifest.permission.READ_CALENDAR) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_allow)) }; return }
-    val cals = remember(granted) { CalendarResolver.listCalendars(ctx) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(sel.isEmpty(), { set(emptySet()) })
-        Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_auto))
+    Row(Modifier.fillMaxWidth().clickable { expanded=!expanded }.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically){
+        Text(androidx.compose.ui.res.stringResource(R.string.calendar_source),style=MaterialTheme.typography.titleSmall,modifier=Modifier.weight(1f))
+        Icon(if(expanded)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null)
     }
-    cals.forEach { c ->
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(c.id in sel, { on -> set(if (on) sel + c.id else sel - c.id) })
-            Column { Text(c.name); Text(c.account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
+    androidx.compose.animation.AnimatedVisibility(expanded){Column{
+    if(!granted){OutlinedButton(onClick={perm.launch(Manifest.permission.READ_CALENDAR)}){Text(androidx.compose.ui.res.stringResource(R.string.calendar_allow))}}
+    else{
+        val cals=remember(granted){CalendarResolver.listCalendars(ctx)}
+        Row(verticalAlignment=Alignment.CenterVertically){RadioButton(sel.isEmpty(),{set(emptySet())});Text(androidx.compose.ui.res.stringResource(R.string.calendar_auto))}
+        cals.forEach{c->key(c.id){Row(verticalAlignment=Alignment.CenterVertically){
+            Checkbox(c.id in sel,{on->set(if(on)sel+c.id else sel-c.id)})
+            Column{Text(c.name);Text(c.account,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        }}}
+        if(cals.isEmpty())Text(androidx.compose.ui.res.stringResource(R.string.calendar_none),style=MaterialTheme.typography.bodySmall)
     }
-    if (cals.isEmpty()) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.calendar_none), style = MaterialTheme.typography.bodySmall)
+    }}
 }
 
 // ---------- helpers ----------

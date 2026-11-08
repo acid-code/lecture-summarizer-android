@@ -49,8 +49,8 @@ class AutoSyncStore(ctx: Context) {
     /** Auto-attach Moodle slides when the match is unambiguous (default on). */
     var autoAttach: Boolean get() = p.getBoolean("autoAttach", true); set(v) { p.edit().putBoolean("autoAttach", v).apply() }
     fun status(key: String): String? = p.getString("st:$key", null)
-    fun setStatus(key: String, v: String) = p.edit().putString("st:$key", v).apply()
-    fun counts(): Map<String, Int> = p.all.filterKeys { it.startsWith("st:") }.values.groupingBy { (it as String).substringBefore(':') }.eachCount()
+    fun setStatus(key: String, v: String) = synchronized(STATE_LOCK){p.edit().putString("st:$key", v).apply()}
+    fun counts(): Map<String, Int> = synchronized(STATE_LOCK){p.all.filterKeys { it.startsWith("st:") }.values.groupingBy { (it as String).substringBefore(':') }.eachCount()}
     /** All rows are backed by the same status keys as the counts. Legacy keys retain course/date fallback. */
     fun entries(repo:il.ac.tau.lecturesummarizer.data.Repository):List<SyncQueueEntry> = p.all.filterKeys{it.startsWith("st:")}.mapNotNull{(key,value)->
         val raw=value as? String ?: return@mapNotNull null;val eventKey=key.removePrefix("st:");val parts=eventKey.split('|')
@@ -62,7 +62,7 @@ class AutoSyncStore(ctx: Context) {
     }.sortedByDescending{it.start}
     fun track(c:TauClass,title:String=c.courseName){p.edit().putString("meta:${key(c)}",JSONObject().put("course",c.courseName).put("title",title).put("start",c.beginMs).toString()).apply()}
     /** Only unclaimed waiting/missing events can be explicitly rechecked. Active work is never unclaimed. */
-    fun retry(key:String):Boolean{val raw=status(key) ?: return false;if(!raw.startsWith("wait") && !raw.startsWith("notfound"))return false;p.edit().remove("st:$key").apply();dropNotFound(key);return true}
+    fun retry(key:String):Boolean{ synchronized(STATE_LOCK){val raw=status(key) ?: return false;if(!raw.startsWith("wait") && !raw.startsWith("notfound"))return false;p.edit().remove("st:$key").apply();dropNotFound(key);return true} }
     /** Cached Panopto session start per delivery id (ms; -1 = DeliveryInfo had none). */
     fun sessionStart(id: String): Long? = p.getLong("ss:$id", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
     fun setSessionStart(id: String, ms: Long?) = p.edit().putLong("ss:$id", ms ?: -1L).apply()
@@ -70,14 +70,14 @@ class AutoSyncStore(ctx: Context) {
     var notFoundSample: String? get() = p.getString("nfSample", null); set(v) = p.edit().putString("nfSample", v).apply()
     /** Rolling list (newest first, capped [NF_MAX]) of individual not-found classes for the Settings disclosure. */
     fun notFoundItems(): List<NotFoundItem> = (p.getString("nfItems", null) ?: "").lines().mapNotNull { NotFoundItem.decode(it) }
-    fun addNotFound(i: NotFoundItem) {
+    fun addNotFound(i: NotFoundItem) { synchronized(STATE_LOCK){
         val list = listOf(i) + notFoundItems().filter { it.key != i.key }
         p.edit().putString("nfItems", list.take(NF_MAX).joinToString("\n") { it.encode() }).apply()
-    }
-    fun dropNotFound(key: String) { val l = notFoundItems(); if (l.any { it.key == key }) p.edit().putString("nfItems", l.filter { it.key != key }.joinToString("\n") { it.encode() }).apply() }
+    } }
+    fun dropNotFound(key: String) { synchronized(STATE_LOCK){ val l = notFoundItems(); if (l.any { it.key == key }) p.edit().putString("nfItems", l.filter { it.key != key }.joinToString("\n") { it.encode() }).apply() } }
     /** Permanently dismiss one not-found class: final status, never retried (also survives "Retry not found"). */
-    fun dismissNotFound(key: String) { setStatus(key, "dismissed"); dropNotFound(key) }
-    fun undismissAll() { val e = p.edit(); p.all.filter { it.key.startsWith("st:") && it.value == "dismissed" }.keys.forEach { e.remove(it) }; e.apply() }
+    fun dismissNotFound(key: String) { synchronized(STATE_LOCK){ setStatus(key, "dismissed"); dropNotFound(key) } }
+    fun undismissAll() { synchronized(STATE_LOCK){ val e = p.edit(); p.all.filter { it.key.startsWith("st:") && it.value == "dismissed" }.keys.forEach { e.remove(it) }; e.apply() } }
 
     /** Whitelist mode: only calendar classes matching one of [whitelist] (course name / number substring, case-insensitive) are imported. */
     var whitelistMode: Boolean get() = p.getBoolean("wlMode", false); set(v) = p.edit().putBoolean("wlMode", v).apply()
@@ -86,9 +86,10 @@ class AutoSyncStore(ctx: Context) {
         set(v) = p.edit().putString("wl", v.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")).apply()
     fun allowed(c: TauClass): Boolean = !whitelistMode || AutoSyncPlanner.whitelisted(c, whitelist)
 
-    fun resetNotFound() { p.edit().remove("nfItems").apply(); val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() }
+    fun resetNotFound() { synchronized(STATE_LOCK){ p.edit().remove("nfItems").apply(); val e = p.edit(); p.all.filter { it.key.startsWith("st:") && (it.value as? String)?.startsWith("notfound") == true }.keys.forEach { e.remove(it) }; e.apply() } }
 
     companion object {
+        private val STATE_LOCK=Any()
         const val NF_MAX = 40
         fun key(c: TauClass) = "${c.courseNumber ?: TauEventNorm(c.courseName)}|${c.kind}|${c.beginMs}"
         private fun TauEventNorm(s: String) = il.ac.tau.lecturesummarizer.calendar.TauEventParser.normalize(s)
@@ -221,7 +222,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         classes.forEach{c->st.track(c,matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}?.event?.title ?: c.courseName)}
         val mappingStore=SourceMappingStore(app)
         val sourceRegistry=DataSourceRegistry()
-        val sourceCache=mutableMapOf<SourceConfig,SourceListing>()
+        val sourceCache=java.util.concurrent.ConcurrentHashMap<SourceConfig,SourceListing>()
         val repo = app.repo
         fun have(c: TauClass): Boolean {
             val course = repo.courses.value.firstOrNull { c.courseNumber != null && it.courseNumber == c.courseNumber }

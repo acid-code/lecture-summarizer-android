@@ -59,14 +59,10 @@ class StudyToolsScreenshotsTest {
    fun capture(name:String){compose.waitForIdle();compose.mainClock.advanceTimeBy(500);compose.waitForIdle();compose.onRoot().captureRoboImage(File(out,"$name-$lang-${if(dark)"dark"else "light"}.png").absolutePath)}
    capture("lecture-study-entry")
    compose.runOnIdle{screen=1};capture("memory-board")
-   val cards=memoryCards(concepts,7);val pair=(0..3).minBy{p->cards.indices.filter{cards[it].pair==p}.max()}
-   cards.indices.filter{cards[it].pair==pair}.forEach{i->compose.onNodeWithTag("memory-card-$i").performScrollTo().performClick()};capture("memory-pair")
-   val a=cards.indices.first{cards[it].pair!=pair};val b=cards.indices.first{cards[it].pair!=pair&&cards[it].pair!=cards[a].pair}
-   compose.onNodeWithTag("memory-card-$a").performScrollTo().performClick();compose.onNodeWithTag("memory-card-$b").performScrollTo().performClick()
-   compose.onNodeWithText(ctx.getString(R.string.memory_close_cards)).performScrollTo();capture("memory-mismatch")
-   compose.onNodeWithText(ctx.getString(R.string.memory_close_cards)).performClick()
-   for(p in 0..3){if(p==pair)continue;cards.indices.filter{cards[it].pair==p}.forEach{i->compose.onNodeWithTag("memory-card-$i").performScrollTo().performClick()}}
-   compose.onNodeWithText(ctx.getString(R.string.memory_complete)).performScrollTo().assertIsDisplayed();capture("memory-complete")
+   compose.onNodeWithTag("recall-card").performClick();compose.mainClock.advanceTimeBy(400);capture("memory-definition")
+   compose.onNodeWithTag("recall-review").performClick();capture("memory-review")
+   repeat(concepts.size){compose.onNodeWithTag("recall-card").performClick();compose.mainClock.advanceTimeBy(400);compose.onNodeWithTag("recall-known").performClick()}
+   compose.onNodeWithText(ctx.getString(R.string.flashcard_finished)).assertIsDisplayed();capture("memory-complete")
    listOf(2 to "memory-empty",3 to "memory-download-offline",4 to "tutor-empty",5 to "tutor-answer",6 to "tutor-refusal",7 to "tutor-offline",8 to "tutor-server-required",9 to "tutor-loading").forEach{(i,name)->compose.runOnIdle{screen=i};capture(name)
      if(i==5){compose.onNodeWithText(ctx.getString(R.string.tutor_sources,ltr(1))).performClick();capture("tutor-sources");compose.onAllNodesWithText(bidi(text)).assertCountEquals(2)}
    }
@@ -76,14 +72,14 @@ class StudyToolsScreenshotsTest {
    val entries=listOf(Concept("Long concept",text),Concept("Other","A different definition for this concept"))
    val cards=memoryCards(entries,9);val i=cards.indexOfFirst{it.definition&&it.pair==0}
    compose.setContent{AppTheme(darkMode=false){AppScaffold("Memory"){pad->MemoryGameContent("Lecture",entries,"long",Modifier.padding(pad),initialSeed=9)}}}
-   compose.onNodeWithTag("memory-card-$i").performClick();compose.onNodeWithText(ctx.getString(R.string.memory_read_more)).performClick()
-   compose.onNodeWithTag("memory-full-text").assertIsDisplayed()
+   compose.onNodeWithTag("recall-card").performClick();compose.mainClock.advanceTimeBy(400)
+   compose.onNodeWithText(text.trim()).assertExists()
  }
  @Test fun flippedCardSurvivesStateRestoration(){
    val entries=listOf(Concept("Term A","Definition A from this summary"),Concept("Term B","Definition B from this summary"));val cards=memoryCards(entries,9)
    val restore=StateRestorationTester(compose)
    restore.setContent{AppTheme(darkMode=false){AppScaffold("Memory"){pad->MemoryGameContent("Lecture",entries,"saved",Modifier.padding(pad),initialSeed=9)}}}
-   compose.onNodeWithTag("memory-card-0").performClick();compose.onNodeWithText(bidi(cards[0].text)).assertIsDisplayed()
-   restore.emulateSavedInstanceStateRestore();compose.onNodeWithText(bidi(cards[0].text)).assertIsDisplayed()
+   compose.onNodeWithTag("recall-card").performClick();compose.mainClock.advanceTimeBy(400);compose.onNodeWithText(entries[0].explanation).assertIsDisplayed()
+   restore.emulateSavedInstanceStateRestore();compose.onNodeWithText(entries[0].explanation).assertIsDisplayed()
  }
 }

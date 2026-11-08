@@ -71,14 +71,15 @@ private fun lerpWhite(c: Color) = Color(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun NotebookCover(title:String,subtitle:String,emoji:String,color:Color,pattern:CoverPattern,
- modifier:Modifier=Modifier,onLongClick:(()->Unit)?=null,onClick:(()->Unit)?=null){
+ modifier:Modifier=Modifier,footer:@Composable ()->Unit={},onLongClick:(()->Unit)?=null,onClick:(()->Unit)?=null){
  val shape=RoundedCornerShape(20.dp)
- Column(modifier.clip(shape).border(1.dp,MaterialTheme.colorScheme.outlineVariant,shape).background(MaterialTheme.colorScheme.surface)
+ Column(modifier.height((220*androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)).dp).clip(shape).border(1.dp,MaterialTheme.colorScheme.outlineVariant,shape).background(MaterialTheme.colorScheme.surface)
   .then(if(onClick!=null)Modifier.combinedClickable(onClick=onClick,onLongClick=onLongClick)else Modifier)){
   Box(Modifier.fillMaxWidth().height(56.dp)){CoverBackground(color,pattern,false,Modifier.matchParentSize());Text(emoji,Modifier.padding(horizontal=16.dp,vertical=10.dp),fontSize=28.sp)}
-  Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+  Column(Modifier.weight(1f).padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
    Text(bidi(title),style=MaterialTheme.typography.titleSmall,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
    if(subtitle.isNotEmpty())Text(subtitle,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+   Spacer(Modifier.weight(1f));footer()
   }
  }
 }
@@ -127,7 +128,7 @@ fun NotebookEditor(initial: Course?, onDismiss: () -> Unit, onSave: (name: Strin
             SectionLabel(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.cover_icon))
             LazyVerticalGrid(GridCells.Fixed(7), Modifier.fillMaxWidth().heightIn(max = 260.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(studyEmojis) { e ->
+                items(studyEmojis,key={it}) { e ->
                     Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp))
                         .background(if (e == emoji) Color(color).copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .border(if (e == emoji) 2.dp else 0.dp, if (e == emoji) Color(color) else Color.Transparent, RoundedCornerShape(12.dp))

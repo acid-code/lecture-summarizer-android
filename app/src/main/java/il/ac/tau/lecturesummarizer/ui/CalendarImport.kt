@@ -98,10 +98,10 @@ import java.time.format.DateTimeFormatter
  CompactCalendarTypography {
 
     LazyColumn(modifier.testTag("calendar-source-list"),contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        item{header()}
-        item{Text(stringResource(R.string.calendar_choose_sources),style=MaterialTheme.typography.titleLarge)}
-        item{Text(stringResource(R.string.calendar_rules_privacy),style=MaterialTheme.typography.bodySmall)}
-        if(calendars.isEmpty())item{Text(stringResource(R.string.calendar_none))}
+        item(key="CalendarImport:static:1"){header()}
+        item(key="CalendarImport:static:2"){Text(stringResource(R.string.calendar_choose_sources),style=MaterialTheme.typography.titleLarge)}
+        item(key="CalendarImport:static:3"){Text(stringResource(R.string.calendar_rules_privacy),style=MaterialTheme.typography.bodySmall)}
+        if(calendars.isEmpty())item(key="CalendarImport:static:4"){Text(stringResource(R.string.calendar_none))}
         items(calendars,key={it.id}){c->OutlinedCard(onClick={if(enabled)onSelected(if(c.id in ids)ids-c.id else ids+c.id)},modifier=Modifier.fillMaxWidth().testTag("calendar-source:${c.id}")){
             Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.Top){Checkbox(c.id in ids,{on->onSelected(if(on)ids+c.id else ids-c.id)},enabled=enabled)
                 Column(Modifier.weight(1f).padding(top=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){Text(bidi(c.name),softWrap=true);Text(bidi(c.account),style=MaterialTheme.typography.bodySmall,softWrap=true)}
@@ -127,11 +127,11 @@ import java.time.format.DateTimeFormatter
 
     val groups=CalendarSeriesSelection.groups(events);val visible=CalendarSeriesSelection.filter(groups,query);val keys=CalendarSeriesSelection.migrateKeys(selected,groups)
     LazyColumn(modifier.fillMaxSize().testTag("calendar-series-list"),contentPadding=PaddingValues(vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        item{header()}
-        item{Text(stringResource(R.string.calendar_pick_events),style=MaterialTheme.typography.titleLarge,softWrap=true)}
-        item{Text(stringResource(R.string.calendar_series_only),style=MaterialTheme.typography.bodySmall)}
-        item{EventSelectionTools(query,onQuery,keys.size,groups.size,{onSelected(keys+visible.map{it.key})},{onSelected(emptySet())},enabled)}
-        if(visible.isEmpty())item{Text(stringResource(R.string.calendar_series_empty))}
+        item(key="CalendarImport:static:5"){header()}
+        item(key="CalendarImport:static:6"){Text(stringResource(R.string.calendar_pick_events),style=MaterialTheme.typography.titleLarge,softWrap=true)}
+        item(key="CalendarImport:static:7"){Text(stringResource(R.string.calendar_series_only),style=MaterialTheme.typography.bodySmall)}
+        item(key="CalendarImport:static:8"){EventSelectionTools(query,onQuery,keys.size,groups.size,{onSelected(keys+visible.map{it.key})},{onSelected(emptySet())},enabled)}
+        if(visible.isEmpty())item(key="CalendarImport:static:9"){Text(stringResource(R.string.calendar_series_empty))}
         items(visible,key={it.key}){series->OutlinedCard(onClick={if(enabled)onSelected(if(series.key in keys)keys-series.key else keys+series.key)},modifier=Modifier.fillMaxWidth().testTag("calendar-series:${series.key}")){
             Row(Modifier.padding(8.dp),verticalAlignment=Alignment.Top){Checkbox(series.key in keys,{on->onSelected(if(on)keys+series.key else keys-series.key)},enabled=enabled)
                 Column(Modifier.weight(1f).padding(top=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){
@@ -141,7 +141,7 @@ import java.time.format.DateTimeFormatter
                 }
             }
         }}
-        item{footer()}
+        item(key="CalendarImport:static:10"){footer()}
     }
 
  }

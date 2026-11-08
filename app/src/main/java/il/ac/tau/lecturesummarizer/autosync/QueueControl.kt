@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -75,6 +78,7 @@ object BatteryGate {
 
 /** Pause / resume of the whole auto-sync queue (scans + Panopto audio downloads). */
 object QueueControl {
+    private val transitionMutex=Mutex()
     const val ACTION_PAUSE = "il.ac.tau.lecturesummarizer.AUTOSYNC_PAUSE"
     const val ACTION_RESUME = "il.ac.tau.lecturesummarizer.AUTOSYNC_RESUME"
     const val TAG = "autosync-queue"
@@ -87,20 +91,24 @@ object QueueControl {
     fun isPaused(ctx: Context) = AutoSyncStore(ctx).paused
 
     fun pause(ctx: Context) {
+        runBlocking { transitionMutex.withLock {
         AutoSyncStore(ctx).paused = true; paused.value = true
         val wm = WorkManager.getInstance(ctx)
         wm.cancelUniqueWork("autosync-now"); wm.cancelUniqueWork("autosync-wifi")
         wm.cancelAllWorkByTag(TAG) // Panopto downloads: finished ~10 min parts are kept and resume later
         AutoSyncWorker.status.value = "Paused · מושהה"
+        }}
     }
 
     fun resume(ctx: Context) {
+        runBlocking { transitionMutex.withLock {
         val app = ctx.applicationContext as LectureApp
         AutoSyncStore(app).paused = false; paused.value = false
         app.repo.lectures.value.filter { it.panoptoAudio && it.panoptoDurationMs == 0L && it.state == LectureState.UPLOADING }
             .forEach { PanoptoAudioWorker.enqueue(app, it.id) }
         AutoSyncWorker.schedule(app)
         AutoSyncWorker.runNow(app)
+        }}
     }
 }
 

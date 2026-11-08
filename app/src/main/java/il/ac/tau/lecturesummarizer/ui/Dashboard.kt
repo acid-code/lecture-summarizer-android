@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -72,8 +73,8 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  CompactCalendarTypography {
 
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-  item{Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
-  item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
+  item(key="Dashboard:static:1"){Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
+  item(key="Dashboard:static:2"){Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
     Text(stringResource(if(next!=null && next.event.start<=System.currentTimeMillis())R.string.home_now else R.string.home_next),style=MaterialTheme.typography.labelMedium)
     if(calendarError){Text(stringResource(R.string.home_calendar_error));TextButton(onClick=onRetry){Text(stringResource(R.string.retry))}}
@@ -82,22 +83,37 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
      if(course!=null)Button(onClick={onRecord(course.id)}){Icon(Icons.Default.Mic,null);Text(stringResource(R.string.copy_record_lecture))}
     }else if(calendarStatus!=null){Text(stringResource(R.string.home_connected_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.watch_no_upcoming),style=MaterialTheme.typography.bodyMedium)}
     else{Text(stringResource(R.string.home_no_next),style=MaterialTheme.typography.titleLarge);Text(stringResource(R.string.home_no_next_body));TextButton(onClick=onSetup){Text(stringResource(R.string.semester_setup))}}
-    if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(loading)SkeletonLoader()
     calendarStatus?.invoke()
    }
   }}
   val processing=all.filter{it.state in setOf(LectureState.UPLOADING,LectureState.PROCESSING) || it.state==LectureState.RECORDED && it.segments.any{segment->!segment.uploaded}}
-  if(processing.isNotEmpty())item{Text(stringResource(R.string.home_processing),style=MaterialTheme.typography.titleMedium)}
+  if(processing.isNotEmpty())item(key="Dashboard:static:3"){Text(stringResource(R.string.home_processing),style=MaterialTheme.typography.titleMedium)}
   items(processing,key={"processing:${it.id}"}){l->DashboardLectureRow(l,courses,{onOpen(l.id)}){LectureStatusChip(l);LinearProgressIndicator(progress={l.progress.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth())}}
   val ready=all.filter{it.state==LectureState.DONE}.sortedWith(compareByDescending<Lecture>{it.id in unread}.thenByDescending{it.recordedAtMs}).take(8)
-  item{Text(stringResource(R.string.home_summaries),style=MaterialTheme.typography.titleMedium)}
-  if(ready.isEmpty())item{Text(stringResource(R.string.home_no_summaries));OutlinedButton(onClick=onCourses){Text(stringResource(R.string.tab_courses))}}
+  item(key="Dashboard:static:4"){Text(stringResource(R.string.home_summaries),style=MaterialTheme.typography.titleMedium)}
+  if(ready.isEmpty())item(key="Dashboard:static:5"){Text(stringResource(R.string.home_no_summaries));OutlinedButton(onClick=onCourses){Text(stringResource(R.string.tab_courses))}}
   items(ready,key={"ready:${it.id}"}){l->DashboardLectureRow(l,courses,{onOpen(l.id)}){LectureStatusChip(l);if(l.id in unread)Surface(color=MaterialTheme.colorScheme.tertiary,contentColor=MaterialTheme.colorScheme.onTertiary,shape=MaterialTheme.shapes.small){Text(stringResource(R.string.label_new),Modifier.padding(horizontal=8.dp,vertical=4.dp),style=MaterialTheme.typography.labelMedium)}}}
-  if(missed.isNotEmpty())item{Text(stringResource(R.string.home_catchup),style=MaterialTheme.typography.titleMedium)}
-  items(missed,key={"missed:${it.event.key}"}){m->OutlinedCard{
-   Column(Modifier.padding(16.dp)){Text(bidi(m.rule.targetCourse),style=MaterialTheme.typography.titleSmall);Text(bidi(m.event.title));Text(ltr(DateFormat.getDateTimeInstance().format(Date(m.event.start))));TextButton(onClick={courses.firstOrNull{it.id==m.rule.targetCourseId || it.name==m.rule.targetCourse}?.let{onPanopto(it.id,m.event.start)}}){Text(stringResource(R.string.import_panopto))}}
-  }}
-  item{OutlinedButton(onClick=onSetup,modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.EventNote,null);Text(stringResource(R.string.semester_setup))}}
+  if(missed.isNotEmpty())item(key="Dashboard:static:6"){Text(stringResource(R.string.home_catchup),style=MaterialTheme.typography.titleMedium)}
+  if(missed.isNotEmpty())item(key="missed-grid"){
+   Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+    missed.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+     pair.forEach{m->key(m.event.key){OutlinedCard(Modifier.weight(1f)){
+      Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+       val course=courses.firstOrNull{it.id==m.rule.targetCourseId || it.name==m.rule.targetCourse}
+       Text(course?.name?:m.event.title,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+       Text(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm").withZone(java.time.ZoneId.of("Asia/Jerusalem")).format(java.time.Instant.ofEpochMilli(m.event.start)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
+       Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+        Text(m.event.title,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+        IconButton(enabled=course!=null,onClick=hapticAction{course?.let{onPanopto(it.id,m.event.start)}}){Icon(Icons.Default.Download,stringResource(R.string.import_panopto))}
+       }
+      }
+     }}}
+     if(pair.size==1)Spacer(Modifier.weight(1f))
+    }}
+   }
+  }
+  item(key="Dashboard:static:7"){OutlinedButton(onClick=onSetup,modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.EventNote,null);Text(stringResource(R.string.semester_setup))}}
  }
 
  }
@@ -126,9 +142,10 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 }
 @Composable fun SearchContent(query:String,onQuery:(String)->Unit,hits:List<StudyIndex.Hit>,busy:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onIndex:()->Unit,refreshPhase:RefreshPhase=if(busy)RefreshPhase.RUNNING else RefreshPhase.IDLE,lastUpdated:Long=0L,refreshDone:Int=0,refreshTotal:Int=0){
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-  item{OutlinedTextField(query,onQuery,Modifier.fillMaxWidth(),label={Text(stringResource(R.string.search_hint))},leadingIcon={Icon(Icons.Default.Search,null)},singleLine=true)}
-  item{SearchIndexRefreshCard(refreshPhase,lastUpdated,refreshDone,refreshTotal,onIndex)}
-  if(query.trim().length>=2 && hits.isEmpty())item{Text(stringResource(R.string.search_empty))}
+  item(key="Dashboard:static:8"){OutlinedTextField(query,onQuery,Modifier.fillMaxWidth(),label={Text(stringResource(R.string.search_hint))},leadingIcon={Icon(Icons.Default.Search,null)},singleLine=true)}
+  item(key="Dashboard:static:9"){SearchIndexRefreshCard(refreshPhase,lastUpdated,refreshDone,refreshTotal,onIndex)}
+  if(busy && hits.isEmpty())item(key="search-loading"){SkeletonLoader()}
+  if(!busy && query.trim().length>=2 && hits.isEmpty())item(key="Dashboard:static:10"){Text(stringResource(R.string.search_empty))}
   items(hits,key={it.lecture.id}){hit->OutlinedCard(onClick={onOpen(hit.lecture.id)}){Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(bidi(hit.course),style=MaterialTheme.typography.labelMedium);Text(bidi(hit.lecture.title),style=MaterialTheme.typography.titleMedium);if(hit.snippet.isNotBlank())Text(bidi(hit.snippet),maxLines=3);LectureStatusChip(hit.lecture)}}}
  }
 }

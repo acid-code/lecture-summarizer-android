@@ -9,7 +9,7 @@ import org.json.JSONObject
 
 data class TutorCitation(val sourceId:String,val kind:String,val label:String,val quote:String)
 data class TutorReply(val kind:String,val answer:String,val citations:List<TutorCitation>)
-data class TutorTurn(val question:String,val reply:TutorReply)
+data class TutorTurn(val question:String,val reply:TutorReply,val id:String=java.util.UUID.randomUUID().toString())
 data class CachedConcepts(val entries:List<Concept>,val density:String,val summaryKey:String,val updatedAt:Long){
  val fingerprint get()=hash(JSONArray(entries.map{JSONObject().put("term",it.term).put("explanation",it.explanation)}).toString())
 }
@@ -43,8 +43,8 @@ class StudyStore(ctx:Context){
  suspend fun refresh(api:LectureApi,id:String,remote:String,density:String?=null,key:String=""){
    val entries=api.glossary(remote,density);cache(id,density?.takeIf{it in levels}?:"standard",key,entries)
  }
- fun turns(id:String):List<TutorTurn> = synchronized(lock){val a=read(file(id,"chat"))?.optJSONArray("turns")?:return@synchronized emptyList();(0 until a.length()).mapNotNull{i->runCatching{val o=a.getJSONObject(i);TutorTurn(o.getString("question"),tutorReplyFromJson(o.getJSONObject("reply")))}.getOrNull()}.takeLast(20)}
- fun append(id:String,turn:TutorTurn)=synchronized(lock){require(turn.question.length in 1..1200);write(file(id,"chat"),JSONObject().put("turns",JSONArray((turns(id)+turn).takeLast(20).map{JSONObject().put("question",it.question).put("reply",it.reply.toJson())})))}
+ fun turns(id:String):List<TutorTurn> = synchronized(lock){val a=read(file(id,"chat"))?.optJSONArray("turns")?:return@synchronized emptyList();(0 until a.length()).mapNotNull{i->runCatching{val o=a.getJSONObject(i);TutorTurn(o.getString("question"),tutorReplyFromJson(o.getJSONObject("reply")),o.optString("id").takeIf{it.isNotBlank()} ?: hash("$i:${o.getString("question")}"))}.getOrNull()}.takeLast(20)}
+ fun append(id:String,turn:TutorTurn)=synchronized(lock){require(turn.question.length in 1..1200);write(file(id,"chat"),JSONObject().put("turns",JSONArray((turns(id)+turn).takeLast(20).map{JSONObject().put("id",it.id).put("question",it.question).put("reply",it.reply.toJson())})))}
  fun clearChat(id:String)=synchronized(lock){file(id,"chat").delete();Unit}
  fun remove(id:String)=synchronized(lock){(levels+"chat").forEach{file(id,it).delete();File(file(id,it).path+".tmp").delete()}}
 }

@@ -88,13 +88,13 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
-                MState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                MState.Loading -> SkeletonLoader(modifier=Modifier.padding(16.dp))
                 MState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 is MState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.retry_action)) }
                 }
                 is MState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium)
+                    item(key="MoodleAttach:static:1"){ Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium)
                         Text("${course?.name.orEmpty()} ${course?.courseNumber?.let { "· ${ltr(it)}" }.orEmpty()} ${classKindLabel(kind)}", style = MaterialTheme.typography.bodySmall) }
                     items(s.options, key = { it.id }) { c ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -143,7 +143,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
+            item(key="MoodleAttach:static:2"){
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("🎓", fontSize = 28.sp)
@@ -157,7 +157,7 @@ private fun FilePicker(s: MState.Files, store: MoodleStore, dayMonth: Pair<Int, 
                     }
                 }
             }
-            if (s.sections.isEmpty()) item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_empty), Modifier.padding(top = 12.dp)) }
+            if (s.sections.isEmpty()) item(key="MoodleAttach:static:3"){ Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_empty), Modifier.padding(top = 12.dp)) }
             s.sections.forEach { sec ->
                 item(key = "h:" + sec.title + sec.files.firstOrNull()?.cmid) {
                     Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {

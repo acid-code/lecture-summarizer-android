@@ -73,6 +73,8 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     var onlyWithCaptions by remember { mutableStateOf(false) }
     // No-captions rows: does DeliveryInfo expose a stream we can pull audio from? (true = selectable audio fallback)
     val audioOk = remember { mutableStateMapOf<String, Boolean?>() }
+    val dateStore=remember{il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(ctx)}
+    val dateLimit=remember{Semaphore(3)}
     var confirmAudio by remember { mutableStateOf<Pair<MoodleCourse, PanoptoRecording>?>(null) }
 
     fun fail(e: Throwable): PState = when (e) {
@@ -217,7 +219,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
-                PState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                PState.Loading -> SkeletonLoader(modifier=Modifier.padding(16.dp))
                 is PState.Importing -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_fetching, bidi(s.title)))
                 }
@@ -230,7 +232,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }
                 }
                 is PState.PickCourse -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium) }
+                    item(key="PanoptoImport:static:1"){ Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_which), style = MaterialTheme.typography.titleMedium) }
                     items(s.options, key = { it.id }) { c ->
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth().clickable { store.mapCourse(mapKey, c.id); store.mapCourse("$mapKey:manual", c.id); scope.launch { openCourse(c) } }) {
@@ -243,7 +245,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                     }
                 }
                 is PState.Recordings -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
+                    item(key="PanoptoImport:static:2"){
                         Text(s.course.fullname, style = MaterialTheme.typography.titleMedium)
                         Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_recordings_count, s.recs.size), style = MaterialTheme.typography.bodySmall)
                         if (siblings.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -254,7 +256,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             }
                         }
                     }
-                    if (s.recs.isEmpty()) item {
+                    if (s.recs.isEmpty()) item(key="PanoptoImport:static:3"){
                         Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             EmptyIllustration(Modifier.size(72.dp))
                             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.panopto_empty), style = MaterialTheme.typography.titleSmall)
@@ -265,7 +267,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             TextButton(onClick = onBack) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.nav_back)) }
                         }
                     }
-                    if (s.recs.isNotEmpty()) item {
+                    if (s.recs.isNotEmpty()) item(key="PanoptoImport:static:4"){
                         val none = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.NONE }
                         val has = s.recs.count { capStatus[it.deliveryId] == CaptionStatus.HAS }
                         if (s.recs.any { capStatus[it.deliveryId] == CaptionStatus.AUTH }) Column {
@@ -279,6 +281,13 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                         }
                     }
                     items(s.recs.filter { !onlyWithCaptions || capStatus[it.deliveryId] != CaptionStatus.NONE }, key = { it.deliveryId }) { r ->
+                        var sessionMs by remember(r.deliveryId){mutableStateOf(r.startMs ?: dateStore.sessionStart(r.deliveryId)?.takeIf{it>0})}
+                        LaunchedEffect(r.deliveryId){
+                            if(sessionMs==null && dateStore.sessionStart(r.deliveryId)==null){
+                                val info=withContext(Dispatchers.IO){dateLimit.withPermit{runCatching{client.deliveryInfo(r)}.getOrNull()?.also{dateStore.setSessionStart(r.deliveryId,it.sessionStartMs)}}}
+                                info?.let{sessionMs=it.sessionStartMs;audioOk[r.deliveryId]=it.hasAudio}
+                            }
+                        }
                         val cs = capStatus[r.deliveryId] ?: CaptionStatus.CHECKING
                         val noCaps = cs == CaptionStatus.NONE
                         val audio = audioOk[r.deliveryId]
@@ -291,7 +300,7 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                             Column(Modifier.padding(12.dp)) {
                                 Text(bidi(r.title), modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(classKindLabel(MoodleMatch.kindFromTitle(r.title)), style = MaterialTheme.typography.bodySmall, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
+                                    Text(classKindLabel(MoodleMatch.kindFromTitle(r.title)) + (sessionMs?.let { " • " + java.time.format.DateTimeFormatter.ofPattern("d MMM").withZone(java.time.ZoneId.of("Asia/Jerusalem")).format(java.time.Instant.ofEpochMilli(it)) } ?: ""), style = MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (disabled) Modifier.alpha(0.45f) else Modifier)
                                     val (label, color) = when (cs) {
                                         CaptionStatus.HAS -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_available) to Color(0xFF2E7D32)
                                         CaptionStatus.NONE -> when (audio) {

@@ -72,8 +72,8 @@ fun syncCountCategories(rows:List<SyncQueueEntry>)=listOf("done","skip","wait","
 }
 
 @Composable fun SyncInfoDialog(category:String,onClose:()->Unit){
-    AlertDialog(modifier=Modifier.widthIn(max=340.dp).testTag("sync-info-dialog"),onDismissRequest=onClose,icon={Icon(syncIcon(category),null)},title={Text(stringResource(syncCategoryLabel(category)))},text={
-        Text(stringResource(syncCategoryExplanation(category)),Modifier.heightIn(max=(LocalConfiguration.current.screenHeightDp*0.5f).dp).verticalScroll(rememberScrollState()))
+    AlertDialog(modifier=Modifier.widthIn(max=340.dp).testTag("sync-info-dialog"),onDismissRequest=onClose,icon={Icon(syncIcon(category),null)},title={Text(stringResource(syncCategoryLabel(category)),Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center)},text={
+        Text(stringResource(syncCategoryExplanation(category)),Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.5f).dp).verticalScroll(rememberScrollState()),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
     },confirmButton={TextButton(onClick=onClose){Text(stringResource(R.string.queue_close))}})
 }
 
@@ -128,8 +128,8 @@ fun syncCountCategories(rows:List<SyncQueueEntry>)=listOf("done","skip","wait","
 /** Legacy component retained for earlier screen fixtures, not used for the Settings disclosure. */
 @Composable fun SyncQueueList(category:String,rows:List<SyncQueueEntry>,onRetry:(SyncQueueEntry)->Unit,onDismiss:(SyncQueueEntry)->Unit,modifier:Modifier=Modifier){
     LazyColumn(modifier.fillMaxWidth(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-        item{Text(stringResource(syncCategoryLabel(category)),style=MaterialTheme.typography.titleLarge);Spacer(Modifier.height(12.dp));Text(stringResource(syncCategoryExplanation(category)),style=MaterialTheme.typography.bodyMedium)}
-        if(rows.isEmpty())item{Text(stringResource(R.string.queue_empty),color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        item(key="SyncQueue:static:1"){Text(stringResource(syncCategoryLabel(category)),style=MaterialTheme.typography.titleLarge);Spacer(Modifier.height(12.dp));Text(stringResource(syncCategoryExplanation(category)),style=MaterialTheme.typography.bodyMedium)}
+        if(rows.isEmpty())item(key="SyncQueue:static:2"){Text(stringResource(R.string.queue_empty),color=MaterialTheme.colorScheme.onSurfaceVariant)}
         items(rows,key={it.key}){SyncQueueRow(it,onRetry,onDismiss)}
     }
 }

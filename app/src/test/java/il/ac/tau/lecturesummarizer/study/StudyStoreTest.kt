@@ -21,4 +21,9 @@ class StudyStoreTest {
  @Test fun chatIsIsolatedBoundedAndClearDoesNotDeleteConcepts(){val s=store();s.clearChat("chat-a");s.clearChat("chat-b");s.cache("chat-a","standard","job",entries);repeat(25){s.append("chat-a",TutorTurn("Question $it",reply))};s.append("chat-b",TutorTurn("Only B",reply));assertEquals(20,s.turns("chat-a").size);assertEquals("Question 5",s.turns("chat-a").first().question);s.clearChat("chat-a");assertTrue(s.turns("chat-a").isEmpty());assertEquals(1,s.turns("chat-b").size);assertNotNull(s.cached("chat-a"))}
  @Test fun removingLecturePurgesAllStudyDataAndIdsCannotEscapeStorage(){val s=store();val id="../../private";s.cache(id,"standard","j",entries);s.cache(id,"detailed","j",entries);s.append(id,TutorTurn("Q",reply));s.remove(id);assertNull(s.cached(id));assertTrue(s.turns(id).isEmpty())}
  @Test fun nakedModelAnswerWithoutEvidenceIsNotAccepted(){try{tutorReplyFromJson(JSONObject().put("kind","answer").put("answer","unsupported"));fail()}catch(_:IllegalArgumentException){}}
+ @Test fun identicalQuestionsHaveUniquePersistentKeys(){
+  val s=store();s.clearChat("stable");repeat(3){s.append("stable",TutorTurn("Repeated",reply))}
+  val ids=s.turns("stable").map{it.id};assertEquals(3,ids.toSet().size);assertEquals(ids,store().turns("stable").map{it.id})
+ }
+
 }

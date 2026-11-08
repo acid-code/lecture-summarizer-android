@@ -39,10 +39,10 @@ class SummaryVariantsTest {
   val pdf=File(ctx.cacheDir,"l-standard.pdf").apply{writeText("pdf")};File(pdf.path+".study.json").writeText("""[{"term":"אנזים","definition":"מוריד אנרגיית שפעול"},{"term":"pH","definition":"מדד לחומציות התמיסה"}]""")
   val store=StudyStore(ctx);assertTrue(store.delivered("l",pdf,"standard"));assertEquals(2,StudyStore(ctx).cached("l","standard")!!.entries.size)
  }
- @Test fun movePreservesAllLectureFieldsAndDoesNotCommitLocallyOnServerFailure()=runBlocking {
+ @Test fun moveIsOptimisticPreservesFieldsAndRollsBackOnServerFailure()=runBlocking {
   val repo=Repository(ctx);val source=repo.addCourse("Source");val target=repo.addCourse("Target");repo.updateCourse(target.id){it.copy(remoteId="target-remote")}
   val l=repo.addLecture(source.id,"Real lecture").copy(remoteId="lecture-remote",state=LectureState.DONE,pdfPath="summary.pdf",slidesUri="deck2",extraSlides=listOf("deck3"),markers=listOf(Marker(12,"note")));repo.updateLecture(l.id){l}
-  var calls=0;val api=object:LectureApi by MockLectureApi(){override suspend fun moveLecture(lectureRemoteId:String,courseRemoteId:String){calls++;if(calls==1)error("offline");assertEquals("lecture-remote",lectureRemoteId);assertEquals("target-remote",courseRemoteId)}}
+  var calls=0;val api=object:LectureApi by MockLectureApi(){override suspend fun moveLecture(lectureRemoteId:String,courseRemoteId:String){calls++;assertEquals(target.id,repo.lecture(l.id)!!.courseId);if(calls==1)error("offline");assertEquals("lecture-remote",lectureRemoteId);assertEquals("target-remote",courseRemoteId)}}
   runCatching{LectureMover.move(repo,api,l.id,target.id)};assertEquals(l,repo.lecture(l.id))
   LectureMover.move(repo,api,l.id,target.id);assertEquals(l.copy(courseId=target.id),repo.lecture(l.id))
  }
