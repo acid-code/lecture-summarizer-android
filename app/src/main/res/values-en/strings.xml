@@ -563,6 +563,9 @@
     <string name="sync_battery_wait">Wait</string>
     <string name="slides_search_setting">Moodle slides</string>
     <string name="slides_search_setting_body">Attach an unambiguous matching deck before summarizing when possible. After transcription, also suggest other Moodle files on Wi‑Fi for your approval.</string>
+    <string name="slides_repair_action">Repair lectures without slides</string>
+    <string name="slides_repair_body">For finished lectures that have no deck: attach only a high-confidence Moodle title/date match, then re-summarize those lectures only.</string>
+    <string name="slides_repair_confirm">Only unambiguous Moodle decks will be attached to finished lectures with no slides, then those summaries will refresh. Term-search suggestions are never auto-attached.</string>
     <string name="shared_file_list">⁦%1$d⁩ shared files: %2$s</string>
     <string name="transcript_clipboard_label">Transcript</string>
     <string name="upload_paused">Upload paused. Your recordings are saved; you can retry the upload.</string>

@@ -147,12 +147,7 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
        OutlinedCard(Modifier.fillMaxWidth()){
          Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){Icon(if(turn.reply.kind=="answer")Icons.Default.School else Icons.Default.Info,null,Modifier.size(18.dp));Text(stringResource(R.string.tutor_label),style=MaterialTheme.typography.labelMedium)}
-           Text(bidi(turn.reply.answer),style=MaterialTheme.typography.bodyMedium)
-           if(turn.reply.citations.isNotEmpty()){
-             var expanded by rememberSaveable(turn.id){mutableStateOf(false)}
-             TextButton(onClick={expanded=!expanded}){Text(stringResource(R.string.tutor_sources,ltr(turn.reply.citations.size)));Icon(if(expanded)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null)}
-             if(expanded)turn.reply.citations.forEach{c->HorizontalDivider();Text(stringResource(when(c.kind){"transcript"->R.string.tutor_source_transcript;"summary"->R.string.tutor_source_summary;"context"->R.string.tutor_source_context;else->R.string.tutor_source_slides}),style=MaterialTheme.typography.labelSmall);Text(bidi(c.label),style=MaterialTheme.typography.labelSmall);Text(bidi(c.quote),style=MaterialTheme.typography.bodySmall)}
-           }
+           TutorAnswerBody(turn.reply.answer,turn.reply.citations,turn.id)
          }
        }
      }}

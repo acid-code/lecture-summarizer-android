@@ -575,6 +575,9 @@
     <string name="sync_battery_wait">המתנה</string>
     <string name="slides_search_setting">שקפים מ־Moodle</string>
     <string name="slides_search_setting_body">מצרפים מצגת חד־משמעית לפני הסיכום כשאפשר. אחרי התמלול מציעים גם קבצים נוספים ב־Wi‑Fi לאישורכם.</string>
+    <string name="slides_repair_action">תיקון שיעורים בלי שקפים</string>
+    <string name="slides_repair_body">לשיעורים שכבר סוכמו בלי מצגת: מצרפים רק התאמת Moodle חד־משמעית (כותרת/תאריך) ומסכמים מחדש רק אותם.</string>
+    <string name="slides_repair_confirm">יצורפו רק מצגות Moodle חד־משמעיות לשיעורים גמורים בלי שקפים, ואז יעודכן הסיכום. לא יצורפו הצעות מחיפוש מונחים.</string>
     <string name="shared_file_list">⁦%1$d⁩ קבצים ששותפו: %2$s</string>
     <string name="transcript_clipboard_label">תמלול</string>
     <string name="upload_paused">ההעלאה נעצרה. ההקלטות שמורות, ואפשר לנסות שוב.</string>

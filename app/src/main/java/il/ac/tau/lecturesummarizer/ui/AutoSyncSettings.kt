@@ -59,6 +59,28 @@ fun AutoSyncSettingsSection(app: LectureApp) {
                 slidesSearch=on;st.autoAttach=on
                 if(!on)app.repo.lectures.value.forEach{l->androidx.work.WorkManager.getInstance(app).cancelUniqueWork("slides-match-${l.id}");il.ac.tau.lecturesummarizer.slides.SlideChoices(app).phase(l.id,"disabled")}
             }
+            var repairConfirm by remember{mutableStateOf(false)}
+            var repairTick by remember{mutableIntStateOf(0)}
+            val repairStatus = remember(repairTick){il.ac.tau.lecturesummarizer.slides.SlideDeckRepairWorker.status.get()}
+            Text(stringResource(R.string.slides_repair_body),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(
+                enabled=slidesSearch,
+                onClick={repairConfirm=true},
+                modifier=Modifier.fillMaxWidth(),
+            ){Text(stringResource(R.string.slides_repair_action))}
+            repairStatus?.let{Text(it,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            if(repairConfirm)AlertDialog(
+                onDismissRequest={repairConfirm=false},
+                title={Text(stringResource(R.string.slides_repair_action))},
+                text={Text(stringResource(R.string.slides_repair_confirm))},
+                confirmButton={TextButton(onClick={
+                    repairConfirm=false
+                    il.ac.tau.lecturesummarizer.slides.SlideDeckRepairWorker.enqueue(app)
+                    repairTick++
+                    scope.launch{repeat(40){kotlinx.coroutines.delay(1500);repairTick++;if(il.ac.tau.lecturesummarizer.slides.SlideDeckRepairWorker.status.get()?.startsWith("Done")==true)return@launch}}
+                }){Text(stringResource(R.string.slides_repair_action))}},
+                dismissButton={TextButton(onClick={repairConfirm=false}){Text(stringResource(R.string.copy_cancel))}},
+            )
         }
         // ── 1. Last run / results (read-only status) ──
         if (pro && (retro || live)) SyncCard(stringResource(R.string.sync_last_run)) {
