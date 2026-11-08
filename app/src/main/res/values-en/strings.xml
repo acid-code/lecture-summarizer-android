@@ -730,7 +730,7 @@
     <string name="memory_load_error">Could not download concepts. Try again when the summary is ready and you are online.</string>
     <string name="study_offline">Offline. Previously saved material is still available.</string>
     <string name="memory_download">Download summary concepts</string>
-    <string name="tutor_scope">Only this course’s available transcript, summary and uploaded slides. Check the quoted sources.</string>
+    <string name="tutor_scope">Only this course — transcripts, summaries, slides and course-context packs across its lectures. Check the quoted sources.</string>
     <string name="tutor_label">Course tutor</string>
     <string name="tutor_empty">What would you like to understand?</string>
     <string name="tutor_empty_body">Ask about a concept or passage from this course. If the material does not cover it, we will say so.</string>
@@ -739,6 +739,7 @@
     <string name="tutor_source_transcript">From the transcript</string>
     <string name="tutor_source_summary">From the summary</string>
     <string name="tutor_source_slides">From the slides</string>
+    <string name="tutor_source_context">From course context</string>
     <string name="tutor_thinking">Checking the course material…</string>
     <string name="tutor_question">Question about this course</string>
     <string name="tutor_send">Send question</string>

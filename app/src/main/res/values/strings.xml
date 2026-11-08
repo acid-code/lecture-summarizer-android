@@ -742,7 +742,7 @@
     <string name="memory_load_error">לא הצלחנו להוריד את המושגים. נסו שוב כשהסיכום מוכן ויש חיבור.</string>
     <string name="study_offline">אין חיבור. המידע שכבר נשמר נשאר זמין.</string>
     <string name="memory_download">הורדת מושגים מהסיכום</string>
-    <string name="tutor_scope">רק על הקורס הזה, לפי התמלול, הסיכום והשקפים שהועלו לשירות. בדקו את הציטוטים.</string>
+    <string name="tutor_scope">רק על הקורס הזה — לפי התמלולים, הסיכומים, השקפים וחומר הרקע של כל השיעורים בקורס. בדקו את הציטוטים.</string>
     <string name="tutor_label">המדריך לשיעור</string>
     <string name="tutor_empty">מה תרצו להבין טוב יותר?</string>
     <string name="tutor_empty_body">כתבו שאלה על מושג או קטע שמופיע בשיעור. אם אין תשובה בחומר, נאמר זאת.</string>
@@ -751,6 +751,7 @@
     <string name="tutor_source_transcript">מהתמלול</string>
     <string name="tutor_source_summary">מהסיכום</string>
     <string name="tutor_source_slides">מהשקפים</string>
+    <string name="tutor_source_context">מחומר הרקע של הקורס</string>
     <string name="tutor_thinking">בודקים את החומר…</string>
     <string name="tutor_question">שאלה על הקורס</string>
     <string name="tutor_send">שליחת שאלה</string>

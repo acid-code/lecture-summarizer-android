@@ -151,7 +151,7 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
            if(turn.reply.citations.isNotEmpty()){
              var expanded by rememberSaveable(turn.id){mutableStateOf(false)}
              TextButton(onClick={expanded=!expanded}){Text(stringResource(R.string.tutor_sources,ltr(turn.reply.citations.size)));Icon(if(expanded)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null)}
-             if(expanded)turn.reply.citations.forEach{c->HorizontalDivider();Text(stringResource(when(c.kind){"transcript"->R.string.tutor_source_transcript;"summary"->R.string.tutor_source_summary;else->R.string.tutor_source_slides}),style=MaterialTheme.typography.labelSmall);Text(bidi(c.label),style=MaterialTheme.typography.labelSmall);Text(bidi(c.quote),style=MaterialTheme.typography.bodySmall)}
+             if(expanded)turn.reply.citations.forEach{c->HorizontalDivider();Text(stringResource(when(c.kind){"transcript"->R.string.tutor_source_transcript;"summary"->R.string.tutor_source_summary;"context"->R.string.tutor_source_context;else->R.string.tutor_source_slides}),style=MaterialTheme.typography.labelSmall);Text(bidi(c.label),style=MaterialTheme.typography.labelSmall);Text(bidi(c.quote),style=MaterialTheme.typography.bodySmall)}
            }
          }
        }
