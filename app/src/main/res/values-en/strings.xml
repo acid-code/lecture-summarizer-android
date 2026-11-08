@@ -693,4 +693,9 @@
     <string name="mapping_invalid">Check the link or ID. Choose a valid source before saving.</string>
     <string name="watch_loading">Checking classes in your chosen calendars…</string>
     <string name="watch_disabled">Watching is off. Saved events were not deleted; choose classes to enable it again.</string>
+    <string name="mapping_calendar_help">These rules route events to this course. Turn a rule off without deleting saved lectures.</string>
+    <string name="mapping_calendar_empty">No events chosen for this course yet.</string>
+    <string name="mapping_calendar_edit">Choose events and edit rules</string>
+    <string name="mapping_rule_on">Watching</string>
+    <string name="mapping_rule_off">Watching off</string>
 </resources>

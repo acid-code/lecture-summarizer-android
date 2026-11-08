@@ -694,4 +694,9 @@
     <string name="mapping_invalid">בדקו את הקישור או המזהה. אפשר לשמור אחרי שנבחר מקור תקין.</string>
     <string name="watch_loading">בודקים את השיעורים ביומנים שבחרת…</string>
     <string name="watch_disabled">המעקב כבוי. האירועים השמורים לא נמחקו; אפשר לבחור שיעורים כדי להפעיל אותו מחדש.</string>
+    <string name="mapping_calendar_help">אלה הכללים שמכניסים אירועים לקורס הזה. אפשר לכבות כלל בלי למחוק הרצאות שמורות.</string>
+    <string name="mapping_calendar_empty">עדיין לא נבחרו אירועים לקורס הזה.</string>
+    <string name="mapping_calendar_edit">בחירת אירועים ועריכת כללים</string>
+    <string name="mapping_rule_on">במעקב</string>
+    <string name="mapping_rule_off">המעקב כבוי</string>
 </resources>

@@ -38,6 +38,7 @@ import java.time.format.DateTimeFormatter
     val ctx=LocalContext.current;val store=remember{SourceMappingStore(app)}
     var saved by remember(course.id){mutableStateOf(store.migrate(course))}
     var editing by remember{mutableStateOf<String?>(null)}
+    var calendarEdit by remember{mutableStateOf(false)}
     val moodle=saved.firstOrNull{it.providerId=="moodle"};val panopto=saved.firstOrNull{it.providerId=="panopto"}
     var moodleBase by remember{mutableStateOf(moodle?.baseUrl ?: MoodleStore(app).baseUrl)}
     var courseId by remember{mutableStateOf(moodle?.courseId?.toString().orEmpty())}
@@ -73,7 +74,7 @@ import java.time.format.DateTimeFormatter
             moodleReady=saved.any{it.providerId=="moodle" && it.courseId!=null},
             panoptoSummary=saved.firstOrNull{it.providerId=="panopto"}?.let{c->when{c.folderId.isNotBlank()->stringResource(R.string.mapping_folder_set);c.sessionId.isNotBlank()->stringResource(R.string.mapping_session_set);c.courseId!=null->stringResource(R.string.mapping_from_moodle);else->stringResource(R.string.mapping_unset)}} ?: stringResource(R.string.mapping_unset),
             panoptoReady=saved.any{it.providerId=="panopto" && (it.courseId!=null || it.folderId.isNotBlank() || it.sessionId.isNotBlank())},
-            onCalendar={rules=true},onMoodle={editing="moodle"},onPanopto={editing="panopto"},onMatching={editing="matching"})
+            onCalendar={calendarEdit=true},onMoodle={editing="moodle"},onPanopto={editing="panopto"},onMatching={editing="matching"})
         CourseUpdated(app,course.id)
         if(saved.any{it.legacy} && !savedNotice)Text(stringResource(R.string.sources_migrated),style=MaterialTheme.typography.bodySmall)
 
@@ -132,6 +133,7 @@ import java.time.format.DateTimeFormatter
             TextButton(onClick={resetDraft();editing=null}){Text(stringResource(R.string.cancel))}
         }
     }
+    if(calendarEdit)CalendarCourseRulesSheet(app,course,{calendarEdit=false}){calendarEdit=false;rules=true}
     if(rules)androidx.compose.ui.window.Dialog(onDismissRequest={rules=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){CalendarRulesScreen(app,onBack={rules=false},presetCourse=course.name)}
     signIn?.let{url->androidx.compose.ui.window.Dialog(onDismissRequest={signIn=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){AppScaffold(stringResource(R.string.sources_signin),onBack={signIn=null}){pad->Box(Modifier.padding(pad).fillMaxSize()){MoodleLoginView(if(url.contains("panopto",true))Panopto.origin(url)else moodleBase,startUrl=url){signIn=null}}}}}
 }
@@ -179,4 +181,32 @@ import java.time.format.DateTimeFormatter
     OutlinedTextField(folder,onFolder,Modifier.fillMaxWidth(),label={Text(stringResource(R.string.sources_folder))})
     OutlinedTextField(session,onSession,Modifier.fillMaxWidth(),label={Text(stringResource(R.string.sources_session))})
     Text(stringResource(R.string.sources_folder_access),style=MaterialTheme.typography.bodySmall)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun CalendarCourseRulesSheet(app:LectureApp,course:Course,onDismiss:()->Unit,onEdit:()->Unit){
+    val store=remember{CalendarRuleStore(app)};var rules by remember{mutableStateOf(store.rules())}
+    DisposableEffect(Unit){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,key->if(key=="rules")rules=store.rules()};store.prefs.registerOnSharedPreferenceChangeListener(listener);onDispose{store.prefs.unregisterOnSharedPreferenceChangeListener(listener)}}
+    ModalBottomSheet(onDismissRequest=onDismiss){
+        Column(Modifier.fillMaxWidth().heightIn(max=650.dp).verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+            Text(bidi(course.name),style=MaterialTheme.typography.titleLarge)
+            CalendarCourseRuleRows(rules.filter{it.targetCourseId==course.id || (it.targetCourseId==null && CalendarRules.norm(it.targetCourse)==CalendarRules.norm(course.name))},onToggle={r,on->store.saveRules(rules.map{if(it.id==r.id)it.copy(enabled=on)else it});store.pending(emptyList())},onEdit=onEdit)
+        }
+    }
+}
+@Composable fun CalendarCourseRuleRows(rules:List<CalendarImportRule>,onToggle:(CalendarImportRule,Boolean)->Unit,onEdit:()->Unit){
+    Text(stringResource(R.string.mapping_calendar),style=MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.mapping_calendar_help),style=MaterialTheme.typography.bodyMedium)
+    if(rules.isEmpty())Text(stringResource(R.string.mapping_calendar_empty),color=MaterialTheme.colorScheme.onSurfaceVariant)
+    rules.forEach{rule->OutlinedCard(Modifier.fillMaxWidth()){
+        Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)){
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                Text(bidi(rule.name),style=MaterialTheme.typography.titleSmall)
+                Text(bidi(rule.title.ifBlank{rule.include.joinToString(" · ")}),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(if(rule.enabled)R.string.mapping_rule_on else R.string.mapping_rule_off),style=MaterialTheme.typography.labelMedium)
+            }
+            Switch(rule.enabled,{onToggle(rule,it)},enabled=rule.valid)
+        }
+    }}
+    Button(onClick=onEdit,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.mapping_calendar_edit))}
 }

@@ -74,6 +74,10 @@ class CalendarV2ScreenshotsTest {
           }
           6->Column(Modifier.padding(pad).padding(20.dp)){CalendarWatchStatus(matches,true,true,now-5*60000,false,{},{})}
           7->Column(Modifier.padding(pad).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){Text(stringResource(R.string.sync_last_run),style=MaterialTheme.typography.titleMedium);SyncCountChips(rows){};Text(stringResource(R.string.queue_wait_help))}
+          12->Column(Modifier.padding(pad).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+            Text("ביולוגיה",style=MaterialTheme.typography.titleLarge)
+            CalendarCourseRuleRows(listOf(CalendarImportRule("lecture","הרצאות",true,"ביולוגיה · הרצאה",targetCourse="ביולוגיה"),CalendarImportRule("lab","תרגולים",false,"ביולוגיה · תרגול",targetCourse="ביולוגיה")),{_,_->},{})
+          }
           10,11->Column(Modifier.padding(pad).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             if(screen==10)MoodleSourceFields("https://moodle.example.org","1024",{},{})
             else PanoptoSourceFields("https://university.hosted.panopto.com","https://university.hosted.panopto.com/Panopto/Pages/Sessions/List.aspx?folderID=example","",{},{},{})
@@ -84,7 +88,7 @@ class CalendarV2ScreenshotsTest {
         }
       }
     }}}
-    listOf("course-sources","event-picker","refresh-idle","refresh-running","refresh-success","refresh-error","home-connected","sync-counts","sync-waiting","sync-not-found","moodle-edit","panopto-edit").forEachIndexed{i,name->
+    listOf("course-sources","event-picker","refresh-idle","refresh-running","refresh-success","refresh-error","home-connected","sync-counts","sync-waiting","sync-not-found","moodle-edit","panopto-edit","calendar-course-edit").forEachIndexed{i,name->
        compose.runOnIdle{screen=i};compose.waitForIdle();compose.onRoot().captureRoboImage(File(out,"$name-he-light.png").absolutePath)
     }
  }
