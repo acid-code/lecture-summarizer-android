@@ -33,6 +33,10 @@ interface LectureApi {
     suspend fun jobStatus(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/retry — resume a failed/stuck job from its first incomplete stage (keeps finished ASR etc.). */
     suspend fun retryJob(jobId: String): JobStatus
+    /** POST /v1/jobs/{id}/retry?force=1 — same, but allowed while the job is still "running" (stuck mid-stage). */
+    suspend fun forceRestartJob(jobId: String): JobStatus = retryJob(jobId)
+    /** POST /v1/jobs/{id}/cancel — stop a running job; keeps finished ASR/summary artifacts. */
+    suspend fun cancelJob(jobId: String): JobStatus
     /** POST /v1/jobs/{id}/resummarize — re-run summary+PDF only, keeping ASR/repair (no ASR quota). */
     /** [density]: a level different from the job's creates a NEW server job (returned in JobStatus.jobId); others are kept. */
     suspend fun resummarizeJob(jobId: String, density: String? = null): JobStatus

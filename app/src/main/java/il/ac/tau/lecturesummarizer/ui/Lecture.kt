@@ -527,6 +527,42 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             val jid = l.jobId
             val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.all { it.uploaded } && l.remoteId != null
             val canResummarize = jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
+            var confirmForceRestart by remember { mutableStateOf(false) }
+            var confirmStopJob by remember { mutableStateOf(false) }
+            if (l.state == LectureState.PROCESSING && jid != null) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_controls), Icons.Default.Build) {
+                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart), Icons.Default.Refresh, Modifier.fillMaxWidth()) { confirmForceRestart = true }
+                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop), Icons.Default.Stop, Modifier.fillMaxWidth()) { confirmStopJob = true }
+            }
+            if (confirmForceRestart) AlertDialog(
+                onDismissRequest = { confirmForceRestart = false },
+                title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart_confirm_title)) },
+                text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart_confirm_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmForceRestart = false
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { il.ac.tau.lecturesummarizer.upload.forceRestartLecture(app, lectureId) }
+                                .onFailure { app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) } }
+                        }
+                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart)) }
+                },
+                dismissButton = { TextButton(onClick = { confirmForceRestart = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
+            )
+            if (confirmStopJob) AlertDialog(
+                onDismissRequest = { confirmStopJob = false },
+                title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_confirm_title)) },
+                text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_confirm_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmStopJob = false
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { il.ac.tau.lecturesummarizer.upload.stopLectureJob(app, lectureId) }
+                                .onFailure { app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) } }
+                        }
+                    }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop)) }
+                },
+                dismissButton = { TextButton(onClick = { confirmStopJob = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
+            )
             if (l.state == LectureState.FAILED || repairOpen && canResummarize) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
                 if (l.state == LectureState.FAILED) {
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).

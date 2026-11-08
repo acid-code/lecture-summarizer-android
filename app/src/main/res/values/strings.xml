@@ -343,6 +343,14 @@
     <string name="lecture_deleted">השיעור נמחק</string>
     <string name="captions_imported_toast">הכתוביות יובאו. מכינים סיכום.</string>
     <string name="captions_cascade_toast">הכתוביות קצרות/חסרות — מורידים שמע מההווידאו במקום.</string>
+    <string name="job_force_restart">הפעלה מחדש (תקוע)</string>
+    <string name="job_force_restart_confirm_title">להפעיל מחדש את העיבוד?</string>
+    <string name="job_force_restart_confirm_body">משחרר שלב תקוע בשרת וממשיך מהמקום האחרון שהושלם (תמלול קיים נשמר). לא מוחק חומרים.</string>
+    <string name="job_stop">עצירת עיבוד</string>
+    <string name="job_stop_confirm_title">לעצור את העיבוד?</string>
+    <string name="job_stop_confirm_body">הסיכום הנוכחי ייעצר. אפשר לנסות שוב אחר כך. תמלול שכבר הושלם נשמר.</string>
+    <string name="job_cancelled">העיבוד נעצר</string>
+    <string name="job_controls">שליטה בעיבוד</string>
     <string name="captions_cascade_audio">כתוביות חסרות (וידאו %1$s) — הורדת שמע</string>
     <string name="captions_thin_no_audio">הכתוביות קצרות מדי לווידאו (%1$s) ואין שמע זמין להורדה.</string>
     <string name="audio_wait_wifi">הורדת השמע ממתינה לרשת אלחוטית.</string>

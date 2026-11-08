@@ -218,6 +218,24 @@ class HttpLectureApi(
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
     }
 
+    override suspend fun forceRestartJob(jobId: String): JobStatus {
+        val o = try { postJson("/v1/jobs/$jobId/retry?force=1", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code == 409) return jobStatus(jobId) else throw e }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"))
+    }
+
+    override suspend fun cancelJob(jobId: String): JobStatus {
+        val o = try { postJson("/v1/jobs/$jobId/cancel", JSONObject()) }
+        catch (e: HttpStatusException) {
+            // Older servers: fall back to force-fail via retry not available — surface as failed locally.
+            if (e.code == 404 || e.code == 405) return JobStatus("failed", "failed", 0, "cancelled_by_user")
+            throw e
+        }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"))
+    }
+
     override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus {
         // 409 = server thinks the job is mid-flight (e.g. stuck in summary with a stale "Done"); retry once with force.
         val q = density?.let { "density=$it" }
