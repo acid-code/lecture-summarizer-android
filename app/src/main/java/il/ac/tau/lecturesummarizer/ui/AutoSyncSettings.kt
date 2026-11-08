@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.*
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.res.stringResource
 import il.ac.tau.lecturesummarizer.R
@@ -72,7 +70,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_queue), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
                 StatusChip(stringResource(if (isPaused) R.string.sync_paused else if (runStatus?.startsWith("Stopped") == true) R.string.sync_stopped else R.string.sync_active),
-                    if (isPaused) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary,icon=if(isPaused)Icons.Default.PauseCircle else Icons.Default.Sync)
+                    if (isPaused) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary)
             }
             if (app.settings.showDeveloper) (runStatus ?: st.lastRun)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             SyncQueueDisclosure(queueRows,onRetry={row->actionError=false
@@ -156,7 +154,7 @@ fun AutoSyncSettingsSection(app: LectureApp) {
 }
 
 @Composable
-private fun SyncCard(title: String, content: @Composable ColumnScope.() -> Unit) =
+internal fun SyncCard(title: String, content: @Composable ColumnScope.() -> Unit) =
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)

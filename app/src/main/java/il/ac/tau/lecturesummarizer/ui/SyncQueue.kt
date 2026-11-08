@@ -1,7 +1,10 @@
 package il.ac.tau.lecturesummarizer.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,22 +29,42 @@ fun syncCategoryLabel(category:String)=when(category){"wait"->R.string.queue_wai
 fun syncCategoryExplanation(category:String)=when(category){"wait"->R.string.queue_wait_help;"queued"->R.string.queue_queued_help;"done"->R.string.queue_done_help;"skip"->R.string.queue_existing_help;"notfound"->R.string.queue_missing_help;"failed"->R.string.queue_failed_help;else->R.string.queue_dismissed_help}
 private fun syncIcon(category:String)=when(category){"wait"->Icons.Default.Schedule;"queued"->Icons.Default.CloudDownload;"done"->Icons.Default.CheckCircle;"notfound"->Icons.Default.SearchOff;"failed"->Icons.Default.ErrorOutline;else->Icons.Default.LibraryBooks}
 
-/** Count opens its records; the independent info action only opens a short explanation. */
+/** Original four counters retain their 7dca316 labels/order; extra work states appear only when present. */
+fun syncCountCategories(rows:List<SyncQueueEntry>)=listOf("done","skip","wait","notfound")+listOf("queued","failed").filter{c->rows.any{it.category==c}}
+
+@Composable fun syncCountText(category:String,count:Int)=when(category){
+    "done"->stringResource(R.string.sync_imported,count)
+    "skip"->stringResource(R.string.sync_existing,count)
+    "wait"->stringResource(R.string.sync_waiting,count)
+    "notfound"->stringResource(R.string.sync_missing,count)
+    else->stringResource(R.string.queue_count,stringResource(syncCategoryLabel(category)),ltr(count))
+}
+
+/** Same passive StatusChip geometry as 7dca316, with two sibling tap regions, not two large buttons. */
+@Composable private fun CompactSyncCount(text:String,color:androidx.compose.ui.graphics.Color,onInfo:()->Unit,onOpen:()->Unit,infoLabel:String){
+    Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small){
+        Row(verticalAlignment=Alignment.CenterVertically){
+            Box(Modifier.clickable(role=Role.Button,onClick=onInfo).padding(start=10.dp,end=3.dp,top=7.dp,bottom=7.dp)){
+                Icon(Icons.Default.Info,infoLabel,Modifier.size(16.dp))
+            }
+            Box(Modifier.clickable(role=Role.Button,onClick=onOpen).padding(start=3.dp,end=10.dp,top=7.dp,bottom=7.dp)){
+                Text(text,style=MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+/** Physical left alignment is intentional even in Hebrew; chip contents keep the app's bidi direction. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun SyncCountChips(rows:List<SyncQueueEntry>,onInfo:((String)->Unit)?=null,onOpen:(String)->Unit){
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        listOf("wait","queued","done","skip","notfound","failed").forEach{category->
-            val title=stringResource(syncCategoryLabel(category))
-            Surface(shape=MaterialTheme.shapes.small,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),color=MaterialTheme.colorScheme.surface){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    TextButton(onClick={onOpen(category)},contentPadding=PaddingValues(start=12.dp,end=8.dp,top=4.dp,bottom=4.dp)){
-                        Icon(syncIcon(category),null,Modifier.size(18.dp));Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.queue_count,title,ltr(rows.count{it.category==category})))
-                    }
-                    VerticalDivider(Modifier.height(24.dp))
-                    IconButton(onClick={(onInfo ?: onOpen)(category)}){
-                        Icon(Icons.Default.Info,stringResource(R.string.queue_info_for,title),Modifier.size(18.dp))
-                    }
+    val contentDirection=LocalLayoutDirection.current
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr){
+        FlowRow(Modifier.fillMaxWidth().testTag("sync-count-items"),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            syncCountCategories(rows).forEach{category->
+                CompositionLocalProvider(LocalLayoutDirection provides contentDirection){
+                    val count=rows.count{it.category==category}
+                    val color=if(category in listOf("notfound","failed") && count>0)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    CompactSyncCount(syncCountText(category,count),color,{(onInfo ?: onOpen)(category)},{onOpen(category)},stringResource(R.string.queue_info_for,stringResource(syncCategoryLabel(category))))
                 }
             }
         }

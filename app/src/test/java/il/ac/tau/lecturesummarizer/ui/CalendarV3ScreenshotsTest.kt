@@ -35,7 +35,7 @@ import java.util.TimeZone
 class CalendarV3ScreenshotsTest {
  @get:Rule val compose=createComposeRule()
  private val ctx get()=ApplicationProvider.getApplicationContext<Application>()
- private val rows=(1..5).map{SyncQueueEntry("demo-$it","wait","ביולוגיה $it","הרצאה $it",1794102400000L+it*3600000)}
+ private val rows=(1..5).map{SyncQueueEntry("demo-$it","wait","ביולוגיה $it","הרצאה $it",1794102400000L+it*3600000)}+SyncQueueEntry("demo-queued","queued","ביולוגיה","הרצאה בתור",1794102400000L)
  @Test fun infoIsIndependentAndWrapsItsContent(){
     compose.setContent{AppTheme(darkMode=false){AppScaffold("הגדרות"){pad->Column(Modifier.padding(pad).fillMaxSize()){SyncQueueDisclosure(rows,{},{})}}}}
     compose.onNodeWithContentDescription(ctx.getString(R.string.queue_info_for,ctx.getString(R.string.queue_wait))).performClick()
@@ -47,7 +47,7 @@ class CalendarV3ScreenshotsTest {
  }
  @Test fun countSheetStartsCompactAndExpands(){
     compose.setContent{CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl){AppTheme(darkMode=false){AppScaffold("הגדרות"){pad->Column(Modifier.padding(pad).fillMaxSize()){SyncQueueDisclosure(rows,{},{})}}}}}
-    compose.onNodeWithText(ctx.getString(R.string.queue_count,ctx.getString(R.string.queue_wait),ltr(5))).performClick()
+    compose.onNodeWithText(ctx.getString(R.string.sync_waiting,5)).performClick()
     compose.onAllNodes(isRoot()).onLast().captureRoboImage(File(System.getenv("LECTURE_SCREEN_DIR") ?: "build/screens/v3","count-interaction-compact.png").absolutePath)
     compose.onNodeWithText(bidi("ביולוגיה 1")).assertIsDisplayed()
     compose.onNodeWithText(bidi("ביולוגיה 2")).assertDoesNotExist()
@@ -97,7 +97,7 @@ class CalendarV3ScreenshotsTest {
       compose.onNodeWithTag("sync-info-dialog").captureRoboImage(File(out,"info-$category-he-light.png").absolutePath)
       compose.onNodeWithText(ctx.getString(R.string.queue_close)).performClick()
     }
-    compose.onNodeWithText(ctx.getString(R.string.queue_count,ctx.getString(R.string.queue_wait),ltr(5))).performClick();compose.waitForIdle()
+    compose.onNodeWithText(ctx.getString(R.string.sync_waiting,5)).performClick();compose.waitForIdle()
     compose.onAllNodes(isRoot()).onLast().captureRoboImage(File(out,"count-compact-he-light.png").absolutePath)
     compose.onNodeWithText(ctx.getString(R.string.queue_expand,ltr(5))).performClick();compose.waitForIdle()
     compose.onAllNodes(isRoot()).onLast().captureRoboImage(File(out,"count-expanded-he-light.png").absolutePath)
