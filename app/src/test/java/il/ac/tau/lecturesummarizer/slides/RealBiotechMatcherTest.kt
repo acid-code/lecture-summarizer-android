@@ -3,6 +3,7 @@ package il.ac.tau.lecturesummarizer.slides
 import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Test
+import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import java.io.File
 
@@ -18,6 +19,9 @@ class RealBiotechMatcherTest {
             val text=(0 until segments.length()).joinToString(" "){segments.getJSONObject(it).getString("text")}
             val ranked=SlideMatcher.rank(pool,text)
             println("REAL BIOTECH ${row.getString(1)}: segments=${segments.length()} transcriptChars=${text.length} winner=${SlideMatcher.clearWinner(ranked)?.deck?.name ?: "ABSTAIN"}")
+            val expected=when{row.getString(1).contains("28/10")->"PPT03";row.getString(1).contains("02/11")->"PPT04";else->error("Unknown real fixture") }
+            assertTrue("Real top suggestion must be $expected",ranked.first().deck.name.contains(expected))
+            assertEquals(ranked.first().deck.id,SlideMatcher.rank(pool.reversed(),text).first().deck.id)
             ranked.forEach{println("  ${it.deck.name}: sharedTerms=${it.terms.size} score=${it.score}")}
         }
     }

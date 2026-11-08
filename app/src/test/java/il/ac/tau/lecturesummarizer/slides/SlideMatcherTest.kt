@@ -32,4 +32,25 @@ class SlideMatcherTest {
         val b = SlideMatcher.rank(decks, (decks[0].text + " ").repeat(100)).first().score
         assertEquals(a, b, 0.00001)
     }
+    @Test fun verboseUnrelatedNotesDoNotWinByVocabularySize(){
+        val topic="plasmid ligation restriction cloning vector endonuclease"
+        val noise=(1..600).joinToString(" "){"background"+('a'+it%26)+('a'+it/26%26)}
+        val pool=listOf(SlideMatcher.Deck(1,"topic",topic),SlideMatcher.Deck(2,"appendix",topic+" "+noise))
+        assertEquals(1L,SlideMatcher.rank(pool,topic+" "+noise.split(' ').take(100).joinToString(" ")).first().deck.id)
+    }
+    @Test fun datedFutureCopyIsPenalizedButUploadIdsAndOrderAreNot(){
+        val day=java.time.LocalDate.of(2026,11,2)
+        val pool=listOf(SlideMatcher.Deck(999,"new upload",decks[0].text,day.minusDays(1)),SlideMatcher.Deck(1,"future lesson",decks[0].text,day.plusDays(1)))
+        assertEquals(999L,SlideMatcher.rank(pool,decks[0].text,day).first().deck.id)
+        assertEquals(SlideMatcher.rank(pool,decks[0].text,day),SlideMatcher.rank(pool.reversed(),decks[0].text,day))
+        assertNull(SlideMatcher.explicitDate("PPT05 109739 תשפז"))
+        assertEquals(day,SlideMatcher.explicitDate("Lecture 02.11.2026.pdf"))
+    }
+    @Test fun bilingualEvidenceCannotBeDominatedByOneVerboseScript(){
+        val anchors="plasmid ligation cloning vector promoter enzyme"
+        val hebrew="תאים חלבון אנזימים גנטיקה חיידקים ניסוי"
+        val many=(1..200).joinToString(" "){"מילה"+('א'+it%22)+('א'+it/22)}
+        val pool=listOf(SlideMatcher.Deck(1,"specific",anchors+" "+hebrew),SlideMatcher.Deck(2,"notes",anchors+" unrelated appendix vocabulary bacteria molecule proteins antibody antigen "+hebrew+" "+many))
+        assertEquals(1L,SlideMatcher.rank(pool,anchors+" "+hebrew+" "+many).first().deck.id)
+    }
 }

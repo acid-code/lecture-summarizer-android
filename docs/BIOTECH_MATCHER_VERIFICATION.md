@@ -1,3 +1,22 @@
+# Matcher V2: real-data regression results
+
+Root cause: V1 already used course-deck IDF, but **summed absolute matching vocabulary mass**. The long PPT05 contains 3,071 unique non-stop words, versus 410/491/483 in PPT03/04/02. Its lengthy Hebrew notes match general spoken vocabulary. Dates, recency, Moodle IDs and candidate order were not scoring inputs, so “latest deck”/date proximity did not cause this failure. Plain IDF-normalized coverage alone fixes 28/10 but still wrongly favors PPT05 for 02/11.
+
+V2 normalizes IDF mass by deck vocabulary, uses a small denominator prior to avoid tiny-deck overconfidence, and geometrically balances independently evidenced Unicode scripts. One verbose language channel cannot drown out scientific anchors in another. It is script-neutral, not a hardcoded Hebrew/English or Biotech mapping. Repeated words still do not inflate scores. Only explicit teaching dates (not upload/modified dates or IDs) can incur a future-date penalty; the real fixtures have no such dates and pass without that penalty. Ties have deterministic ID ordering.
+
+| Real lecture | Top suggestion | Score | Runner-up | Score |
+|---|---|---|---|---|
+| 28/10 | **PPT03** | 18.50 | PPT04 | 12.56 |
+| 02/11 | **PPT04** | 20.82 | PPT05 | 13.44 |
+
+Both expected real top suggestions now have regression assertions, including shuffled candidate order. Existing synthetic fixtures and new verbose-note, bilingual and future-date tests pass: 103 tests in each debug/release variant, no skipped tests with the private fixture environment supplied.
+
+**Both still ABSTAIN under the unchanged 1.6× clear-winner gate.** This is intentional: the top suggestions are correct, not calibrated certainty. Do not weaken ambiguity thresholds to fit two examples. Android remains suggestions-only regardless; no lecture or live attachment was changed. The candidate pool remains only four known real decks; wider-course/other-course validation is still needed. Raw fixtures remain outside Git.
+
+---
+
+## Historical V1 investigation (before this fix)
+
 # Real Biotech slide-matcher verification (read-only)
 
 The existing V1 matcher was run against the actual stored transcripts for Biotech 28/10 and 02/11 and four known real course decks (PPT02–PPT05). Inputs were read from the lectures database without updates. Raw transcripts/deck text remain private external fixtures, not repository files.

@@ -45,10 +45,10 @@ class SlideMatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                     bytes+=file.length()
                     if(!SlideCandidates.isDeck(file.name)){partial=true;return@mapNotNull null}
                     val text=SlideText.read(app,file)
-                    if(text.isBlank()){partial=true;null}else SlideMatcher.Deck(f.cmid,file.name,text)
+                    if(text.isBlank()){partial=true;null}else SlideMatcher.Deck(f.cmid,file.name,text,SlideMatcher.explicitDate(f.name))
                 }catch(e:CancellationException){throw e}catch(e:MoodleAuthRequired){throw e}catch(_:Exception){partial=true;null}
             }
-            val ranked=SlideMatcher.rank(decks,transcript.lines.joinToString(" "){it.text}).filter{it.terms.isNotEmpty()}
+            val ranked=SlideMatcher.rank(decks,transcript.lines.joinToString(" "){it.text},java.time.Instant.ofEpochMilli(l.recordedAtMs).atZone(java.time.ZoneId.of("Asia/Jerusalem")).toLocalDate()).filter{it.terms.isNotEmpty()}
             choices.candidates(id,JSONArray().apply{ranked.take(5).forEach { m ->
                 put(JSONObject().put("id",m.deck.id).put("name",m.deck.name).put("terms",JSONArray(m.terms.take(12))).put("termCount",m.terms.size))
             }}.toString())

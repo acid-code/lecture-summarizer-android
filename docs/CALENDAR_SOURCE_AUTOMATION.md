@@ -26,7 +26,7 @@ Manual material changes bump a per-lecture revision. Explicit rebuilds synchroni
 
 Newly finalized normal uploads record their uploaded material revision and the completed job’s explicit density; the poller downloads that density rather than an unrelated latest summary. Attaching initial draft materials does not falsely label a yet-unbuilt summary as outdated. Historical PDFs and unobserved sibling jobs have no recoverable server-side material-version provenance; this implementation tracks revisions locally going forward, and treats unknown versions conservatively after a change. A normal legacy ASR/reprocess path may leave a conservative outdated label until an explicit versioned rebuild. This is not a server-wide artifact provenance migration.
 
-Search distinguishes queued, unmetered-network wait, battery pause, checking, partial, sign-in required, no course/no match, error and disabled states. Automatic slide search is separately switchable in settings. “Check again” requires it to be enabled. Searches remain unmetered-only. Matches are **suggestions only**, not automatic attachments, pending real-data matcher repair/validation (see BIOTECH_MATCHER_VERIFICATION.md). Manual choices/rejections remain authoritative.
+Search distinguishes queued, unmetered-network wait, battery pause, checking, partial, sign-in required, no course/no match, error and disabled states. Automatic slide search is separately switchable in settings. “Check again” requires it to be enabled. Searches remain unmetered-only. Matches are **suggestions only**, not automatic attachments, pending broader matcher validation (see BIOTECH_MATCHER_VERIFICATION.md). Manual choices/rejections remain authoritative.
 
 ## Verification boundary
 
