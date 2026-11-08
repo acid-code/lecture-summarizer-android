@@ -64,8 +64,18 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             // Live runs send slides once (ASR spelling hints) and skip course context; the final run sends everything.
             if (!live || lecture.uploadedSlides.isEmpty()) for ((i, s) in lecture.allSlides.withIndex()) {
                 val uri = Uri.parse(s)
-                val mime = applicationContext.contentResolver.getType(uri) ?: "application/pdf"
-                (applicationContext.contentResolver.openInputStream(uri) ?: error(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.slides_error))).use { api.uploadSlides(remote, il.ac.tau.lecturesummarizer.slides.slideUploadName(lecture,s){displayName(Uri.parse(it))}, mime, it, replaceAll = i == 0,range=lecture.slideRanges[s]) }
+                val localName = displayName(uri)
+                val uploadName = il.ac.tau.lecturesummarizer.slides.slideUploadName(lecture, s) { displayName(Uri.parse(it)) }
+                // PPTX → local PDF when possible so production figures use full-page renders (no LibreOffice on Vercel).
+                val deck = runCatching { il.ac.tau.lecturesummarizer.slides.DeckUpload.open(applicationContext, uri, localName) }
+                    .getOrElse { error(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.slides_error)) }
+                val remoteName = when {
+                    deck.mime == "application/pdf" && uploadName.endsWith(".pptx", true) ->
+                        uploadName.replace(Regex("\\.pptx$", RegexOption.IGNORE_CASE), ".pdf")
+                    deck.mime == "application/pdf" && !uploadName.endsWith(".pdf", true) -> deck.name
+                    else -> uploadName
+                }
+                deck.stream.use { api.uploadSlides(remote, remoteName, deck.mime, it, replaceAll = i == 0, range = lecture.slideRanges[s]) }
                 repo.updateLecture(id) { l -> l.copy(uploadedSlides = (if (i == 0) emptyList() else l.uploadedSlides) + s) }
             }
             // Course context: lecture override (single) or all course files (max 3). First replaces, rest are added.

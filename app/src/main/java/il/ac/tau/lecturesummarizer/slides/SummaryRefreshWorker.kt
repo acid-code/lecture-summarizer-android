@@ -30,9 +30,18 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
             // First attempt syncs all current decks. Later attempts resume already-started density jobs.
             if(densities.none{f.pendingJob(id,it,rev)!=null}) {
                 if(l.allSlides.isEmpty())api.clearSlides(remote)
-                l.allSlides.forEachIndexed{index,raw->val uri=Uri.parse(raw);app.contentResolver.openInputStream(uri)!!.use{
-                    api.uploadSlides(remote,slideUploadName(l,raw){displayName(app,it)},app.contentResolver.getType(uri) ?: "application/pdf",it,replaceAll=index==0,range=l.slideRanges[raw])
-                }}
+                l.allSlides.forEachIndexed{index,raw->
+                    val uri=Uri.parse(raw)
+                    val localName=displayName(app,raw)
+                    val uploadName=slideUploadName(l,raw){displayName(app,it)}
+                    val deck=DeckUpload.open(app,uri,localName)
+                    val remoteName=when{
+                        deck.mime=="application/pdf" && uploadName.endsWith(".pptx",true)->uploadName.replace(Regex("\\.pptx$",RegexOption.IGNORE_CASE),".pdf")
+                        deck.mime=="application/pdf" && !uploadName.endsWith(".pdf",true)->deck.name
+                        else->uploadName
+                    }
+                    deck.stream.use{api.uploadSlides(remote,remoteName,deck.mime,it,replaceAll=index==0,range=l.slideRanges[raw])}
+                }
                 app.repo.updateLecture(id){it.copy(uploadedSlides=it.allSlides)}
             }
             val until=System.currentTimeMillis()+7*60_000
