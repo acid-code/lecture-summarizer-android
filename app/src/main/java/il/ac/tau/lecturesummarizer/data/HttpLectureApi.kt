@@ -186,6 +186,7 @@ class HttpLectureApi(
         }
         val body = JSONObject().put("source", import.source).put("external_id", import.externalId)
             .put("title", import.title).put("language", import.language).put("segments", segs)
+        import.videoDurationSec?.takeIf { it > 0 }?.let { body.put("video_duration_sec", it) }
         return postJson("/v1/lectures/$lectureRemoteId/transcript/import", body).optString("job_id").ifBlank { null }
     }
 

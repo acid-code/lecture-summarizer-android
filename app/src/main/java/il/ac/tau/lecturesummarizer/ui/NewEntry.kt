@@ -67,8 +67,19 @@ object PanoptoFetch {
         status[lectureId] = LOADING
         scope.launch {
             val r = runCatching {
-                val srt = MoodleClient.of(MoodleStore(app).baseUrl).downloadCaptions(PanoptoRecording(id, l.panoptoTitle ?: "", l.panoptoUrl ?: Panopto.HOST))
-                if (Panopto.parseSrt(srt).isEmpty()) error("Captions are empty")
+                val client = MoodleClient.of(MoodleStore(app).baseUrl)
+                val rec = PanoptoRecording(id, l.panoptoTitle ?: "", l.panoptoUrl ?: Panopto.HOST)
+                val info = runCatching { client.deliveryInfo(rec) }.getOrNull()
+                val videoSec = info?.durationSec?.takeIf { it > 0 }
+                if (videoSec != null) app.repo.updateLecture(lectureId) { it.copy(panoptoDurationMs = (videoSec * 1000).toLong()) }
+                val srt = client.downloadCaptions(rec)
+                val segs = Panopto.parseSrt(srt)
+                if (!CaptionQuality.captionsUsable(segs, videoSec)) {
+                    // Cascade to audio (Wi‑Fi preferred) instead of leaving empty captions for upload.
+                    app.repo.updateLecture(lectureId) { it.copy(panoptoSrtPath = null, panoptoAudio = true, segments = emptyList()) }
+                    il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(app, lectureId, wifiOnly = true)
+                    return@runCatching
+                }
                 val f = File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srt) }
                 app.repo.updateLecture(lectureId) { it.copy(panoptoSrtPath = f.absolutePath) }
             }

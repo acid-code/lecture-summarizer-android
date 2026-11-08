@@ -139,6 +139,8 @@ fun JSONObject.optStringOrNull(k: String): String? = if (isNull(k) || !has(k)) n
 data class TranscriptImport(
     val source: String, val externalId: String, val title: String, val language: String,
     val segments: List<il.ac.tau.lecturesummarizer.moodle.CaptionSegment>,
+    /** Real Panopto video length (seconds) when known — server rejects thin captions vs this. */
+    val videoDurationSec: Double? = null,
 )
 
 /** Backfill for lectures imported before panoptoDurationMs existed: last caption end of the cached SRT. */

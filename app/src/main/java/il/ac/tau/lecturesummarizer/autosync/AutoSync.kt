@@ -155,19 +155,30 @@ object AutoSyncPlanner {
 /** Headless Panopto captions import into an existing lecture (same flow as the Panopto import screen). */
 object PanoptoImporter {
     suspend fun importCaptions(app: LectureApp, lectureId: String, client: MoodleClient, rec: PanoptoRecording) {
+        val info = runCatching { client.deliveryInfo(rec) }.getOrNull()
+        val videoSec = info?.durationSec?.takeIf { it > 0 }
+        val videoMs = ((videoSec ?: 0.0) * 1000).toLong()
         val srtText = client.downloadCaptions(rec)
         val segs = Panopto.parseSrt(srtText)
-        if (segs.isEmpty()) error("Captions are empty")
         val repo = app.repo
+        if (!CaptionQuality.captionsUsable(segs, videoSec)) {
+            repo.updateLecture(lectureId) {
+                it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl,
+                    panoptoSrtPath = null, panoptoAudio = true, panoptoDurationMs = videoMs.takeIf { d -> d > 0 } ?: it.panoptoDurationMs,
+                    segments = emptyList(), error = null)
+            }
+            il.ac.tau.lecturesummarizer.panopto.PanoptoAudioWorker.enqueue(app, lectureId, wifiOnly = true)
+            return
+        }
         val srtFile = File(app.filesDir, "panopto/$lectureId.srt").apply { parentFile?.mkdirs(); writeText(srtText) }
-        repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
+        repo.updateLecture(lectureId) { it.copy(panoptoId = rec.deliveryId, panoptoTitle = rec.title, panoptoUrl = rec.viewerUrl, panoptoSrtPath = srtFile.absolutePath, panoptoDurationMs = videoMs.takeIf { d -> d > 0 } ?: (segs.maxOf { s -> s.t1 } * 1000).toLong()) }
         val api = ApiProvider.get(app.settings)
         val l = repo.lecture(lectureId)!!
         val c = repo.course(l.courseId) ?: error("Course missing")
         val courseRemote = c.remoteId ?: api.createCourse(c.name).also { rid -> repo.updateCourse(c.id) { it.copy(remoteId = rid) } }
         val remote = l.remoteId ?: api.createLecture(courseRemote, l.title, l.recordedAtMs).also { rid -> repo.updateLecture(lectureId) { it.copy(remoteId = rid) } }
         JobKick.kick(lectureId)
-        val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, Panopto.languageOf(segs), segs))
+        val job = api.importTranscript(remote, TranscriptImport("panopto", rec.deliveryId, rec.title, Panopto.languageOf(segs), segs, videoDurationSec = videoSec))
             ?: error("Server didn't start a captions job")
         repo.updateLecture(lectureId) { it.copy(jobId = job, liveJob = false, state = LectureState.PROCESSING, error = null, stage = null, stageDetail = null, progress = 0) }
         JobPollWorker.enqueue(app, lectureId, replace = true)

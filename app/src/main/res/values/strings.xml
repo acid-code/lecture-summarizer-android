@@ -342,6 +342,9 @@
     <string name="materials_busy">החומרים עודכנו. העיבוד כבר התחיל; אפשר לעדכן את הסיכום לאחר שיסתיים.</string>
     <string name="lecture_deleted">השיעור נמחק</string>
     <string name="captions_imported_toast">הכתוביות יובאו. מכינים סיכום.</string>
+    <string name="captions_cascade_toast">הכתוביות קצרות/חסרות — מורידים שמע מההווידאו במקום.</string>
+    <string name="captions_cascade_audio">כתוביות חסרות (וידאו %1$s) — הורדת שמע</string>
+    <string name="captions_thin_no_audio">הכתוביות קצרות מדי לווידאו (%1$s) ואין שמע זמין להורדה.</string>
     <string name="audio_wait_wifi">הורדת השמע ממתינה לרשת אלחוטית.</string>
     <string name="audio_downloading">מורידים שמע…</string>
     <string name="transcript_unuploaded">השיעור עדיין לא הועלה. אפשר להאזין להקלטה שבמכשיר.</string>
