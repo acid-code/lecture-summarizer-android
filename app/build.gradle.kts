@@ -20,8 +20,8 @@ android {
         applicationId = "il.ac.tau.lecturesummarizer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 20
+        versionName = "0.2.0-captions"
         buildConfigField("String", "DEFAULT_BASE_URL", "\"${prop("lecture.baseUrl", "http://10.0.2.2:8000")}\"")
         buildConfigField("String", "DEFAULT_API_TOKEN", "\"${prop("lecture.apiToken", "")}\"")
         buildConfigField("boolean", "DEFAULT_MOCK", prop("lecture.mock", "true"))
@@ -45,6 +45,11 @@ android {
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize="2g"; if(!project.hasProperty("screenshots") || it.name.contains("Release"))it.exclude("**/PolishScreenshotsTest*", "**/CalendarV2ScreenshotsTest*", "**/CalendarV3ScreenshotsTest*", "**/CalendarV4ScreenshotsTest*", "**/StudyToolsScreenshotsTest*", "**/HomeCompactScreenshotsTest*", "**/PhoneTypographyScreenshotsTest*", "**/StudyFixesScreenshotsTest*"); it.systemProperty("roborazzi.test.record",project.findProperty("screenshots")?.toString() ?: "false") } } }
     buildFeatures { compose = true; buildConfig = true }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
@@ -73,4 +78,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // On-device Zipformer (Hebrew streaming ASR) + DictaLM GGUF cleanup.
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
+    implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
 }

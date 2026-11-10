@@ -43,7 +43,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
   }
  }
 }
-@Composable fun HomeScreen(app:LectureApp,onOpen:(String)->Unit,onSettings:()->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit){
+@Composable fun HomeScreen(app:LectureApp,onOpen:(String)->Unit,onSettings:()->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onLiveCaptions:()->Unit={}){
  CompactCalendarTypography {
 
  val all by app.repo.lectures.collectAsState();val courses by app.repo.courses.collectAsState();val unread by app.unread.ids.collectAsState()
@@ -73,7 +73,7 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
  val next=calendar.filter{it.event.end>now}.minByOrNull{it.event.start}
  val missed=calendar.filter{it.event.end<now && it.event.start>now-7*86400_000L && !hasLectureFor(app,it)}.sortedByDescending{it.event.start}.distinctBy{it.rule.targetCourseId ?: it.rule.targetCourse}.take(3)
  AppScaffold(stringResource(R.string.home_title),logo=true,actions={IconButton(onClick=onSettings){Icon(Icons.Default.Settings,stringResource(R.string.settings))}}){pad->
-  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty(),compact=true,courseCount=watchStore.rules().filter{it.enabled&&it.valid}.map{it.targetCourseId ?: it.targetCourse}.distinct().size,onEnable={
+  HomeContent(all,courses,unread,next,missed,loading,Modifier.padding(pad),onOpen,onCourses,onRecord,onPanopto,{setup=true},calendarError,{retry++},onLiveCaptions=onLiveCaptions,calendarStatus=if(available)({CalendarWatchStatus(calendar,selectedCalendars,automatic,lastScan,calendarError || scanError,{watch=true},{setup=true},loading=loading,trackingEnabled=app.settings.calendarRulesEnabled,watchConfigured=watchStore.rules().any{it.enabled && it.valid} && watchStore.sources().isNotEmpty(),compact=true,courseCount=watchStore.rules().filter{it.enabled&&it.valid}.map{it.targetCourseId ?: it.targetCourse}.distinct().size,onEnable={
    if(watchStore.sources().isEmpty()||watchStore.rules().none{it.enabled&&it.valid})setup=true else {
     app.settings.calendarRulesEnabled=true;watchStore.automatic=true;CalendarRuleWorker.schedule(app,true);retry++
    }
@@ -84,11 +84,18 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 
  }
 }
-@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null){
+@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null,onLiveCaptions:()->Unit={}){
  CompactCalendarTypography {
 
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
   item(key="Dashboard:static:1"){Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
+  item(key="Dashboard:liveCaptions"){
+   OutlinedButton(onClick=onLiveCaptions,modifier=Modifier.fillMaxWidth()){
+    Icon(Icons.Default.Hearing,null);Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start){
+     Text(stringResource(R.string.live_captions));Text(stringResource(R.string.live_captions_hint),style=MaterialTheme.typography.bodySmall)
+    }
+   }
+  }
   item(key="Dashboard:static:2"){Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer),elevation=CardDefaults.cardElevation(0.dp)){
    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
     Text(stringResource(if(next!=null && next.event.start<=System.currentTimeMillis())R.string.home_now else R.string.home_next),style=MaterialTheme.typography.labelMedium)

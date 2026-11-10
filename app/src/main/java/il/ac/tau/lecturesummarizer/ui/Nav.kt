@@ -37,7 +37,8 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
     val start = androidx.compose.runtime.remember { if (app.settings.onboardingDone || app.repo.courses.value.isNotEmpty()) "home" else "onboarding" }
     Scaffold(bottomBar={if(route in setOf("home","courses","search"))MainTabs(route){target->nav.navigate(target){popUpTo("home"){saveState=true};launchSingleTop=true;restoreState=true}}}){outer->
     NavHost(nav, startDestination = start,modifier=Modifier.padding(PaddingValues(bottom=outer.calculateBottomPadding()))) {
-        composable("home"){HomeScreen(app,onOpen={nav.navigate("job/$it")},onSettings={nav.navigate("settings")},onCourses={nav.navigate("courses")},onRecord={recordCourse(it)},onPanopto={course,start->nav.navigate("panoptoCourse/$course?start=${start ?: 0L}")})}
+        composable("home"){HomeScreen(app,onOpen={nav.navigate("job/$it")},onSettings={nav.navigate("settings")},onCourses={nav.navigate("courses")},onRecord={recordCourse(it)},onPanopto={course,start->nav.navigate("panoptoCourse/$course?start=${start ?: 0L}")},onLiveCaptions={nav.navigate("liveCaptions")})}
+        composable("liveCaptions"){LiveCaptionsScreen(app,onBack={nav.popBackStack()})}
         composable("search"){SearchScreen(app){nav.navigate("job/$it")}}
         composable("panoptoCourse/{courseId}?start={start}",arguments=listOf(androidx.navigation.navArgument("start"){type=androidx.navigation.NavType.LongType;defaultValue=0L})){e->val courseId=e.arguments!!.getString("courseId")!!;val sourceTime=e.arguments!!.getLong("start").takeIf{it>0}
             PanoptoImportScreen(app,"",onBack={nav.popBackStack()},onStarted={},newCourseId=courseId,sourceTime=sourceTime,onCreated={id->nav.navigate("job/$id"){popUpTo("panoptoCourse/{courseId}?start={start}"){inclusive=true}}},onRecordInstead={recordCourse(courseId)})
