@@ -1,16 +1,18 @@
-# Local lecture captions on a computer
+# Local lecture captions on the phone
 
-This is a build plan for a program that runs on a personal computer. It listens to a lecture, writes live Hebrew–English captions, and fixes them on the same machine. Nothing in this plan runs on the phone, and nothing in this plan changes the lecture-summarizer API.
+This is a build plan for **on-device captions inside the Android lecture-summarizer app**. It listens while the user records (or from a home “Live captions” entry), shows live Hebrew–English lines, and cleans them on the phone. Nothing in this plan changes the lecture-summarizer API, and nothing requires a desktop companion.
 
 Hand this file to a later implementation session on its own. The decisions below are already made.
 
+**Correction from the first draft:** this is phone-side only (not a PC program). Cleanup uses a **~1 GB** Instruct GGUF, not the 7.5 GB 12B weights.
+
 ## Outcome
 
-A local window on the computer does three things.
+The Android app does three things.
 
-1. **With a lecture.** The user is already recording, or they create a lecture and then start. If they have agreed to the model, captions start on their own. The transcript stays with that lecture on this computer.
-2. **Without a lecture.** Opened from the home screen of this program. At the end the user saves a `.txt` file or dumps the text. Dump leaves nothing behind.
-3. **Cleanup while the words are still on screen.** A small speech model writes each line immediately. A Hebrew language model then rewrites that same line in place.
+1. **With a lecture.** The user is already recording, or they create a lecture and then start. If they have agreed to the model, captions start on their own. The transcript stays with that lecture on the device.
+2. **Without a lecture.** Opened from the app home screen. At the end the user saves a `.txt` file or dumps the text. Dump leaves nothing behind.
+3. **Cleanup while the words are still on screen.** A small speech model writes each line immediately. A Hebrew language model (~1 GB on disk) then rewrites that same line in place.
 
 The summary of a lecture still comes from the uploaded audio and the existing server. This transcript is for reading locally. Do not add an API endpoint, do not upload the model, and do not send the caption text to the server as part of this work.
 
@@ -20,28 +22,27 @@ Use two models. They do different jobs.
 
 ### Speech, live lines
 
-Default: [`ivrit-ai/zipformer2-66m-streaming-he`](https://huggingface.co/ivrit-ai/zipformer2-66m-streaming-he).
+Default: [`ivrit-ai/zipformer2-66m-streaming-he`](https://huggingface.co/ivrit-ai/zipformer2-66m-streaming-he) via **sherpa-onnx** (Android JNI / AAR).
 
-- 66M Zipformer2 transducer, Hebrew fine-tune, about 70 MB in int8 sherpa-onnx.
+- 66M Zipformer2 transducer, Hebrew fine-tune, about **70 MB** in int8.
 - It already runs as on-device Hebrew transcription at live-transcribe.ivrit.ai.
-- It commits audio in **1.28 second** chunks. That chunk is the latency floor, whatever the CPU speed is.
-- On the ScribeIL board (v1.5, 15 Oct 2026, five Hebrew sets) it scores **9.3%** average word error rate. The best open Hebrew model on that board, ivrit-ai Whisper large-v3, scores 6.8%. Turbo scores 7.1%.
+- It commits audio in **1.28 second** chunks. That chunk is the latency floor.
+- On the ScribeIL board (v1.5, 15 Oct 2026) it scores **9.3%** average WER (vs Whisper large-v3 HE at 6.8%).
 - License of the upstream weights: CC-BY-4.0 (Yakov Kolani / thewh1teagle). Confirm the file’s license card before shipping.
 
-Higher accuracy, still local, when a 1.28 s lag is acceptable to trade for fewer errors: [`ivrit-ai/whisper-large-v3-turbo`](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo) through faster-whisper or whisper.cpp. Force `language=he`. Its language-detection and translation heads were damaged by the Hebrew fine-tune. It is not a streaming transducer: feed it windows of a few seconds. On a computer with a GPU this is fast enough for near-live captions. Prefer the Zipformer when the machine is CPU-only.
+Do **not** pull Whisper large / turbo onto the phone for v1. Too heavy for the live path; Zipformer is the phone speech default.
 
-### Cleanup, the line rewrite
+### Cleanup, the line rewrite (~1 GB)
 
-Default on a computer: [`dicta-il/DictaLM-3.0-Nemotron-12B-Instruct`](https://huggingface.co/dicta-il/DictaLM-3.0-Nemotron-12B-Instruct-GGUF), file `DictaLM-3.0-Nemotron-12B-Instruct-Q4_K_M.gguf` (**7.49 GB**).
+Default: [`dicta-il/DictaLM-3.0-1.7B-Instruct`](https://huggingface.co/dicta-il/DictaLM-3.0-1.7B-Instruct) at **Q4_K_M**, about **1.11 GB** ([community GGUF](https://huggingface.co/EMD123/DictaLM-3.0-1.7B-Instruct-Q4_K_M-GGUF) or an official GGUF if published).
 
-- Continued from NVIDIA Nemotron Nano 12B on about 100B Hebrew tokens plus English. Apache-2.0.
-- Hybrid state-space backbone, so a long prompt costs less memory than a normal 12B transformer.
-- Dicta’s Hebrew chat suite: summarization 33.3, translation 13.5, nikud **76.1**. Nikud is the closest published signal that it can spell Hebrew. It is not a code-switch test.
-- English benchmarks of the base model are largely retained, so fixing English words inside a Hebrew line is plausible. It has not been measured on this exact task.
+- Same DictaLM 3.0 training recipe as the larger Instruct models; weaker generation than 12B (summarization 9.7, nikud 52.8) but sized for phones.
+- Serve with **llama.cpp Android** (or an equivalent on-device GGUF runtime the app already can vendor). Prefer CPU + optional GPU/NPU backends the library supports; do not require a separate PC.
+- Use the **Instruct** weights. Do **not** use Thinking variants (reasoning traces blow the live budget).
 
-Smaller computer, or a machine that cannot hold 7.5 GB: [`dicta-il/DictaLM-3.0-1.7B-Instruct`](https://huggingface.co/dicta-il/DictaLM-3.0-1.7B-Instruct) at Q4_K_M, **1.11 GB** ([community GGUF](https://huggingface.co/EMD123/DictaLM-3.0-1.7B-Instruct-Q4_K_M-GGUF)). Same training recipe, much weaker generation (summarization 9.7, nikud 52.8). Use the Instruct weights. Do not use the Thinking variant. Thinking spends tokens before the answer and misses the live budget.
+**Out of default for phone:** DictaLM 12B Q4 (~7.5 GB). Too large for typical device free space and RAM. Do not offer it in Settings for v1.
 
-Backup rewriter if the 12B GGUF is awkward to serve: Gemma 3 12B instruct. On the same suite it summarizes a bit better (39.5) and spells Hebrew less reliably (nikud 51.8).
+Backup rewriter only if 1.7B GGUF packaging fails: a similarly sized Hebrew-capable Instruct GGUF (~1 GB). Do not fall back to Hebrish / English-matrix models.
 
 ### What the cleanup model must do
 
@@ -53,70 +54,63 @@ Given one caption line, plus the lecture’s slide terms when a lecture is open:
 - Leave Hebrew as Hebrew and leave English that is already in Latin letters as English.
 - Do not translate the line. Do not add nikud.
 
-Nobody has published a score for that Hebrew-letter English restoration. A slide glossary has to do the reliable part. The language model handles grammar and terms the glossary does not contain.
+The slide glossary does the reliable term restoration; the LM handles grammar and unknown terms.
 
 ### Do not use these for this task
 
-They fail the Hebrew lecture, or they solve the opposite problem (English sentences with a Hebrew word dropped in).
-
 | Model | What goes wrong |
 | --- | --- |
-| Hebrish Sabich, Jachnun, Whisper-Hebrish, Whisper-Hebrish-Small-ACFT | English-matrix dictation. They write Hebrew in Latin letters and are specified to never write Hebrew script. Whisper-Hebrish-Small is a fine-tune of `whisper-small.en`. |
-| Gemma 3 1B, stock Qwen3 1.7B, Llama 3.3 70B as a Hebrew speller | Nikud scores around 3–4. They can sound fluent and still misspell Hebrew, or they translate the line. |
-| Qwen3 thinking checkpoints in Dicta’s comparison | Translation near 0, nikud under 5, and the reasoning trace adds delay. |
-| Stock Whisper tiny/base | Hebrew collapses. A small listening test put whisper-base near 53% word error. |
-| Nemotron 3.5 0.6B, Google Speech, GPT-4o transcribe on Hebrew media | ScribeIL: 33.5% (17.4% after a Hebrew fine-tune), 26.6%, and 16.3% overall with 38.9% on Kan captions. |
-| DictaBERT | Hebrew morphology only. It does not rewrite a sentence. |
-| ivrit Whisper as the cleanup model | Right Hebrew recognizer. Hebrew training text usually spells English loans in Hebrew letters, so it tends to reproduce the failure this plan is fixing. |
-| DictaLM 3.0 24B Thinking | Best open Hebrew quality under 70B (nikud 86.9, summarization 56.9). The thinking trace makes it the wrong live rewriter. |
+| Hebrish Sabich, Jachnun, Whisper-Hebrish, Whisper-Hebrish-Small-ACFT | English-matrix dictation; never write Hebrew script. |
+| Gemma 3 1B, stock Qwen3 1.7B, Llama 3.3 70B as a Hebrew speller | Poor Hebrew spelling / translate the line. |
+| Qwen3 thinking / DictaLM Thinking checkpoints | Delay + weak nikud/translation on live rewrite. |
+| Stock Whisper tiny/base | Hebrew collapses (~50%+ WER in small tests). |
+| DictaBERT | Morphology only; does not rewrite a sentence. |
+| ivrit Whisper as the cleanup model | Tends to keep English loans in Hebrew letters. |
+| DictaLM 3.0 12B / 24B as phone defaults | Too large for v1 on-device (~7.5 GB+). |
 
-## Hardware
+## Hardware (phone)
 
-Check memory before captions start. Do not guess from “computers have a lot of RAM.”
+Check memory and free disk **before** captions start. Use `ActivityManager` / `ActivityManager.MemoryInfo` and `StatFs` on the models directory—not a desktop RAM table.
 
-| Machine | Speech | Cleanup | What to expect |
+| Device class | Speech | Cleanup | What to expect |
 | --- | --- | --- | --- |
-| Recent laptop, CPU only, 16 GB RAM | Zipformer | 1.7B Q4 | Speech is easy. A 30–60 token rewrite is on the order of 1–2 seconds. |
-| 16 GB RAM, no GPU, trying 12B Q4 | Zipformer | 12B only if about 10 GB is free | Weights are 7.49 GB. It can load and still be too slow for a live line (several seconds). Prefer 1.7B here. |
-| Apple silicon, 16 GB unified memory or more, or an 8 GB GPU | Zipformer, or Whisper turbo if a GPU is present | **12B Q4, this is the quality choice** | About 0.4–1.5 seconds to rewrite one finalized line. These speeds are engineering estimates, not a published benchmark of this task. |
+| Mid/high Android, ≥6 GB RAM, ≥2.5 GB free | Zipformer | 1.7B Q4 | Speech is easy. A short rewrite may take ~1–3 s on CPU; keep cleanup off the UI thread. |
+| Low RAM (≤4 GB installed) or &lt;2 GB free | Zipformer | **skip cleanup** | Show raw recognition; explain that cleanup needs free memory / a larger device. |
+| Very tight free disk (&lt;~1.3 GB for the GGUF + headroom) | Zipformer only after download fits | no download | Agreement offers download only when space is enough. |
 
-Before starting, read free RAM.
+Before starting:
 
-- **12B:** need about **10 GB free** (weights, runtime, and the speech model). If the computer has less than 16 GB installed, do not offer 12B.
-- **1.7B:** need about **2.5 GB free**, and at least 6 GB installed. A 4 GB machine does not get the cleanup model.
-- If free memory is short right now, say so and name the action: close other programs, then try again. Captions do not start the cleanup model on that attempt.
-- The speech model can still run when cleanup cannot. Tell the user that the lines will be the raw recognition.
-- Check again at the start of every session. Free memory moves. A passed check from yesterday is not a pass today.
-- If the user starts anyway while memory is tight, skip cleanup for that session. Do not let the language model push the recorder out of memory.
-
-Disk, once, before the download: the chosen GGUF plus about 256 MB. The Zipformer files are negligible next to that.
+- **1.7B Q4:** need about **2.5 GB free RAM** to load safely with the speech model, and enough **disk** for ~1.11 GB + ~256 MB headroom.
+- If free memory is short, say so (close other apps) and **do not** start cleanup. Speech can still run.
+- Check again at the start of every session.
+- If the user starts anyway while memory is tight, skip cleanup for that session. Never let the LM push the recorder out of memory (OOM the recording process).
 
 ## Download, agreement, and freeing space
 
 - Nothing is downloaded on install, on launch, or at the start of a lecture.
-- The first time captions would start, show an agreement. It states the size, that the download happens once, that a session uses extra CPU and battery or power, and that the file can be deleted later from Settings.
+- The first time captions would start, show an agreement: size (~1.1 GB cleanup + ~70 MB speech), one-time download, CPU/battery cost, deletable later from Settings.
 - The agree button is the only thing that starts the download.
-- Download over Wi-Fi or an unmetered network only. On a computer, treat a metered tether the same way: wait, do not use it. There is no “download on a metered connection” button.
-- If the file is already complete (larger than 900 MB for the 1.7B Q4, or the 12B file’s real size), do not download again.
-- Settings keeps **Free this space** after the file is there. That cancels an in-progress download, deletes the file and any partial file, and clears the agreement so a later run cannot fetch it on its own. Getting it back requires the agreement again.
-- Write to a `.partial` file and rename only after the byte count matches. A short file is not “installed.”
+- Download over **Wi‑Fi / unmetered** only (`NetworkCapabilities.NET_CAPABILITY_NOT_METERED`). No “download on cellular” button in v1.
+- If the cleanup file is already complete (size ≥ ~900 MB for the 1.7B Q4, or the exact published byte size), do not download again. Same for Zipformer assets once complete.
+- Settings keeps **Free this space**: cancel in-progress download, delete model files and partials, clear the agreement. Getting models back requires agreeing again.
+- Write to a `.partial` file and rename only after the byte count matches.
 
-Store the files under the program’s own data directory, for example `models/zipformer/` and `models/dictalm-3.0-12b-instruct-q4.gguf`. Do not put them in the lecture folder.
+Store under the app’s private files dir, e.g. `files/models/zipformer/` and `files/models/dictalm-3.0-1.7b-instruct-q4.gguf`. Do not put them in the lecture media folder.
 
 ## Pipeline
 
 ```
-microphone
+microphone (existing recorder)
   → Zipformer, 1.28 s chunks
   → a line, cut on a pause or on sentence punctuation
   → show that line immediately
   → glossary replacements on that line
-  → DictaLM rewrites the line
+  → DictaLM 1.7B rewrites the line
   → replace the on-screen line in place
   → keep both the raw line and the cleaned line
 ```
 
-Run cleanup only on a finished line, not on every partial hypothesis. Partials flicker.
+Run cleanup only on a finished line, not on every partial hypothesis.
 
 Cleanup prompt, one line, no JSON:
 
@@ -131,65 +125,64 @@ Slide terms: gradient descent, backpropagation
 Line: האלגוריתם של גרדיאנט דיסנט מעדכן את המשקלים
 ```
 
-Expected shape of the answer: `האלגוריתם של gradient descent מעדכן את המשקלים`
+Expected shape: `האלגוריתם של gradient descent מעדכן את המשקלים`
 
-The glossary runs first and is allowed to override the model. Build it from the lecture’s slide text when a lecture is open. Match a Hebrew-letter span to a slide term by a phonetic key (Hebrew letters mapped to rough Latin sounds, then a small edit distance against the slide vocabulary). Common function words stay Hebrew. If the slides do not contain the term, leave the span for the language model. The glossary match should finish in well under 50 ms.
+Glossary runs first and may override the model. Build from lecture slide text when a lecture is open. Phonetic key + small edit distance vs slide vocabulary; common function words stay Hebrew. Match should finish in well under 50 ms.
 
-If the model returns a translation, an empty string, or a line whose length is wildly different, keep the glossary-adjusted line and do not show the model output.
+If the model returns a translation, empty string, or wildly different length, keep the glossary-adjusted line.
 
-Call the model with a short context: the system rule, the slide terms (cap the list), and the one line. Do not send the whole lecture on every line. A 12B model on a GPU stays near a second only if the prompt stays small.
+Keep the prompt small: system rule, capped slide terms, one line.
 
 ## Right-to-left and left-to-right
 
-Each line chooses its own direction when it is drawn. The window’s language does not decide the line.
+Each line chooses its own direction when drawn (Compose / bidi), independent of the app language.
 
-- Count Hebrew letters and Latin letters. Digits and punctuation count for neither.
-- More Hebrew letters → right-to-left. English words inside that line still read left-to-right, which is ordinary bidi.
-- More Latin letters → left-to-right.
-- A tie, or a line with no letters, keeps the direction of the line above. The first line of a session, if it has no letters, follows the UI language.
+- Count Hebrew letters vs Latin letters (digits/punctuation count for neither).
+- More Hebrew → RTL (English runs stay LTR inside via ordinary bidi).
+- More Latin → LTR.
+- Tie / no letters → previous line’s direction; first line follows UI locale if empty.
 
-Apply the same rule every time the transcript is shown, including after a restart. The `.txt` export is plain UTF-8. Direction is not stored in that file.
+`.txt` export is plain UTF-8; direction is not stored in that file.
 
 ## Controls
 
 ### Recording and an existing lecture
 
-The big Pause and Stop belong to the recording.
+Reuse the existing Pause / Stop recording controls.
 
 - **Pause recording** pauses the microphone and the captions together.
 - **Resume recording** restores the caption state from before that pause. If captions had been stopped, they stay stopped.
 - **Stop recording** ends the lecture. The transcript stays on the lecture.
 
-Captions have their own thin row, so they can pause while the microphone keeps going.
+Captions have their own thin row so they can pause while the mic keeps going:
 
 - Running: “Captions on”, **Pause**, **Stop**.
-- **Pause** freezes the text, microphone continues. The row becomes **Continue**.
-- **Stop** turns captions off for the rest of this recording. Lines already written stay. The row becomes **Start again**.
-- There is no second big red Stop.
+- **Pause** freezes the text; mic continues → row becomes **Continue**.
+- **Stop** turns captions off for the rest of this recording; existing lines stay → **Start again**.
 
-Captions start on their own only when all of these are true: the user has agreed, the files are on disk, and the memory check passed. Otherwise the recording proceeds and the row explains why captions are off.
+Captions auto-start only when: user agreed, files on disk, memory/disk checks passed. Otherwise recording proceeds and the row explains why captions are off.
 
 ### Home, no lecture
 
-Put **Live captions** on the home screen, under the greeting, including when no lecture is scheduled.
+Put **Live captions** on the home screen (under the greeting), including when no lecture is scheduled.
 
-That screen has its own Pause, Continue, and Stop. Text is held in memory for the session. Stop then offers two actions:
+That screen has its own Pause / Continue / Stop. Text is in memory for the session. Stop then offers:
 
-- **Save as .txt** writes the cleaned lines to a file the user picks, or to the program’s export folder if they do not pick.
-- **Dump** deletes the session. No file, no lecture.
+- **Save as .txt** (SAF picker or app export folder).
+- **Dump** deletes the session (no file, no lecture).
 
 ### New lecture
 
-Create the lecture first, the same way a new recording already creates one, then start. Captions follow the recording rules above and are stored on that lecture from the first line.
+Create the lecture first (same as today’s new recording), then start. Captions follow the recording rules and are stored on that lecture from the first line.
 
 ## What is stored on a lecture
 
-Next to the lecture, a UTF-8 JSON file the program owns, one object per line:
+Next to the lecture, a UTF-8 JSON file the app owns, one object per line:
 
 - `t0`, `t1` in seconds from the start of the session
 - `raw` the speech-model text
-- `text` the line after glossary and cleanup
-- `cleaned` true when the language model’s rewrite was accepted
+- `text` after glossary and cleanup
+- `cleaned` true when the LM rewrite was accepted
 
 The lecture screen reads `text` and paints direction per line. Deleting the lecture deletes this file. Freeing the model does not delete transcripts.
 
@@ -197,42 +190,42 @@ Do not replace the audio. Do not mark the lecture as summarized. Do not call the
 
 ## Build order
 
-1. **Memory and files.** Detect installed RAM and free RAM. Agreement, one-time download, partial file, “already complete ⇒ do not fetch”, free-space action. No microphone yet.
-2. **Speech only.** Zipformer in, lines out, pause and stop, per-line direction. Dump or save `.txt` from the home screen.
-3. **Lecture file.** Attach the JSON transcript to a lecture. Start automatically when a recording starts and the gates pass. Recording pause and stop include captions. The caption row can pause or stop captions alone.
-4. **Glossary.** Slide terms in, Hebrew-letter spans out, before any language model.
-5. **Cleanup model.** Load 12B or 1.7B based on the memory check. Rewrite finished lines in place. Reject translations. Skip cleanup, not the recording, when memory is short.
-6. **Hand test** the lines in the next section on the real machine. Keep a note of latency for one line on that machine.
+1. **Memory, disk, files.** Detect free RAM/disk. Agreement, one-time download, partial file, completeness check, free-space action. No microphone yet.
+2. **Speech only.** Zipformer in, lines out, pause/stop, per-line direction. Dump or save `.txt` from home.
+3. **Lecture file.** Attach JSON transcript to a lecture. Auto-start when recording starts and gates pass. Recording pause/stop include captions; caption row can pause/stop alone.
+4. **Glossary.** Slide terms → Hebrew-letter span fixes before any LM.
+5. **Cleanup model.** Load 1.7B Q4 when memory allows. Rewrite finished lines in place. Reject translations. Skip cleanup (not recording) when memory is short.
+6. **Hand test** on a real phone; note per-line latency.
 
 ## Hand tests
 
-Run these on the computer that will be used. Pass means the on-screen line and the saved `text` match the intent, and the direction is the one in the table.
+Run on a physical Android device. Pass = on-screen line and saved `text` match intent, and direction matches the table.
 
 | Spoken line, as the speech model might write it | Intent | Direction |
 | --- | --- | --- |
-| האלגוריתם של גרדיאנט דיסנט מעדכן את המשקלים | Hebrew sentence, `gradient descent` in Latin if the slides say so | Right to left |
-| דיפ לרנינג הוא מקרה פרטי של למידה | `deep learning` restored, rest stays Hebrew | Right to left |
-| The gradient descent step updates the weights | English sentence, grammar allowed to be fixed, not translated | Left to right |
-| אז ה gradient descent כבר כתוב באותיות לטיניות | Leave the Latin term, fix Hebrew around it | Right to left |
-| בסדר | Hebrew, do not translate to “okay” | Right to left |
-| 12 | No letters, follow the previous line’s direction | Previous line |
+| האלגוריתם של גרדיאנט דיסנט מעדכן את המשקלים | Hebrew sentence, `gradient descent` in Latin if slides say so | RTL |
+| דיפ לרנינג הוא מקרה פרטי של למידה | `deep learning` restored, rest Hebrew | RTL |
+| The gradient descent step updates the weights | English sentence, not translated | LTR |
+| אז ה gradient descent כבר כתוב באותיות לטיניות | Keep Latin term, fix Hebrew around it | RTL |
+| בסדר | Hebrew, do not translate to “okay” | RTL |
+| 12 | No letters → previous direction | Previous |
 
 Also check:
 
-- Starting a recording with no agreement does not download and does not caption.
-- Agreeing on a metered connection waits.
-- A second session does not download again.
-- Free this space removes the file, and the next session does not download until a new agreement.
-- Pause captions, keep talking, confirm the new audio is recorded and no new line appears. Continue, confirm lines resume.
-- Stop captions, keep talking, confirm no new lines. Pause and resume the recording, confirm captions stay off.
-- Stop the recording, reopen the lecture, confirm the lines are still there and directions are unchanged.
-- Home session, Dump, confirm no file. Home session, Save as .txt, confirm a plain text file and no lecture.
-- With the cleanup model’s memory short, the speech lines still show and a sentence asks the user to close other programs.
+- Recording with no agreement → no download, no captions.
+- Agree on metered network → wait (no download).
+- Second session → no re-download.
+- Free this space → next session needs a new agreement.
+- Pause captions, keep talking → audio recorded, no new lines; Continue resumes.
+- Stop captions, keep talking → no new lines; pause/resume recording keeps captions off.
+- Stop recording, reopen lecture → lines and directions persist.
+- Home Dump → no file; Home Save → plain `.txt`, no lecture.
+- Cleanup memory short → raw speech lines still show + prompt to free memory.
 
 ## Out of scope
 
-- The phone app: its buttons, its home screen, and a model file on the phone.
+- A separate desktop / PC companion app.
 - Any change under `lecture-summarizer-api`.
-- Sending this transcript to the server or skipping the server’s transcription.
-- DictaLM 24B, Hebrish, and the other models in the failure table.
-- Training or fine-tuning. If the hand tests show the 12B model inventing technical spellings, extend the glossary. Do not start a training run as part of this plan.
+- Sending this transcript to the server or skipping the server’s ASR.
+- DictaLM 12B/24B as phone defaults; Hebrish and the other failure-table models.
+- Training or fine-tuning. If hand tests show bad technical spellings, extend the glossary first.
