@@ -41,14 +41,20 @@ class CaptionModelStore(private val context: Context) {
         return f.isFile && f.length() == CaptionModels.GGUF_BYTES
     }
 
+    /** Speech captions only need Zipformer (~70 MB). Cleanup GGUF is optional. */
+    fun speechReady(): Boolean = zipformerReady()
+
     fun modelsReady(): Boolean = zipformerReady() && ggufReady()
+
+    fun progressFraction(): Float =
+        (progressBytes.toFloat() / CaptionModels.DOWNLOAD_TOTAL_BYTES.toFloat()).coerceIn(0f, 1f)
 
     fun refreshReadyState() {
         if (modelsReady()) {
             downloadState = CaptionDownloadState.Ready
             lastError = null
         } else if (downloadState == CaptionDownloadState.Ready) {
-            downloadState = CaptionDownloadState.Idle
+            downloadState = if (agreed) CaptionDownloadState.Downloading else CaptionDownloadState.Idle
         }
     }
 

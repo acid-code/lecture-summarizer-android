@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,7 @@ import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.captions.CaptionRunState
 import il.ac.tau.lecturesummarizer.captions.CaptionSession
 import il.ac.tau.lecturesummarizer.captions.CaptionUiLine
+import kotlinx.coroutines.delay
 
 @Composable
 fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
@@ -55,6 +58,14 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
     DisposableEffect(Unit) {
         session.prepareGates()
         onDispose { session.release() }
+    }
+
+    // Keep download % / ready state fresh (worker runs in background).
+    LaunchedEffect(session) {
+        while (true) {
+            val s = session.prepareGates()
+            delay(if (s.needsSpeechDownload || s.cleanupDownloading) 400 else 1500)
+        }
     }
 
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -105,7 +116,7 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
     }
 
     AppScaffold(stringResource(R.string.live_captions), onBack = {
-        if (ui.lines.isNotEmpty() && ui.run != CaptionRunState.Off) showEnd = true else {
+        if ((ui.lines.isNotEmpty() || ui.partial.isNotBlank()) && ui.run != CaptionRunState.Off) showEnd = true else {
             session.dump(); onBack()
         }
     }) { pad ->
@@ -116,13 +127,29 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
             if (ui.status.isNotBlank()) {
                 Text(ui.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (ui.needsSpeechDownload || ui.cleanupDownloading) {
+                LinearProgressIndicator(
+                    progress = { ui.downloadProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    stringResource(R.string.captions_download_progress, ui.downloadPercent),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (denied) Text(stringResource(R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
-            CaptionLinesList(ui.lines, Modifier.weight(1f).fillMaxWidth())
+            CaptionLinesList(
+                lines = ui.lines,
+                partial = ui.partial,
+                partialDirection = ui.partialDirection,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 when (ui.run) {
                     CaptionRunState.Off, CaptionRunState.Stopped -> {
                         Button(
-                            enabled = !ui.needsAgreement && !ui.needsDownload,
+                            enabled = !ui.needsAgreement && !ui.needsSpeechDownload,
                             onClick = { tryStart() },
                             modifier = Modifier.weight(1f),
                         ) { Text(stringResource(R.string.captions_start)) }
@@ -166,10 +193,16 @@ fun CaptionsAgreementDialog(onAgree: () -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun CaptionLinesList(lines: List<CaptionUiLine>, modifier: Modifier = Modifier) {
+fun CaptionLinesList(
+    lines: List<CaptionUiLine>,
+    modifier: Modifier = Modifier,
+    partial: String = "",
+    partialDirection: LayoutDirection = LayoutDirection.Rtl,
+) {
     val listState = rememberLazyListState()
-    LaunchedEffect(lines.size) {
-        if (lines.isNotEmpty()) listState.animateScrollToItem(lines.lastIndex)
+    val count = lines.size + if (partial.isNotBlank()) 1 else 0
+    LaunchedEffect(count, partial) {
+        if (count > 0) listState.animateScrollToItem(count - 1)
     }
     LazyColumn(modifier, state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(lines, key = { it.id }) { line ->
@@ -179,6 +212,17 @@ fun CaptionLinesList(lines: List<CaptionUiLine>, modifier: Modifier = Modifier) 
                 textAlign = if (line.direction == LayoutDirection.Rtl) TextAlign.Right else TextAlign.Left,
                 style = MaterialTheme.typography.bodyLarge,
             )
+        }
+        if (partial.isNotBlank()) {
+            item(key = "partial") {
+                Text(
+                    partial,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = if (partialDirection == LayoutDirection.Rtl) TextAlign.Right else TextAlign.Left,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -192,6 +236,9 @@ fun CaptionControlRow(
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (ui.status.isNotBlank()) {
             Text(ui.status, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (ui.needsSpeechDownload || ui.cleanupDownloading) {
+            LinearProgressIndicator(progress = { ui.downloadProgress }, modifier = Modifier.fillMaxWidth())
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (ui.run) {
@@ -210,8 +257,11 @@ fun CaptionControlRow(
                 else -> Unit
             }
         }
-        if (ui.lines.isNotEmpty()) {
-            CaptionLinesList(ui.lines.takeLast(6), Modifier.fillMaxWidth().padding(top = 4.dp))
-        }
+        CaptionLinesList(
+            lines = ui.lines.takeLast(6),
+            partial = ui.partial,
+            partialDirection = ui.partialDirection,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
     }
 }

@@ -1,9 +1,12 @@
 package il.ac.tau.lecturesummarizer.captions
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -14,6 +17,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import il.ac.tau.lecturesummarizer.LectureApp
+import il.ac.tau.lecturesummarizer.MainActivity
 import il.ac.tau.lecturesummarizer.R
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -62,6 +66,13 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
                 )
                 runCatching { setForeground(info(pct(done))) }
             }
+            if (store.zipformerReady()) {
+                notifyUser(
+                    DONE_SPEECH_ID,
+                    applicationContext.getString(R.string.captions_speech_ready_title),
+                    applicationContext.getString(R.string.captions_speech_ready_body),
+                )
+            }
             if (!store.ggufReady()) {
                 var lastPct = -1
                 downloadTo(
@@ -85,12 +96,34 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             store.progressBytes = CaptionModels.DOWNLOAD_TOTAL_BYTES
             store.downloadState = CaptionDownloadState.Ready
             store.lastError = null
+            notifyUser(
+                DONE_ALL_ID,
+                applicationContext.getString(R.string.captions_download_done_title),
+                applicationContext.getString(R.string.captions_download_done_body),
+            )
             Result.success()
         } catch (e: Exception) {
             store.downloadState = CaptionDownloadState.Failed
             store.lastError = e.message?.take(200) ?: "download failed"
             Result.retry()
         }
+    }
+
+    private fun notifyUser(id: Int, title: String, body: String) {
+        val open = PendingIntent.getActivity(
+            applicationContext, id,
+            Intent(applicationContext, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_JOBS)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(applicationContext).notify(id, n) }
     }
 
     private fun remainingBytes(): Long {
@@ -190,6 +223,8 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
     companion object {
         private const val UNIQUE = "caption-models-download"
         private const val NOTIF_ID = 91
+        private const val DONE_SPEECH_ID = 92
+        private const val DONE_ALL_ID = 93
 
         fun enqueue(ctx: Context) {
             val req = OneTimeWorkRequestBuilder<CaptionModelDownloader>()

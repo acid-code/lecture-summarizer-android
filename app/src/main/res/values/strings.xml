@@ -842,4 +842,11 @@
     <string name="set_captions_free">פינוי המקום</string>
     <string name="set_captions_free_done">המודלים נמחקו</string>
     <string name="captions_local_section">כתוביות מקומיות</string>
+    <string name="captions_downloading_pct">מוריד מודלים… %1$d%%</string>
+    <string name="captions_speech_ready_cleanup_pct">כתוביות מוכנות — מודל ניקוי בהורדה %1$d%%</string>
+    <string name="captions_speech_ready_no_cleanup">כתוביות מוכנות (בלי מודל ניקוי)</string>
+    <string name="captions_speech_ready_title">אפשר להתחיל כתוביות</string>
+    <string name="captions_speech_ready_body">מודל הדיבור ירד. אפשר לפתוח כתוביות חיות עכשיו.</string>
+    <string name="captions_download_done_title">מודלי הכתוביות מוכנים</string>
+    <string name="captions_download_done_body">ההורדה הסתיימה. אפשר לפתוח כתוביות חיות.</string>
 </resources>

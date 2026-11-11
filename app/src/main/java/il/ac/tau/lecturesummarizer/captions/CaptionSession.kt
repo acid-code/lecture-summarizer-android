@@ -32,10 +32,18 @@ data class CaptionUiLine(
 data class CaptionUiState(
     val run: CaptionRunState = CaptionRunState.Off,
     val lines: List<CaptionUiLine> = emptyList(),
+    /** In-progress hypothesis (not yet a committed line). */
+    val partial: String = "",
+    val partialDirection: LayoutDirection = LayoutDirection.Rtl,
     val status: String = "",
     val cleanupActive: Boolean = false,
     val needsAgreement: Boolean = false,
-    val needsDownload: Boolean = false,
+    /** True until Zipformer is on disk (speech can start). */
+    val needsSpeechDownload: Boolean = false,
+    /** True while cleanup GGUF is still downloading (speech may already work). */
+    val cleanupDownloading: Boolean = false,
+    val downloadProgress: Float = 0f,
+    val downloadPercent: Int = 0,
     val waitingUnmetered: Boolean = false,
 )
 
@@ -64,19 +72,39 @@ class CaptionSession(private val context: Context) {
     fun prepareGates(): CaptionUiState {
         store.refreshReadyState()
         val needsAgreement = !store.agreed
-        val needsDownload = store.agreed && !store.modelsReady()
-        val waiting = needsDownload && store.downloadState == CaptionDownloadState.Downloading
+        val speechReady = store.speechReady()
+        val needsSpeechDownload = store.agreed && !speechReady
+        val cleanupDownloading = store.agreed && speechReady && !store.ggufReady() &&
+            store.downloadState == CaptionDownloadState.Downloading
+        val downloading = store.downloadState == CaptionDownloadState.Downloading
+        val pct = (store.progressFraction() * 100).toInt().coerceIn(0, 100)
         _state.update {
             it.copy(
                 needsAgreement = needsAgreement,
-                needsDownload = needsDownload,
-                waitingUnmetered = waiting || (needsDownload && store.downloadState != CaptionDownloadState.Failed),
+                needsSpeechDownload = needsSpeechDownload,
+                cleanupDownloading = cleanupDownloading,
+                waitingUnmetered = needsSpeechDownload && !downloading &&
+                    store.downloadState != CaptionDownloadState.Failed,
+                downloadProgress = store.progressFraction(),
+                downloadPercent = pct,
                 status = when {
                     needsAgreement -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_agree)
-                    needsDownload && store.downloadState == CaptionDownloadState.Failed ->
+                    needsSpeechDownload && store.downloadState == CaptionDownloadState.Failed ->
                         store.lastError ?: context.getString(il.ac.tau.lecturesummarizer.R.string.captions_download_failed)
-                    needsDownload -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_download)
-                    else -> ""
+                    needsSpeechDownload && downloading ->
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_downloading_pct, pct)
+                    needsSpeechDownload ->
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_download)
+                    cleanupDownloading ->
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_speech_ready_cleanup_pct, pct)
+                    speechReady && !store.ggufReady() && store.downloadState == CaptionDownloadState.Failed ->
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_speech_ready_no_cleanup)
+                    else -> it.status.takeIf { s ->
+                        s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on) ||
+                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram) ||
+                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused) ||
+                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_stopped_session)
+                    }.orEmpty()
                 },
             )
         }
@@ -101,9 +129,9 @@ class CaptionSession(private val context: Context) {
             return
         }
         prepareGates()
-        if (!store.agreed || !store.modelsReady()) return
+        if (!store.agreed || !store.speechReady()) return
         val hw = CaptionHardware.snapshot(context, store.modelsDir)
-        _state.update { it.copy(run = CaptionRunState.Starting, status = "") }
+        _state.update { it.copy(run = CaptionRunState.Starting, status = "", partial = "") }
         scope.launch {
             try {
                 lectureId = lecture?.id
@@ -111,7 +139,7 @@ class CaptionSession(private val context: Context) {
                 sessionStartMs = System.currentTimeMillis()
                 lastDir = if (localeRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
                 zip = ZipformerEngine(store)
-                val useCleanup = hw.canLoadCleanup && !hw.lowRamDevice
+                val useCleanup = store.ggufReady() && hw.canLoadCleanup && !hw.lowRamDevice
                 lm = if (useCleanup) {
                     runCatching { DictaLmEngine.open(store) }.onFailure {
                         Log.w(TAG, "LM load skipped", it)
@@ -123,9 +151,10 @@ class CaptionSession(private val context: Context) {
                     it.copy(
                         run = CaptionRunState.Running,
                         cleanupActive = lm != null,
-                        status = if (lm == null)
-                            context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram)
-                        else context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on),
+                        status = when {
+                            lm != null -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on)
+                            else -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram)
+                        },
                     )
                 }
             } catch (e: Exception) {
@@ -138,23 +167,33 @@ class CaptionSession(private val context: Context) {
         }
     }
 
-    /** Pause captions only; mic recording (lecture) may continue. */
     fun pauseCaptions() {
         captionsPausedAlone = true
         mic?.stop()
         mic = null
         zip?.flush()?.let { emitLine(it) }
-        _state.update { it.copy(run = CaptionRunState.Paused, status = context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused)) }
+        _state.update {
+            it.copy(
+                run = CaptionRunState.Paused,
+                partial = "",
+                status = context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused),
+            )
+        }
     }
 
     fun continueCaptions() {
         if (_state.value.run != CaptionRunState.Paused) return
         captionsPausedAlone = false
         mic = CaptionMic { pcm -> onPcm(pcm) }.also { it.start() }
-        _state.update { it.copy(run = CaptionRunState.Running, status = context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on)) }
+        _state.update {
+            it.copy(
+                run = CaptionRunState.Running,
+                status = if (lm != null) context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on)
+                else context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram),
+            )
+        }
     }
 
-    /** Stop captions for the rest of this lecture recording. */
     fun stopCaptionsForSession() {
         stoppedForSession.set(true)
         pauseCaptions()
@@ -166,16 +205,13 @@ class CaptionSession(private val context: Context) {
         continueCaptions()
     }
 
-    /** Recording pause: freeze captions with the mic. */
     fun onRecordingPaused() {
         if (_state.value.run == CaptionRunState.Running) pauseCaptions()
     }
 
-    /** Recording resume: restore prior caption state (stay stopped if user stopped captions). */
     fun onRecordingResumed() {
         if (stoppedForSession.get()) return
         if (captionsPausedAlone || _state.value.run == CaptionRunState.Paused) {
-            // Was paused with recording — resume captions too.
             continueCaptions()
         }
     }
@@ -184,7 +220,7 @@ class CaptionSession(private val context: Context) {
         scope.launch {
             zip?.flush()?.let { emitLine(it) }
             releaseEngines()
-            _state.update { it.copy(run = CaptionRunState.Off) }
+            _state.update { it.copy(run = CaptionRunState.Off, partial = "") }
             stoppedForSession.set(false)
         }
     }
@@ -220,8 +256,17 @@ class CaptionSession(private val context: Context) {
 
     private fun onPcm(pcm: FloatArray) {
         if (_state.value.run != CaptionRunState.Running) return
-        val line = runCatching { zip?.acceptPcm(pcm) }.getOrNull() ?: return
-        emitLine(line)
+        when (val result = runCatching { zip?.acceptPcm(pcm) }.getOrNull()) {
+            is ZipResult.Partial -> {
+                val dir = LineDirection.of(result.text, lastDir, LayoutDirection.Rtl)
+                _state.update { it.copy(partial = result.text, partialDirection = dir) }
+            }
+            is ZipResult.Final -> {
+                _state.update { it.copy(partial = "") }
+                emitLine(result.text)
+            }
+            null -> Unit
+        }
     }
 
     private fun emitLine(raw: String) {
@@ -232,7 +277,7 @@ class CaptionSession(private val context: Context) {
         lastDir = dir
         val id = nextId++
         val ui = CaptionUiLine(id, raw, glossed, false, t0, now, dir)
-        _state.update { it.copy(lines = it.lines + ui) }
+        _state.update { it.copy(lines = it.lines + ui, partial = "") }
         lectureId?.let {
             localStore.append(it, LocalCaptionLine(t0, now, raw, glossed, false))
         }

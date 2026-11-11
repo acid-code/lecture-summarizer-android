@@ -830,4 +830,11 @@
     <string name="set_captions_free">Free this space</string>
     <string name="set_captions_free_done">Models deleted</string>
     <string name="captions_local_section">Local captions</string>
+    <string name="captions_downloading_pct">Downloading models… %1$d%%</string>
+    <string name="captions_speech_ready_cleanup_pct">Captions ready — cleanup model downloading %1$d%%</string>
+    <string name="captions_speech_ready_no_cleanup">Captions ready (no cleanup model)</string>
+    <string name="captions_speech_ready_title">Captions ready to start</string>
+    <string name="captions_speech_ready_body">Speech model downloaded. You can open Live captions now.</string>
+    <string name="captions_download_done_title">Caption models ready</string>
+    <string name="captions_download_done_body">Download finished. You can open Live captions.</string>
 </resources>

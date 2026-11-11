@@ -302,7 +302,7 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             val gates = captionSession.prepareGates()
             when {
                 gates.needsAgreement -> showCaptionAgree = true
-                gates.needsDownload -> Unit
+                gates.needsSpeechDownload -> Unit
                 captionSession.state.value.run == il.ac.tau.lecturesummarizer.captions.CaptionRunState.Off ||
                     captionSession.state.value.run == il.ac.tau.lecturesummarizer.captions.CaptionRunState.Paused -> {
                     if (captionSession.state.value.run == il.ac.tau.lecturesummarizer.captions.CaptionRunState.Paused)
