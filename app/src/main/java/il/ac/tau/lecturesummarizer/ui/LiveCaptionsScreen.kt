@@ -153,10 +153,18 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
                 )
             }
             if (denied) Text(stringResource(R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
+            if (ui.run == CaptionRunState.Running && ui.partial.isBlank() && ui.lines.isEmpty()) {
+                Text(
+                    stringResource(R.string.captions_listening),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             CaptionLinesList(
                 lines = ui.lines,
                 partial = ui.partial,
                 partialDirection = ui.partialDirection,
+                listening = ui.run == CaptionRunState.Running,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -217,6 +225,7 @@ fun CaptionLinesList(
     modifier: Modifier = Modifier,
     partial: String = "",
     partialDirection: LayoutDirection = LayoutDirection.Rtl,
+    listening: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val count = lines.size + if (partial.isNotBlank()) 1 else 0
@@ -235,11 +244,11 @@ fun CaptionLinesList(
         if (partial.isNotBlank()) {
             item(key = "partial") {
                 Text(
-                    partial,
+                    if (listening) "… $partial" else partial,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = if (partialDirection == LayoutDirection.Rtl) TextAlign.Right else TextAlign.Left,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.titleMedium.copy(fontStyle = FontStyle.Italic),
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }

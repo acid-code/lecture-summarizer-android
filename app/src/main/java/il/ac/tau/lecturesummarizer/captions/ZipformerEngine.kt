@@ -1,6 +1,8 @@
 package il.ac.tau.lecturesummarizer.captions
 
 import android.util.Log
+import com.k2fsa.sherpa.onnx.EndpointConfig
+import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
@@ -41,9 +43,16 @@ class StreamingZipformer(
             provider = "cpu",
             modelType = modelType,
         )
+        // Short trailing silence so lines commit sooner; partials still stream while speaking.
+        val endpoints = EndpointConfig(
+            rule1 = EndpointRule(mustContainNonSilence = false, minTrailingSilence = 0.5f, minUtteranceLength = 0.0f),
+            rule2 = EndpointRule(mustContainNonSilence = true, minTrailingSilence = 0.35f, minUtteranceLength = 0.0f),
+            rule3 = EndpointRule(mustContainNonSilence = false, minTrailingSilence = 0.0f, minUtteranceLength = 12.0f),
+        )
         val config = OnlineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = CaptionModels.SAMPLE_RATE, featureDim = 80),
             modelConfig = model,
+            endpointConfig = endpoints,
             enableEndpoint = true,
             decodingMethod = "greedy_search",
         )
@@ -126,7 +135,6 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
         val (enText, enEnd) = en?.feed(samples) ?: ("" to false)
         val endpoint = heEnd || enEnd
         if (endpoint) {
-            // Flush the peer that did not endpoint so both hypotheses are complete.
             val heLine = if (heEnd) heText else he.flush()
             val enLine = when {
                 en == null -> ""
@@ -138,10 +146,13 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
             val picked = AsrPick.choose(heLine, enLine)
             return picked.takeIf { it.isNotBlank() }?.let { ZipResult.Final(it) }
         }
-        val partial = AsrPick.choose(heText, enText)
-        if (partial.isBlank() || partial == lastPartial) return null
+        // Live partial: prefer growing HE text while speaking (don't wait for EN to win).
+        val partial = livePartial(heText, enText)
+        if (partial.isBlank()) return null
+        if (partial == lastPartial) return null
         val now = System.currentTimeMillis()
-        if (now - lastPartialAt < 180L && partial.startsWith(lastPartial)) return null
+        // Only throttle identical-length flicker; always emit when the hypothesis grows/changes.
+        if (now - lastPartialAt < 60L && partial.length <= lastPartial.length) return null
         lastPartial = partial
         lastPartialAt = now
         return ZipResult.Partial(partial)
@@ -167,5 +178,20 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
 
     companion object {
         private const val TAG = "ZipformerEngine"
+
+        /** While speaking, show whatever is growing; finalize still uses [AsrPick]. */
+        fun livePartial(he: String, en: String): String {
+            val h = he.trim()
+            val e = en.trim()
+            if (h.isEmpty()) return e
+            if (e.isEmpty()) return h
+            val heHasHe = h.any { it in '\u0590'..'\u05FF' }
+            val enHasLa = e.any { it.isLetter() && it.code < 128 }
+            return when {
+                heHasHe -> h
+                enHasLa && e.length >= h.length -> e
+                else -> if (h.length >= e.length) h else e
+            }
+        }
     }
 }

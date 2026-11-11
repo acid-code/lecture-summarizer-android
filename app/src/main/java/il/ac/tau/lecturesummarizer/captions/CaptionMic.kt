@@ -24,12 +24,14 @@ class CaptionMic(
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         ).coerceAtLeast(CaptionModels.SAMPLE_RATE / 5 * 2)
+        // Read ~100 ms chunks so Zipformer can emit live partials often.
+        val readSamples = (CaptionModels.SAMPLE_RATE / 10).coerceAtLeast(320)
         val ar = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             CaptionModels.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
-            min,
+            min.coerceAtLeast(readSamples * 2),
         )
         if (ar.state != AudioRecord.STATE_INITIALIZED) {
             ar.release()
@@ -39,7 +41,7 @@ class CaptionMic(
         record = ar
         ar.startRecording()
         thread = Thread({
-            val shortBuf = ShortArray(min / 2)
+            val shortBuf = ShortArray(readSamples)
             try {
                 while (running.get()) {
                     val n = ar.read(shortBuf, 0, shortBuf.size)
