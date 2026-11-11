@@ -54,6 +54,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -278,6 +279,12 @@ fun LecturesScreen(
 @Composable
 fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
+    val captionSession = remember { il.ac.tau.lecturesummarizer.captions.CaptionSession(ctx) }
+    val captionUi by captionSession.state.collectAsStateWithLifecycle()
+    var showCaptionAgree by remember { mutableStateOf(false) }
+    var captionsOpen by remember { mutableStateOf(false) }
+    var openCaptionsAfterAgree by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { captionSession.release() } }
     // Attach materials while recording (same as "Upload slides"/Moodle on Materials; sent with the final upload).
     val livePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
@@ -290,6 +297,47 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
     val active = rec.recording && rec.lectureId == lectureId
     val paused = active && rec.paused
     val otherActive = rec.recording && rec.lectureId != lectureId
+    val localeRtl = LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+
+    // Captions stay opt-in. Only sync pause/resume while the captions overlay is open.
+    LaunchedEffect(active, paused, captionsOpen) {
+        if (!active) {
+            captionsOpen = false
+            captionSession.onRecordingStopped()
+            return@LaunchedEffect
+        }
+        if (!captionsOpen) return@LaunchedEffect
+        if (paused) captionSession.onRecordingPaused()
+        else captionSession.onRecordingResumed()
+    }
+
+    fun tryOpenCaptions() {
+        val gates = captionSession.prepareGates()
+        if (gates.needsAgreement) {
+            openCaptionsAfterAgree = true
+            showCaptionAgree = true
+            return
+        }
+        // Open the captions UI only — user taps Start (no auto-start on reopen).
+        captionsOpen = true
+    }
+
+    if (showCaptionAgree) {
+        CaptionsAgreementDialog(
+            onAgree = {
+                showCaptionAgree = false
+                captionSession.agreeAndDownload()
+                if (openCaptionsAfterAgree) {
+                    openCaptionsAfterAgree = false
+                    captionsOpen = true
+                }
+            },
+            onDismiss = {
+                showCaptionAgree = false
+                openCaptionsAfterAgree = false
+            },
+        )
+    }
 
     val perms = buildList {
         add(Manifest.permission.RECORD_AUDIO)
@@ -323,9 +371,39 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
         else if (wasActive) { wasActive = false; onDone() }
     }
 
+    // Keep download / ready gates fresh while the captions overlay is open (no auto-start).
+    LaunchedEffect(captionsOpen, active) {
+        if (!captionsOpen || !active) return@LaunchedEffect
+        while (true) {
+            val s = captionSession.prepareGates()
+            delay(if (s.needsSpeechDownload || s.cleanupDownloading) 400 else 1500)
+        }
+    }
+
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     var moving by remember { mutableStateOf(false) }
-    if(moving&&l!=null)LectureMoveDialog(app,l){moving=false}
+    if (moving && l != null) LectureMoveDialog(app, l) { moving = false }
+
+    if (captionsOpen && active) {
+        LectureCaptionsOverlay(
+            session = captionSession,
+            elapsedLabel = formatElapsed(rec.elapsedMs),
+            recordingPaused = paused,
+            onLecturePause = { RecorderService.pause(ctx) },
+            onLectureResume = { RecorderService.resume(ctx) },
+            onLectureStop = { RecorderService.stop(ctx) },
+            onCaptionsStart = { captionSession.wakeCaptions(l, localeRtl) },
+            onCaptionsDismiss = {
+                captionSession.dismissCaptionsUi()
+                captionsOpen = false
+            },
+            onBack = {
+                captionSession.dismissCaptionsUi()
+                captionsOpen = false
+            },
+        )
+        return
+    }
 
     AppScaffold(l?.title ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_title), onBack = onBack) { pad ->
         Column(
@@ -341,6 +419,18 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
                  else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_stopped, l?.segments?.size ?: 0))
             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_recording_continues_with_the_screen_off_audio_is_saved_in_10_minu),
                 style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            if (active) {
+                val lineCount = captionUi.lines.size
+                OutlinedButton(onClick = { tryOpenCaptions() }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (lineCount > 0) {
+                            androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_open_logged, lineCount)
+                        } else {
+                            androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.captions_open)
+                        },
+                    )
+                }
+            }
             l?.let { cur -> TextButton(onClick = { moving = true }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_course_change, bidi(courses.firstOrNull { it.id == cur.courseId }?.name ?: "?"))) } }
             if(active && l!=null)FilledTonalButton(onClick={app.repo.updateLecture(l.id){it.copy(markers=it.markers+il.ac.tau.lecturesummarizer.data.Marker(rec.elapsedMs/1000,ctx.getString(il.ac.tau.lecturesummarizer.R.string.important_marker)))}},colors=ButtonDefaults.filledTonalButtonColors(containerColor=MaterialTheme.colorScheme.tertiaryContainer,contentColor=MaterialTheme.colorScheme.onTertiaryContainer)){Icon(Icons.Default.Star,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.important_marker))}
             if (otherActive) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_another_lecture_is_recording_stop_it_first), color = MaterialTheme.colorScheme.error)
@@ -541,6 +631,7 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit, onMoodle: () -> Unit = {
     AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.settings), onBack = { save(); onBack() }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ConnectionsSection(onMoodle, onPanopto)
+            CaptionsSettingsSection()
             SummaryDensitySection(app)
             CalendarSourceSection(app)
             il.ac.tau.lecturesummarizer.ui.AutoSyncSettingsSection(app)
@@ -577,6 +668,53 @@ fun SettingsScreen(app: LectureApp, onBack: () -> Unit, onMoodle: () -> Unit = {
 
             }
         }
+    }
+}
+
+@Composable
+private fun CaptionsSettingsSection() {
+    val ctx = LocalContext.current
+    val store = remember { il.ac.tau.lecturesummarizer.captions.CaptionModelStore(ctx) }
+    var tick by remember { mutableIntStateOf(0) }
+    val state = remember(tick) { store.refreshReadyState(); store.downloadState }
+    val usedBytes = remember(tick) { store.bytesOnDisk() }
+    val usedLabel = remember(usedBytes) {
+        android.text.format.Formatter.formatShortFileSize(ctx, usedBytes)
+    }
+    val status = when (state) {
+        il.ac.tau.lecturesummarizer.captions.CaptionDownloadState.Ready ->
+            androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_status_ready)
+        il.ac.tau.lecturesummarizer.captions.CaptionDownloadState.Downloading ->
+            androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_status_downloading)
+        il.ac.tau.lecturesummarizer.captions.CaptionDownloadState.Failed ->
+            androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_status_failed)
+        else -> androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_status_idle)
+    }
+    HorizontalDivider()
+    SectionTitle(il.ac.tau.lecturesummarizer.R.string.set_captions)
+    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_body),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(status, style = MaterialTheme.typography.bodyMedium)
+    Text(
+        androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_size, usedLabel),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedButton(
+        enabled = usedBytes > 0L,
+        onClick = {
+            store.freeSpace()
+            Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.set_captions_free_done), Toast.LENGTH_SHORT).show()
+            tick++
+        },
+    ) {
+        Text(
+            if (usedBytes > 0L) {
+                androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_free_sized, usedLabel)
+            } else {
+                androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_captions_free)
+            },
+        )
     }
 }
 
