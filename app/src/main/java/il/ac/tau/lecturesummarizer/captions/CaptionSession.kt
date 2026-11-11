@@ -71,10 +71,12 @@ class CaptionSession(private val context: Context) {
 
     fun prepareGates(): CaptionUiState {
         store.refreshReadyState()
+        if (store.agreed && !store.modelsReady()) store.ensureBackgroundDownload()
         val needsAgreement = !store.agreed
         val speechReady = store.speechReady()
         val needsSpeechDownload = store.agreed && !speechReady
-        val cleanupDownloading = store.agreed && speechReady && !store.ggufReady() &&
+        val cleanupDownloading = store.agreed && speechReady &&
+            (!store.englishReady() || !store.ggufReady()) &&
             store.downloadState == CaptionDownloadState.Downloading
         val downloading = store.downloadState == CaptionDownloadState.Downloading
         val pct = (store.progressFraction() * 100).toInt().coerceIn(0, 100)

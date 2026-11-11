@@ -798,7 +798,7 @@
     <string name="live_captions">Live captions</string>
     <string name="live_captions_hint">On-device Hebrew–English captions, no upload</string>
     <string name="captions_agree_title">Download caption models</string>
-    <string name="captions_agree_body">Live captions need a one-time ~1.2 GB download (speech + cleanup). Wi‑Fi only. You can delete the models later in Settings. Captions use more CPU and battery while running.</string>
+    <string name="captions_agree_body">Live captions need a one-time ~1.3 GB download (Hebrew + English speech + cleanup). Wi‑Fi only. You can start after the speech model (~70 MB). Delete later in Settings.</string>
     <string name="captions_agree">Agree and download</string>
     <string name="captions_not_now">Not now</string>
     <string name="captions_need_agree">Captions need agreement to download models</string>
@@ -831,10 +831,12 @@
     <string name="set_captions_free_done">Models deleted</string>
     <string name="captions_local_section">Local captions</string>
     <string name="captions_downloading_pct">Downloading models… %1$d%%</string>
-    <string name="captions_speech_ready_cleanup_pct">Captions ready — cleanup model downloading %1$d%%</string>
+    <string name="captions_speech_ready_cleanup_pct">Captions ready — extra models downloading %1$d%%</string>
     <string name="captions_speech_ready_no_cleanup">Captions ready (no cleanup model)</string>
     <string name="captions_speech_ready_title">Captions ready to start</string>
     <string name="captions_speech_ready_body">Speech model downloaded. You can open Live captions now.</string>
     <string name="captions_download_done_title">Caption models ready</string>
     <string name="captions_download_done_body">Download finished. You can open Live captions.</string>
+    <string name="captions_english_ready_title">English support ready</string>
+    <string name="captions_english_ready_body">English speech model downloaded — English captions stay in Latin letters.</string>
 </resources>

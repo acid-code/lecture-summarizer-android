@@ -810,7 +810,7 @@
     <string name="live_captions">כתוביות חיות</string>
     <string name="live_captions_hint">תמלול בעברית ובאנגלית על המכשיר, בלי העלאה</string>
     <string name="captions_agree_title">הורדת מודלים לכתוביות</string>
-    <string name="captions_agree_body">כדי להציג כתוביות על המכשיר צריך להוריד פעם אחת כ־1.2 ג׳יגה (זיהוי דיבור + מודל ניקוי). ההורדה רק ב־Wi‑Fi. אפשר למחוק אחר כך בהגדרות. הסוללה והמעבד יעבדו יותר בזמן כתוביות.</string>
+    <string name="captions_agree_body">כדי להציג כתוביות על המכשיר צריך להוריד פעם אחת כ־1.3 ג׳יגה (עברית + אנגלית + מודל ניקוי). ההורדה רק ב־Wi‑Fi. אפשר להתחיל אחרי מודל הדיבור (~70 מ״ב). אפשר למחוק אחר כך בהגדרות.</string>
     <string name="captions_agree">הסכמה והורדה</string>
     <string name="captions_not_now">לא עכשיו</string>
     <string name="captions_need_agree">כתוביות דורשות הסכמה להורדת מודלים</string>
@@ -843,10 +843,12 @@
     <string name="set_captions_free_done">המודלים נמחקו</string>
     <string name="captions_local_section">כתוביות מקומיות</string>
     <string name="captions_downloading_pct">מוריד מודלים… %1$d%%</string>
-    <string name="captions_speech_ready_cleanup_pct">כתוביות מוכנות — מודל ניקוי בהורדה %1$d%%</string>
+    <string name="captions_speech_ready_cleanup_pct">כתוביות מוכנות — מודלים נוספים בהורדה %1$d%%</string>
     <string name="captions_speech_ready_no_cleanup">כתוביות מוכנות (בלי מודל ניקוי)</string>
     <string name="captions_speech_ready_title">אפשר להתחיל כתוביות</string>
     <string name="captions_speech_ready_body">מודל הדיבור ירד. אפשר לפתוח כתוביות חיות עכשיו.</string>
     <string name="captions_download_done_title">מודלי הכתוביות מוכנים</string>
     <string name="captions_download_done_body">ההורדה הסתיימה. אפשר לפתוח כתוביות חיות.</string>
+    <string name="captions_english_ready_title">תמיכה באנגלית מוכנה</string>
+    <string name="captions_english_ready_body">מודל האנגלית ירד — כתוביות באנגלית יישארו באותיות לטיניות.</string>
 </resources>

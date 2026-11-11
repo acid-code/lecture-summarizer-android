@@ -73,6 +73,27 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
                     applicationContext.getString(R.string.captions_speech_ready_body),
                 )
             }
+            for ((name, size) in CaptionModels.ZIPFORMER_EN_SIZES) {
+                val dest = store.englishFile(name)
+                if (dest.isFile && dest.length() == size) continue
+                downloadTo(
+                    url = "${CaptionModels.HF_ZIPFORMER_EN}/$name",
+                    dest = dest,
+                    expected = size,
+                    onChunk = { n ->
+                        done += n
+                        store.progressBytes = done
+                    },
+                )
+                runCatching { setForeground(info(pct(done))) }
+            }
+            if (store.englishReady()) {
+                notifyUser(
+                    DONE_EN_ID,
+                    applicationContext.getString(R.string.captions_english_ready_title),
+                    applicationContext.getString(R.string.captions_english_ready_body),
+                )
+            }
             if (!store.ggufReady()) {
                 var lastPct = -1
                 downloadTo(
@@ -132,6 +153,10 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             val f = store.zipformerFile(name)
             if (!(f.isFile && f.length() == size)) n += size
         }
+        for ((name, size) in CaptionModels.ZIPFORMER_EN_SIZES) {
+            val f = store.englishFile(name)
+            if (!(f.isFile && f.length() == size)) n += size
+        }
         if (!store.ggufReady()) n += CaptionModels.GGUF_BYTES
         return n
     }
@@ -140,6 +165,10 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
         var n = 0L
         for ((name, size) in CaptionModels.ZIPFORMER_SIZES) {
             val f = store.zipformerFile(name)
+            if (f.isFile && f.length() == size) n += size
+        }
+        for ((name, size) in CaptionModels.ZIPFORMER_EN_SIZES) {
+            val f = store.englishFile(name)
             if (f.isFile && f.length() == size) n += size
         }
         if (store.ggufReady()) n += CaptionModels.GGUF_BYTES
@@ -224,6 +253,7 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
         private const val UNIQUE = "caption-models-download"
         private const val NOTIF_ID = 91
         private const val DONE_SPEECH_ID = 92
+        private const val DONE_EN_ID = 94
         private const val DONE_ALL_ID = 93
 
         fun enqueue(ctx: Context) {

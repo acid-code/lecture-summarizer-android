@@ -11,7 +11,9 @@ class CaptionModelStore(private val context: Context) {
 
     val modelsDir: File get() = File(context.filesDir, "models").apply { mkdirs() }
     val zipformerDir: File get() = File(modelsDir, "zipformer").apply { mkdirs() }
+    val zipformerEnDir: File get() = File(modelsDir, "zipformer-en").apply { mkdirs() }
     fun zipformerFile(name: String) = File(zipformerDir, name)
+    fun englishFile(name: String) = File(zipformerEnDir, name)
     val ggufFile: File get() = File(modelsDir, CaptionModels.GGUF)
 
     var agreed: Boolean
@@ -36,15 +38,20 @@ class CaptionModelStore(private val context: Context) {
         f.isFile && f.length() == size
     }
 
+    fun englishReady(): Boolean = CaptionModels.ZIPFORMER_EN_SIZES.all { (name, size) ->
+        val f = englishFile(name)
+        f.isFile && f.length() == size
+    }
+
     fun ggufReady(): Boolean {
         val f = ggufFile
         return f.isFile && f.length() == CaptionModels.GGUF_BYTES
     }
 
-    /** Speech captions only need Zipformer (~70 MB). Cleanup GGUF is optional. */
+    /** Speech captions need Hebrew Zipformer; English Zipformer improves Latin English. */
     fun speechReady(): Boolean = zipformerReady()
 
-    fun modelsReady(): Boolean = zipformerReady() && ggufReady()
+    fun modelsReady(): Boolean = zipformerReady() && englishReady() && ggufReady()
 
     fun progressFraction(): Float =
         (progressBytes.toFloat() / CaptionModels.DOWNLOAD_TOTAL_BYTES.toFloat()).coerceIn(0f, 1f)
@@ -58,10 +65,24 @@ class CaptionModelStore(private val context: Context) {
         }
     }
 
+    /** If user already agreed but English model is missing, keep downloading in background. */
+    fun ensureBackgroundDownload() {
+        if (!agreed) return
+        if (modelsReady()) {
+            downloadState = CaptionDownloadState.Ready
+            return
+        }
+        if (downloadState != CaptionDownloadState.Downloading) {
+            downloadState = CaptionDownloadState.Downloading
+            CaptionModelDownloader.enqueue(context)
+        }
+    }
+
     /** Cancel partials, delete models, clear agreement. Next captions start needs a new Agree. */
     fun freeSpace() {
         CaptionModelDownloader.cancel(context)
         zipformerDir.listFiles()?.forEach { it.delete() }
+        zipformerEnDir.listFiles()?.forEach { it.delete() }
         File(modelsDir, "${CaptionModels.GGUF}.partial").delete()
         ggufFile.delete()
         modelsDir.listFiles()?.filter { it.name.endsWith(".partial") }?.forEach { it.delete() }
@@ -74,6 +95,7 @@ class CaptionModelStore(private val context: Context) {
     fun bytesOnDisk(): Long {
         var n = 0L
         zipformerDir.walkTopDown().filter { it.isFile }.forEach { n += it.length() }
+        zipformerEnDir.walkTopDown().filter { it.isFile }.forEach { n += it.length() }
         if (ggufFile.isFile) n += ggufFile.length()
         File(modelsDir, "${CaptionModels.GGUF}.partial").takeIf { it.isFile }?.let { n += it.length() }
         return n
