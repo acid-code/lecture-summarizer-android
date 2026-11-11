@@ -20,8 +20,8 @@ android {
         applicationId = "il.ac.tau.lecturesummarizer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "0.2.4-captions"
+        versionCode = 25
+        versionName = "0.2.5-captions"
         buildConfigField("String", "DEFAULT_BASE_URL", "\"${prop("lecture.baseUrl", "http://10.0.2.2:8000")}\"")
         buildConfigField("String", "DEFAULT_API_TOKEN", "\"${prop("lecture.apiToken", "")}\"")
         buildConfigField("boolean", "DEFAULT_MOCK", prop("lecture.mock", "true"))

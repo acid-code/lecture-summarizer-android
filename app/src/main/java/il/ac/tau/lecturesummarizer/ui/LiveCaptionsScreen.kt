@@ -138,10 +138,8 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
             Modifier.padding(pad).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (ui.status.isNotBlank()) {
-                Text(ui.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (ui.needsSpeechDownload || ui.cleanupDownloading) {
+            if (ui.needsSpeechDownload) {
+                Text(ui.status, style = MaterialTheme.typography.bodyMedium)
                 LinearProgressIndicator(
                     progress = { ui.downloadProgress },
                     modifier = Modifier.fillMaxWidth(),
@@ -151,6 +149,23 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            } else if (ui.cleanupDownloading && ui.run == CaptionRunState.Off) {
+                Text(
+                    stringResource(R.string.captions_ready_tap_start),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    stringResource(R.string.captions_optional_download_pct, ui.downloadPercent),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LinearProgressIndicator(
+                    progress = { ui.downloadProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else if (ui.status.isNotBlank()) {
+                Text(ui.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (denied) Text(stringResource(R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
             if (ui.run == CaptionRunState.Running && ui.partial.isBlank() && ui.lines.isEmpty()) {
@@ -160,13 +175,22 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            CaptionLinesList(
-                lines = ui.lines,
-                partial = ui.partial,
-                partialDirection = ui.partialDirection,
-                listening = ui.run == CaptionRunState.Running,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
+            if (ui.run == CaptionRunState.Off && ui.canStart && ui.lines.isEmpty()) {
+                Text(
+                    stringResource(R.string.captions_ready_hint),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                CaptionLinesList(
+                    lines = ui.lines,
+                    partial = ui.partial,
+                    partialDirection = ui.partialDirection,
+                    listening = ui.run == CaptionRunState.Running,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 when (ui.run) {
                     CaptionRunState.Off, CaptionRunState.Stopped -> {

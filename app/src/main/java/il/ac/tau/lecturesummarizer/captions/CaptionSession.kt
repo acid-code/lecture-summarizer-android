@@ -108,11 +108,11 @@ class CaptionSession(private val context: Context) {
                     needsSpeechDownload && store.downloadState == CaptionDownloadState.Failed ->
                         store.lastError ?: context.getString(il.ac.tau.lecturesummarizer.R.string.captions_download_failed)
                     needsSpeechDownload && downloading ->
-                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_downloading_pct, pct)
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_downloading_speech)
                     needsSpeechDownload ->
                         context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_download)
                     cleanupDownloading ->
-                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_speech_ready_cleanup_pct, pct)
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_ready_optional_download)
                     canStart ->
                         context.getString(il.ac.tau.lecturesummarizer.R.string.captions_ready_tap_start)
                     else -> ""

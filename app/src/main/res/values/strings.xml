@@ -854,4 +854,9 @@
     <string name="captions_ready_tap_start">מוכן — לחצו להתחלת כתוביות</string>
     <string name="captions_waiting_download">ממתין להורדה…</string>
     <string name="captions_listening">מאזין… דברו — המילים יופיעו תוך כדי</string>
+    <string name="captions_downloading_speech">מוריד את מודל הדיבור…</string>
+    <string name="captions_ready_optional_download">מוכן להתחלה</string>
+    <string name="captions_optional_download_pct">מודל ניקוי אופציונלי בהורדה · %1$d%%</string>
+    <string name="captions_ready_hint">אפשר להתחיל כתוביות עכשיו.
+מודלים נוספים יכולים להמשיך ברקע.</string>
 </resources>

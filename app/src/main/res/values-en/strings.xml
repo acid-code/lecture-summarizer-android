@@ -842,4 +842,9 @@
     <string name="captions_ready_tap_start">Ready — tap to start captions</string>
     <string name="captions_waiting_download">Waiting for download…</string>
     <string name="captions_listening">Listening… speak — words appear as you go</string>
+    <string name="captions_downloading_speech">Downloading speech model…</string>
+    <string name="captions_ready_optional_download">Ready to start</string>
+    <string name="captions_optional_download_pct">Optional cleanup model downloading · %1$d%%</string>
+    <string name="captions_ready_hint">You can start captions now.
+Extra models can keep downloading in the background.</string>
 </resources>
