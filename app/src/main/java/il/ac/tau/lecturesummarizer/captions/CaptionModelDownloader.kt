@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -14,6 +15,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import il.ac.tau.lecturesummarizer.LectureApp
@@ -50,7 +52,16 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
         }
 
         return try {
-            var done = alreadyDownloadedBytes()
+            var done = store.bytesDownloadedOnDisk()
+            var lastPersisted = done
+            fun bump(n: Long) {
+                done += n
+                // Avoid flooding SharedPreferences on every 256KB chunk (~1GB → thousands of writes).
+                if (done - lastPersisted >= 1L * 1024 * 1024 || done >= CaptionModels.DOWNLOAD_TOTAL_BYTES) {
+                    store.progressBytes = done
+                    lastPersisted = done
+                }
+            }
             store.progressBytes = done
             for ((name, size) in CaptionModels.ZIPFORMER_SIZES) {
                 val dest = store.zipformerFile(name)
@@ -59,11 +70,11 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
                     url = "${CaptionModels.HF_ZIPFORMER}/$name",
                     dest = dest,
                     expected = size,
-                    onChunk = { n ->
-                        done += n
-                        store.progressBytes = done
-                    },
+                    onChunk = { bump(it) },
                 )
+                done = store.bytesDownloadedOnDisk()
+                store.progressBytes = done
+                lastPersisted = done
                 runCatching { setForeground(info(pct(done))) }
             }
             if (store.zipformerReady()) {
@@ -80,11 +91,11 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
                     url = "${CaptionModels.HF_ZIPFORMER_EN}/$name",
                     dest = dest,
                     expected = size,
-                    onChunk = { n ->
-                        done += n
-                        store.progressBytes = done
-                    },
+                    onChunk = { bump(it) },
                 )
+                done = store.bytesDownloadedOnDisk()
+                store.progressBytes = done
+                lastPersisted = done
                 runCatching { setForeground(info(pct(done))) }
             }
             if (store.englishReady()) {
@@ -96,22 +107,36 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             }
             if (!store.ggufReady()) {
                 var lastPct = -1
+                // Resync before GGUF so resume doesn't double-count a partial.
+                done = store.bytesDownloadedOnDisk()
+                store.progressBytes = done
+                lastPersisted = done
+                Log.i(TAG, "GGUF download start at ${pct(done)}% (${done} bytes)")
                 downloadTo(
                     url = CaptionModels.HF_DICTALM,
                     dest = store.ggufFile,
                     expected = CaptionModels.GGUF_BYTES,
-                    onChunk = { n ->
-                        done += n
+                    onChunk = { bump(it) },
+                    onRewind = { discarded ->
+                        done = (done - discarded).coerceAtLeast(0L)
                         store.progressBytes = done
+                        lastPersisted = done
                     },
                     onProgress = {
+                        // Prefer disk length so UI can't freeze on a stale counter.
+                        done = store.bytesDownloadedOnDisk()
+                        store.progressBytes = done
+                        lastPersisted = done
                         val p = pct(done)
                         if (p != lastPct) {
                             lastPct = p
+                            Log.i(TAG, "GGUF progress $p%")
                             runCatching { kotlinx.coroutines.runBlocking { setForeground(info(p)) } }
                         }
                     },
                 )
+                done = store.bytesDownloadedOnDisk()
+                store.progressBytes = done
                 runCatching { setForeground(info(pct(done))) }
             }
             store.progressBytes = CaptionModels.DOWNLOAD_TOTAL_BYTES
@@ -124,6 +149,8 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             )
             Result.success()
         } catch (e: Exception) {
+            Log.e(TAG, "download failed", e)
+            store.syncProgressFromDisk()
             store.downloadState = CaptionDownloadState.Failed
             store.lastError = e.message?.take(200) ?: "download failed"
             Result.retry()
@@ -157,24 +184,10 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             val f = store.englishFile(name)
             if (!(f.isFile && f.length() == size)) n += size
         }
-        if (!store.ggufReady()) n += CaptionModels.GGUF_BYTES
-        return n
-    }
-
-    private fun alreadyDownloadedBytes(): Long {
-        var n = 0L
-        for ((name, size) in CaptionModels.ZIPFORMER_SIZES) {
-            val f = store.zipformerFile(name)
-            if (f.isFile && f.length() == size) n += size
-        }
-        for ((name, size) in CaptionModels.ZIPFORMER_EN_SIZES) {
-            val f = store.englishFile(name)
-            if (f.isFile && f.length() == size) n += size
-        }
-        if (store.ggufReady()) n += CaptionModels.GGUF_BYTES
-        else {
+        if (!store.ggufReady()) {
             val partial = File(store.modelsDir, "${CaptionModels.GGUF}.partial")
-            if (partial.isFile) n += partial.length()
+            val have = if (partial.isFile) partial.length() else 0L
+            n += (CaptionModels.GGUF_BYTES - have).coerceAtLeast(0L)
         }
         return n
     }
@@ -187,6 +200,7 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
         dest: File,
         expected: Long,
         onChunk: (Long) -> Unit,
+        onRewind: ((Long) -> Unit)? = null,
         onProgress: (() -> Unit)? = null,
     ) {
         dest.parentFile?.mkdirs()
@@ -196,13 +210,27 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
             partial.delete()
             existing = 0L
         }
+        if (existing == expected) {
+            if (dest.exists()) dest.delete()
+            if (!partial.renameTo(dest)) {
+                partial.copyTo(dest, overwrite = true)
+                partial.delete()
+            }
+            return
+        }
         val req = Request.Builder().url(url).apply {
             if (existing > 0) header("Range", "bytes=$existing-")
         }.build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful && resp.code != 206) error("HTTP ${resp.code} for ${dest.name}")
             val body = resp.body ?: error("empty body")
+            // If server ignored Range and sent 200, rewrite partial and only count new bytes from 0.
             val append = resp.code == 206 && existing > 0
+            if (!append && existing > 0) {
+                Log.w(TAG, "${dest.name}: server ignored Range, restarting file")
+                onRewind?.invoke(existing)
+                existing = 0L
+            }
             java.io.FileOutputStream(partial, append).use { out ->
                 body.byteStream().use { inp ->
                     val buf = ByteArray(256 * 1024)
@@ -213,7 +241,7 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
                         out.write(buf, 0, r)
                         onChunk(r.toLong())
                         sinceProgress += r
-                        if (sinceProgress >= 2L * 1024 * 1024) {
+                        if (sinceProgress >= 1L * 1024 * 1024) {
                             sinceProgress = 0
                             onProgress?.invoke()
                         }
@@ -250,6 +278,7 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
     }
 
     companion object {
+        private const val TAG = "CaptionModelDl"
         private const val UNIQUE = "caption-models-download"
         private const val NOTIF_ID = 91
         private const val DONE_SPEECH_ID = 92
@@ -257,16 +286,27 @@ class CaptionModelDownloader(ctx: Context, params: WorkerParameters) : Coroutine
         private const val DONE_ALL_ID = 93
 
         fun enqueue(ctx: Context) {
+            val wm = WorkManager.getInstance(ctx)
+            val active = runCatching {
+                wm.getWorkInfosForUniqueWork(UNIQUE).get()
+                    .any {
+                        it.state == WorkInfo.State.ENQUEUED ||
+                            it.state == WorkInfo.State.RUNNING ||
+                            it.state == WorkInfo.State.BLOCKED
+                    }
+            }.getOrDefault(false)
+            if (active) return
+            // No storage-not-low constraint: a 1GB GGUF often trips it near the end and freezes ~96%.
             val req = OneTimeWorkRequestBuilder<CaptionModelDownloader>()
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.UNMETERED)
-                        .setRequiresStorageNotLow(true)
                         .build(),
                 )
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.KEEP, req)
+            wm.enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.REPLACE, req)
+            Log.i(TAG, "enqueued caption model download")
         }
 
         fun cancel(ctx: Context) {

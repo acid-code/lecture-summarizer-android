@@ -241,7 +241,7 @@ fun DeleteLectureDialog(title: String, onDismiss: () -> Unit, onConfirm: () -> U
 // ---------- Attach & upload ----------
 
 @Composable
-fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onPanoptoLogin: () -> Unit = {}) {
+fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onUploaded: () -> Unit, onListen: () -> Unit = {}, onRecord: () -> Unit = {}, onRecordAnother: () -> Unit = onRecord, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onPanoptoLogin: () -> Unit = {}, onLocalCaptions: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -330,6 +330,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
                 if (!l.fromPanopto) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_from_panopto), Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, ctx.getString(il.ac.tau.lecturesummarizer.R.string.listen_recording)) }
             }
+            LectureCaptionsSection(lectureId = lectureId, onOpen = onLocalCaptions)
             SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_course_context_pdf), Icons.Default.MenuBook) {
                 Text(l.contextPdfUri?.let { displayName(ctx, it) }
                     ?: courseCtx?.let { ctx.getString(il.ac.tau.lecturesummarizer.R.string.background_using, bidi(displayName(ctx,it))) } ?: ctx.getString(il.ac.tau.lecturesummarizer.R.string.background_none),
@@ -365,7 +366,7 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
 
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onMemory:()->Unit={}, onTutor:()->Unit={}) {
+fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: () -> Unit = {}, onListen: () -> Unit = {}, onRecordAnother: () -> Unit = {}, onMoodle: () -> Unit = {}, onPanopto: () -> Unit = {}, onMemory:()->Unit={}, onTutor:()->Unit={}, onLocalCaptions: () -> Unit = {}) {
     val ctx = LocalContext.current
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val l = all.firstOrNull { it.id == lectureId } ?: return
@@ -521,6 +522,8 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             }
 
             if(l.remoteId!=null||pdf!=null)StudyToolsEntry(onMemory,onTutor)
+
+            LectureCaptionsSection(lectureId = lectureId, onOpen = onLocalCaptions)
 
             OutlinedButton(onClick={sourcesOpen=!sourcesOpen},modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.Folder,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lecture_sources))}
             if(sourcesOpen){

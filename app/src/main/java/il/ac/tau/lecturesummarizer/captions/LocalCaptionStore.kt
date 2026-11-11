@@ -63,6 +63,11 @@ class LocalCaptionStore(private val context: Context) {
         file(lectureId).delete()
     }
 
+    fun exists(lectureId: String): Boolean {
+        val f = file(lectureId)
+        return f.isFile && f.length() > 0L
+    }
+
     fun exportTxt(lines: List<LocalCaptionLine>): String =
         lines.joinToString("\n") { it.text }.trim() + if (lines.isNotEmpty()) "\n" else ""
 }

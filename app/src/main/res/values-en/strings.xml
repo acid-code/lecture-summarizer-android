@@ -811,6 +811,31 @@
     <string name="captions_paused">Captions paused</string>
     <string name="captions_stopped_session">Captions off for this recording</string>
     <string name="captions_no_cleanup_ram">Captions without cleanup — not enough free memory</string>
+    <string name="captions_no_english_yet">Captions on — English model still downloading; stop and start again when it finishes</string>
+    <string name="captions_lang_he">Hebrew</string>
+    <string name="captions_lang_en">English</string>
+    <string name="captions_lang_label">Speech language</string>
+    <string name="captions_lang_en_waiting">English still downloading</string>
+    <string name="captions_open">Open captions</string>
+    <string name="captions_open_logged">Open captions (%1$d lines)</string>
+    <string name="captions_close">Close</string>
+    <string name="captions_lecture_recording">Recording</string>
+    <string name="captions_lecture_paused">Recording paused</string>
+    <string name="captions_lecture_pause">Pause lecture</string>
+    <string name="captions_lecture_resume">Resume lecture</string>
+    <string name="captions_lecture_stop">Stop lecture</string>
+    <string name="captions_lecture_pause_short">Pause</string>
+    <string name="captions_lecture_resume_short">Resume</string>
+    <string name="captions_lecture_stop_short">Stop</string>
+    <string name="captions_lecture_section">Local captions</string>
+    <string name="captions_delete">Delete</string>
+    <string name="captions_delete_title">Delete captions?</string>
+    <string name="captions_delete_body">Saved captions for this lecture will be removed from the phone.</string>
+    <string name="captions_empty">No captions</string>
+
+
+
+
     <string name="captions_start">Start captions</string>
     <string name="captions_starting">Starting…</string>
     <string name="captions_pause">Pause</string>
@@ -822,12 +847,14 @@
     <string name="captions_save_txt">Save as .txt</string>
     <string name="captions_dump">Dump</string>
     <string name="set_captions">Local captions</string>
-    <string name="set_captions_body">On-device models for live captions (~1.2 GB). Never uploaded.</string>
+    <string name="set_captions_body">On-device models for live captions. Never uploaded.</string>
     <string name="set_captions_status_ready">Models ready</string>
     <string name="set_captions_status_downloading">Downloading…</string>
     <string name="set_captions_status_idle">Not downloaded</string>
     <string name="set_captions_status_failed">Download failed</string>
     <string name="set_captions_free">Free this space</string>
+    <string name="set_captions_free_sized">Free this space (%1$s)</string>
+    <string name="set_captions_size">Using %1$s on this device</string>
     <string name="set_captions_free_done">Models deleted</string>
     <string name="captions_local_section">Local captions</string>
     <string name="captions_downloading_pct">Downloading models… %1$d%%</string>

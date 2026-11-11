@@ -823,6 +823,31 @@
     <string name="captions_paused">כתוביות מושהות</string>
     <string name="captions_stopped_session">כתוביות כבויות להקלטה הזו</string>
     <string name="captions_no_cleanup_ram">כתוביות בלי ניקוי — אין מספיק זיכרון פנוי</string>
+    <string name="captions_no_english_yet">כתוביות פעילות — מודל אנגלית עדיין מוריד; עצרו והתחילו מחדש כשיושלם</string>
+    <string name="captions_lang_he">עברית</string>
+    <string name="captions_lang_en">English</string>
+    <string name="captions_lang_label">שפת זיהוי</string>
+    <string name="captions_lang_en_waiting">אנגלית עדיין מורידה</string>
+    <string name="captions_open">פתיחת כתוביות</string>
+    <string name="captions_open_logged">פתיחת כתוביות (%1$d שורות)</string>
+    <string name="captions_close">סגירה</string>
+    <string name="captions_lecture_recording">הקלטה פעילה</string>
+    <string name="captions_lecture_paused">הקלטה מושהית</string>
+    <string name="captions_lecture_pause">השהיית הקלטה</string>
+    <string name="captions_lecture_resume">המשך הקלטה</string>
+    <string name="captions_lecture_stop">עצירת הקלטה</string>
+    <string name="captions_lecture_pause_short">השהיה</string>
+    <string name="captions_lecture_resume_short">המשך</string>
+    <string name="captions_lecture_stop_short">עצירה</string>
+    <string name="captions_lecture_section">כתוביות מקומיות</string>
+    <string name="captions_delete">מחיקה</string>
+    <string name="captions_delete_title">למחוק את הכתוביות?</string>
+    <string name="captions_delete_body">הכתוביות שנשמרו להרצאה הזו יימחקו מהמכשיר.</string>
+    <string name="captions_empty">אין כתוביות</string>
+
+
+
+
     <string name="captions_start">התחלת כתוביות</string>
     <string name="captions_starting">מפעילים…</string>
     <string name="captions_pause">השהיה</string>
@@ -834,12 +859,14 @@
     <string name="captions_save_txt">שמירה כ־txt</string>
     <string name="captions_dump">זריקה</string>
     <string name="set_captions">כתוביות מקומיות</string>
-    <string name="set_captions_body">מודלים על המכשיר לכתוביות חיות (~1.2 ג׳יגה). לא נשלחים לשרת.</string>
+    <string name="set_captions_body">מודלים על המכשיר לכתוביות חיות. לא נשלחים לשרת.</string>
     <string name="set_captions_status_ready">מודלים מוכנים</string>
     <string name="set_captions_status_downloading">בהורדה…</string>
     <string name="set_captions_status_idle">לא הורדו</string>
     <string name="set_captions_status_failed">ההורדה נכשלה</string>
     <string name="set_captions_free">פינוי המקום</string>
+    <string name="set_captions_free_sized">פינוי המקום (%1$s)</string>
+    <string name="set_captions_size">תופסים %1$s במכשיר</string>
     <string name="set_captions_free_done">המודלים נמחקו</string>
     <string name="captions_local_section">כתוביות מקומיות</string>
     <string name="captions_downloading_pct">מוריד מודלים… %1$d%%</string>

@@ -36,19 +36,4 @@ class CaptionLogicTest {
         assertNull(DictaLmEngine.accept("בסדר", "okay"))
         assertEquals("בסדר", DictaLmEngine.accept("בסדר", "בסדר"))
     }
-
-    @Test
-    fun asrPickPrefersEnglishLatinForEnglishSpeech() {
-        assertEquals(
-            "the gradient descent step updates the weights",
-            AsrPick.choose(
-                "הגרדיאנט דיסנט מעדכן את המשקלים",
-                "the gradient descent step updates the weights",
-            ),
-        )
-        assertEquals(
-            "האלגוריתם של למידה עמוקה",
-            AsrPick.choose("האלגוריתם של למידה עמוקה", ""),
-        )
-    }
 }

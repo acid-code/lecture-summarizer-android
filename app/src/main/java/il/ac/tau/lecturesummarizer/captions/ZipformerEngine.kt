@@ -94,16 +94,19 @@ class StreamingZipformer(
     }
 }
 
-/**
- * Hebrew Zipformer + optional English Zipformer.
- * English speech is routed to Latin script via [AsrPick] instead of HE-only mistranslation.
- */
-class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
+/** Manual HE-only or EN-only Zipformer — no automatic language picking. */
+class ZipformerEngine(
+    store: CaptionModelStore,
+    initialLanguage: CaptionAsrLanguage = store.asrLanguage,
+) : AutoCloseable {
     private val he: StreamingZipformer
     private val en: StreamingZipformer?
     private val closed = AtomicBoolean(false)
+    private var language: CaptionAsrLanguage = initialLanguage
     private var lastPartial = ""
     private var lastPartialAt = 0L
+
+    val englishLoaded: Boolean get() = en != null
 
     init {
         require(store.zipformerReady()) { "Zipformer models not on disk" }
@@ -125,33 +128,41 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
                 )
             }.onFailure { Log.w(TAG, "English Zipformer load failed", it) }.getOrNull()
         } else null
-        Log.i(TAG, "ASR ready he=true en=${en != null}")
+        if (language == CaptionAsrLanguage.English && en == null) {
+            language = CaptionAsrLanguage.Hebrew
+        }
+        Log.i(TAG, "ASR ready he=true en=${en != null} lang=$language")
+    }
+
+    /** Switch HE/EN mid-session. Returns any leftover final text from the previous model. */
+    @Synchronized
+    fun setLanguage(lang: CaptionAsrLanguage): String? {
+        if (closed.get()) return null
+        val target = if (lang == CaptionAsrLanguage.English && en == null) CaptionAsrLanguage.Hebrew else lang
+        if (target == language) return null
+        val leftover = active().flush().takeIf { it.isNotBlank() }
+        // Drop stale hypothesis on the inactive stream so a later switch starts clean.
+        inactive()?.flush()
+        language = target
+        lastPartial = ""
+        lastPartialAt = 0L
+        Log.i(TAG, "ASR language -> $language")
+        return leftover
     }
 
     @Synchronized
     fun acceptPcm(samples: FloatArray): ZipResult? {
         if (closed.get()) return null
-        val (heText, heEnd) = he.feed(samples)
-        val (enText, enEnd) = en?.feed(samples) ?: ("" to false)
-        val endpoint = heEnd || enEnd
+        val (text, endpoint) = active().feed(samples)
         if (endpoint) {
-            val heLine = if (heEnd) heText else he.flush()
-            val enLine = when {
-                en == null -> ""
-                enEnd -> enText
-                else -> en.flush()
-            }
             lastPartial = ""
             lastPartialAt = 0L
-            val picked = AsrPick.choose(heLine, enLine)
-            return picked.takeIf { it.isNotBlank() }?.let { ZipResult.Final(it) }
+            return text.takeIf { it.isNotBlank() }?.let { ZipResult.Final(it) }
         }
-        // Live partial: prefer growing HE text while speaking (don't wait for EN to win).
-        val partial = livePartial(heText, enText)
+        val partial = text.trim()
         if (partial.isBlank()) return null
         if (partial == lastPartial) return null
         val now = System.currentTimeMillis()
-        // Only throttle identical-length flicker; always emit when the hypothesis grows/changes.
         if (now - lastPartialAt < 60L && partial.length <= lastPartial.length) return null
         lastPartial = partial
         lastPartialAt = now
@@ -161,12 +172,16 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
     @Synchronized
     fun flush(): String? {
         if (closed.get()) return null
-        val heLine = he.flush()
-        val enLine = en?.flush().orEmpty()
         lastPartial = ""
         lastPartialAt = 0L
-        return AsrPick.choose(heLine, enLine).takeIf { it.isNotBlank() }
+        return active().flush().takeIf { it.isNotBlank() }
     }
+
+    private fun active(): StreamingZipformer =
+        if (language == CaptionAsrLanguage.English && en != null) en else he
+
+    private fun inactive(): StreamingZipformer? =
+        if (language == CaptionAsrLanguage.English) he else en
 
     @Synchronized
     override fun close() {
@@ -178,20 +193,5 @@ class ZipformerEngine(store: CaptionModelStore) : AutoCloseable {
 
     companion object {
         private const val TAG = "ZipformerEngine"
-
-        /** While speaking, show whatever is growing; finalize still uses [AsrPick]. */
-        fun livePartial(he: String, en: String): String {
-            val h = he.trim()
-            val e = en.trim()
-            if (h.isEmpty()) return e
-            if (e.isEmpty()) return h
-            val heHasHe = h.any { it in '\u0590'..'\u05FF' }
-            val enHasLa = e.any { it.isLetter() && it.code < 128 }
-            return when {
-                heHasHe -> h
-                enHasLa && e.length >= h.length -> e
-                else -> if (h.length >= e.length) h else e
-            }
-        }
     }
 }

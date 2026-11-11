@@ -5,6 +5,9 @@ import java.io.File
 
 enum class CaptionDownloadState { Idle, Downloading, Ready, Failed }
 
+/** User-selected ASR language — no automatic HE/EN switching. */
+enum class CaptionAsrLanguage { Hebrew, English }
+
 /** Agreement flag, model paths under filesDir/models/, completeness checks, free-space wipe. */
 class CaptionModelStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("captions", Context.MODE_PRIVATE)
@@ -33,6 +36,12 @@ class CaptionModelStore(private val context: Context) {
         get() = prefs.getLong("progressBytes", 0L)
         set(v) = prefs.edit().putLong("progressBytes", v).apply()
 
+    var asrLanguage: CaptionAsrLanguage
+        get() = runCatching {
+            CaptionAsrLanguage.valueOf(prefs.getString("asrLanguage", CaptionAsrLanguage.Hebrew.name)!!)
+        }.getOrDefault(CaptionAsrLanguage.Hebrew)
+        set(v) = prefs.edit().putString("asrLanguage", v.name).apply()
+
     fun zipformerReady(): Boolean = CaptionModels.ZIPFORMER_SIZES.all { (name, size) ->
         val f = zipformerFile(name)
         f.isFile && f.length() == size
@@ -56,7 +65,34 @@ class CaptionModelStore(private val context: Context) {
     fun progressFraction(): Float =
         (progressBytes.toFloat() / CaptionModels.DOWNLOAD_TOTAL_BYTES.toFloat()).coerceIn(0f, 1f)
 
+    /** Authoritative progress from on-disk complete + partial files (avoids stale prefs). */
+    fun bytesDownloadedOnDisk(): Long {
+        var n = 0L
+        for ((name, size) in CaptionModels.ZIPFORMER_SIZES) {
+            val f = zipformerFile(name)
+            if (f.isFile && f.length() == size) n += size
+        }
+        for ((name, size) in CaptionModels.ZIPFORMER_EN_SIZES) {
+            val f = englishFile(name)
+            if (f.isFile && f.length() == size) n += size
+        }
+        when {
+            ggufReady() -> n += CaptionModels.GGUF_BYTES
+            else -> {
+                val partial = File(modelsDir, "${CaptionModels.GGUF}.partial")
+                if (partial.isFile) n += partial.length()
+            }
+        }
+        return n
+    }
+
+    fun syncProgressFromDisk() {
+        val n = bytesDownloadedOnDisk()
+        if (n != progressBytes) progressBytes = n
+    }
+
     fun refreshReadyState() {
+        syncProgressFromDisk()
         if (modelsReady()) {
             downloadState = CaptionDownloadState.Ready
             lastError = null
@@ -65,17 +101,15 @@ class CaptionModelStore(private val context: Context) {
         }
     }
 
-    /** If user already agreed but English model is missing, keep downloading in background. */
+    /** If user already agreed but models are missing, keep / restart the download worker. */
     fun ensureBackgroundDownload() {
         if (!agreed) return
         if (modelsReady()) {
             downloadState = CaptionDownloadState.Ready
             return
         }
-        if (downloadState != CaptionDownloadState.Downloading) {
-            downloadState = CaptionDownloadState.Downloading
-            CaptionModelDownloader.enqueue(context)
-        }
+        downloadState = CaptionDownloadState.Downloading
+        CaptionModelDownloader.enqueue(context)
     }
 
     /** Cancel partials, delete models, clear agreement. Next captions start needs a new Agree. */
@@ -93,11 +127,9 @@ class CaptionModelStore(private val context: Context) {
     }
 
     fun bytesOnDisk(): Long {
+        if (!modelsDir.isDirectory) return 0L
         var n = 0L
-        zipformerDir.walkTopDown().filter { it.isFile }.forEach { n += it.length() }
-        zipformerEnDir.walkTopDown().filter { it.isFile }.forEach { n += it.length() }
-        if (ggufFile.isFile) n += ggufFile.length()
-        File(modelsDir, "${CaptionModels.GGUF}.partial").takeIf { it.isFile }?.let { n += it.length() }
+        modelsDir.walkTopDown().filter { it.isFile }.forEach { n += it.length() }
         return n
     }
 }

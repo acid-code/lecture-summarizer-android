@@ -47,6 +47,9 @@ data class CaptionUiState(
     val downloadProgress: Float = 0f,
     val downloadPercent: Int = 0,
     val waitingUnmetered: Boolean = false,
+    val asrLanguage: CaptionAsrLanguage = CaptionAsrLanguage.Hebrew,
+    /** English Zipformer files present (chip enabled). */
+    val englishAvailable: Boolean = false,
 )
 
 /**
@@ -83,10 +86,16 @@ class CaptionSession(private val context: Context) {
         val downloading = store.downloadState == CaptionDownloadState.Downloading
         val pct = (store.progressFraction() * 100).toInt().coerceIn(0, 100)
         val canStart = store.agreed && speechReady
+        // While a session is open, EN only if the engine actually loaded it (needs stop/start after download).
+        val englishAvailable = zip?.englishLoaded ?: store.englishReady()
+        if (store.asrLanguage == CaptionAsrLanguage.English && !englishAvailable) {
+            store.asrLanguage = CaptionAsrLanguage.Hebrew
+        }
         _state.update {
             val runningStatus = it.status.takeIf { s ->
                 s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on) ||
                     s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram) ||
+                    s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_english_yet) ||
                     s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused) ||
                     s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_stopped_session) ||
                     s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_starting)
@@ -100,6 +109,8 @@ class CaptionSession(private val context: Context) {
                     store.downloadState != CaptionDownloadState.Failed,
                 downloadProgress = store.progressFraction(),
                 downloadPercent = pct,
+                asrLanguage = store.asrLanguage,
+                englishAvailable = englishAvailable,
                 status = when {
                     it.run == CaptionRunState.Running || it.run == CaptionRunState.Starting ||
                         it.run == CaptionRunState.Paused || it.run == CaptionRunState.Stopped ->
@@ -134,6 +145,23 @@ class CaptionSession(private val context: Context) {
         prepareGates()
     }
 
+    /** Active HE/EN choice — can change mid-lecture; no auto switching. */
+    fun setAsrLanguage(lang: CaptionAsrLanguage) {
+        val enOk = zip?.englishLoaded ?: store.englishReady()
+        if (lang == CaptionAsrLanguage.English && !enOk) return
+        store.asrLanguage = lang
+        lastDir = if (lang == CaptionAsrLanguage.Hebrew) LayoutDirection.Rtl else LayoutDirection.Ltr
+        val leftover = zip?.setLanguage(lang)
+        _state.update {
+            it.copy(
+                asrLanguage = store.asrLanguage,
+                englishAvailable = enOk,
+                partial = "",
+            )
+        }
+        leftover?.let { emitLine(it) }
+    }
+
     fun start(lecture: Lecture? = null, localeRtl: Boolean = true) {
         if (stoppedForSession.get() && lecture != null) {
             _state.update { it.copy(status = context.getString(il.ac.tau.lecturesummarizer.R.string.captions_stopped_session)) }
@@ -148,8 +176,11 @@ class CaptionSession(private val context: Context) {
                 lectureId = lecture?.id
                 glossary = CaptionGlossary.fromLecture(context, lecture)
                 sessionStartMs = System.currentTimeMillis()
-                lastDir = if (localeRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
-                zip = ZipformerEngine(store)
+                lastDir = when (store.asrLanguage) {
+                    CaptionAsrLanguage.Hebrew -> LayoutDirection.Rtl
+                    CaptionAsrLanguage.English -> LayoutDirection.Ltr
+                }
+                zip = ZipformerEngine(store, store.asrLanguage)
                 val useCleanup = store.ggufReady() && hw.canLoadCleanup && !hw.lowRamDevice
                 lm = if (useCleanup) {
                     runCatching { DictaLmEngine.open(store) }.onFailure {
@@ -162,6 +193,8 @@ class CaptionSession(private val context: Context) {
                     it.copy(
                         run = CaptionRunState.Running,
                         cleanupActive = lm != null,
+                        asrLanguage = store.asrLanguage,
+                        englishAvailable = zip?.englishLoaded == true,
                         status = when {
                             lm != null -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on)
                             else -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram)
@@ -213,18 +246,77 @@ class CaptionSession(private val context: Context) {
 
     fun startAgain() {
         stoppedForSession.set(false)
-        continueCaptions()
+        if (_state.value.run == CaptionRunState.Paused) continueCaptions()
+        else if (zip != null) wakeCaptions()
+    }
+
+    /**
+     * Close the captions UI during an ongoing lecture recording:
+     * stop listening but keep models/lines so Open captions can resume.
+     */
+    fun dismissCaptionsUi() {
+        stoppedForSession.set(false)
+        captionsPausedAlone = false
+        when (_state.value.run) {
+            CaptionRunState.Running, CaptionRunState.Starting -> {
+                mic?.stop()
+                mic = null
+                zip?.flush()?.let { emitLine(it) }
+            }
+            CaptionRunState.Paused, CaptionRunState.Stopped -> {
+                mic?.stop()
+                mic = null
+            }
+            CaptionRunState.Off -> Unit
+        }
+        _state.update { it.copy(run = CaptionRunState.Off, partial = "", status = "") }
+    }
+
+    /** Resume after [dismissCaptionsUi] without reloading models when possible. */
+    fun wakeCaptions(lecture: Lecture? = null, localeRtl: Boolean = true) {
+        stoppedForSession.set(false)
+        if (zip == null) {
+            start(lecture, localeRtl)
+            return
+        }
+        if (_state.value.run == CaptionRunState.Running || _state.value.run == CaptionRunState.Starting) return
+        captionsPausedAlone = false
+        mic?.stop()
+        mic = CaptionMic { pcm -> onPcm(pcm) }.also { it.start() }
+        _state.update {
+            it.copy(
+                run = CaptionRunState.Running,
+                partial = "",
+                asrLanguage = store.asrLanguage,
+                englishAvailable = zip?.englishLoaded == true,
+                status = if (lm != null) context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on)
+                else context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram),
+            )
+        }
     }
 
     fun onRecordingPaused() {
-        if (_state.value.run == CaptionRunState.Running) pauseCaptions()
+        // Lecture pause — pause captions with it, but not as a captions-only pause.
+        if (_state.value.run != CaptionRunState.Running) return
+        captionsPausedAlone = false
+        mic?.stop()
+        mic = null
+        zip?.flush()?.let { emitLine(it) }
+        _state.update {
+            it.copy(
+                run = CaptionRunState.Paused,
+                partial = "",
+                status = context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused),
+            )
+        }
     }
 
     fun onRecordingResumed() {
         if (stoppedForSession.get()) return
-        if (captionsPausedAlone || _state.value.run == CaptionRunState.Paused) {
-            continueCaptions()
-        }
+        if (_state.value.run != CaptionRunState.Paused) return
+        // User paused captions alone — leave them paused while recording continues.
+        if (captionsPausedAlone) return
+        continueCaptions()
     }
 
     fun onRecordingStopped() {

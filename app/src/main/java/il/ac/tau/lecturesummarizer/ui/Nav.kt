@@ -91,7 +91,7 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         }
         composable("attach/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) {
             val id = e.arguments!!.getString("id")!!
-            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onRecord = { nav.navigate("record/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onListen = { nav.navigate("listen/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { if (app.repo.lecture(id)?.fromPanopto == true) nav.navigate("panoptoNew/$id") else nav.navigate("panopto/$id") }, onPanoptoLogin = { nav.navigate("panoptoLogin/$id") }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } })
+            AttachUploadScreen(app, id, onBack = { nav.popBackStack() }, onRecord = { nav.navigate("record/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onListen = { nav.navigate("listen/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { if (app.repo.lecture(id)?.fromPanopto == true) nav.navigate("panoptoNew/$id") else nav.navigate("panopto/$id") }, onPanoptoLogin = { nav.navigate("panoptoLogin/$id") }, onUploaded = { nav.navigate("job/$id") { popUpTo("attach/$id") { inclusive = true } } }, onLocalCaptions = { nav.navigate("lectureCaptions/$id") })
         }
         }
         composable("moodle/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { MoodleAttachScreen(app, e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }) }
@@ -99,8 +99,11 @@ fun AppNav(app: LectureApp, shared: MutableState<List<Uri>>, openLecture: Mutabl
         composable("panopto/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!
             PanoptoImportScreen(app, id, onBack = { nav.popBackStack() }, onStarted = { nav.navigate("job/$id") { popUpTo("panopto/$id") { inclusive = true } } }) }
         }
-        composable("job/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }, onListen = { nav.navigate("listen/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { nav.navigate("panopto/$id") },onMemory={nav.navigate("memory/$id")},onTutor={nav.navigate("tutor/$id")}) }
+        composable("job/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { val id = e.arguments!!.getString("id")!!; JobScreen(app, id, onBack = { nav.popBackStack() }, onAttach = { nav.navigate("attach/$id") }, onListen = { nav.navigate("listen/$id") }, onRecordAnother = { nav.navigate("recordAnother/$id") }, onMoodle = { nav.navigate("moodle/$id") }, onPanopto = { nav.navigate("panopto/$id") },onMemory={nav.navigate("memory/$id")},onTutor={nav.navigate("tutor/$id")}, onLocalCaptions = { nav.navigate("lectureCaptions/$id") }) }
         }
+        composable("lectureCaptions/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) {
+            LectureCaptionsViewerScreen(e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() })
+        } }
         composable("memory/{id}"){e->val id=e.arguments!!.getString("id")!!;LectureTheme(app,id){MemoryScreen(app,id){nav.popBackStack()}}}
         composable("tutor/{id}"){e->val id=e.arguments!!.getString("id")!!;LectureTheme(app,id){TutorScreen(app,id){nav.popBackStack()}}}
         composable("listen/{id}") { e -> LectureTheme(app, e.arguments!!.getString("id")!!) { ListenScreen(app, e.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }) }
