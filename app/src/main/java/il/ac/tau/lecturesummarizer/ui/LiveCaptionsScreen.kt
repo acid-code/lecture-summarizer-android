@@ -60,13 +60,8 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
         onDispose { session.release() }
     }
 
-    // Keep download % / ready state fresh (worker runs in background).
-    LaunchedEffect(session) {
-        while (true) {
-            val s = session.prepareGates()
-            delay(if (s.needsSpeechDownload || s.cleanupDownloading) 400 else 1500)
-        }
-    }
+    var autoStartedAfterDownload by remember { mutableStateOf(false) }
+    var wasWaitingForSpeech by remember { mutableStateOf(false) }
 
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) session.start(localeRtl = localeRtl) else denied = true
@@ -75,6 +70,25 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             perm.launch(Manifest.permission.RECORD_AUDIO)
         } else session.start(localeRtl = localeRtl)
+    }
+
+    // Keep download % / ready state fresh; auto-start once speech model lands.
+    LaunchedEffect(session) {
+        while (true) {
+            val s = session.prepareGates()
+            if (s.needsSpeechDownload) wasWaitingForSpeech = true
+            if (
+                wasWaitingForSpeech &&
+                !autoStartedAfterDownload &&
+                s.canStart &&
+                !s.needsSpeechDownload &&
+                s.run == CaptionRunState.Off
+            ) {
+                autoStartedAfterDownload = true
+                tryStart()
+            }
+            delay(if (s.needsSpeechDownload || s.cleanupDownloading) 400 else 1500)
+        }
     }
 
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
@@ -149,10 +163,15 @@ fun LiveCaptionsScreen(app: LectureApp, onBack: () -> Unit) {
                 when (ui.run) {
                     CaptionRunState.Off, CaptionRunState.Stopped -> {
                         Button(
-                            enabled = !ui.needsAgreement && !ui.needsSpeechDownload,
+                            enabled = ui.canStart,
                             onClick = { tryStart() },
                             modifier = Modifier.weight(1f),
-                        ) { Text(stringResource(R.string.captions_start)) }
+                        ) {
+                            Text(
+                                if (ui.needsSpeechDownload) stringResource(R.string.captions_waiting_download)
+                                else stringResource(R.string.captions_start),
+                            )
+                        }
                     }
                     CaptionRunState.Starting -> Text(stringResource(R.string.captions_starting), Modifier.weight(1f))
                     CaptionRunState.Running -> {

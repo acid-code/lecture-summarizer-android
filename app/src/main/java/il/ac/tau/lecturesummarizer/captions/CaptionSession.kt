@@ -42,6 +42,8 @@ data class CaptionUiState(
     val needsSpeechDownload: Boolean = false,
     /** True while cleanup GGUF is still downloading (speech may already work). */
     val cleanupDownloading: Boolean = false,
+    /** Speech model on disk — Start captions is allowed. */
+    val canStart: Boolean = false,
     val downloadProgress: Float = 0f,
     val downloadPercent: Int = 0,
     val waitingUnmetered: Boolean = false,
@@ -80,16 +82,28 @@ class CaptionSession(private val context: Context) {
             store.downloadState == CaptionDownloadState.Downloading
         val downloading = store.downloadState == CaptionDownloadState.Downloading
         val pct = (store.progressFraction() * 100).toInt().coerceIn(0, 100)
+        val canStart = store.agreed && speechReady
         _state.update {
+            val runningStatus = it.status.takeIf { s ->
+                s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on) ||
+                    s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram) ||
+                    s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused) ||
+                    s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_stopped_session) ||
+                    s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_starting)
+            }
             it.copy(
                 needsAgreement = needsAgreement,
                 needsSpeechDownload = needsSpeechDownload,
                 cleanupDownloading = cleanupDownloading,
+                canStart = canStart,
                 waitingUnmetered = needsSpeechDownload && !downloading &&
                     store.downloadState != CaptionDownloadState.Failed,
                 downloadProgress = store.progressFraction(),
                 downloadPercent = pct,
                 status = when {
+                    it.run == CaptionRunState.Running || it.run == CaptionRunState.Starting ||
+                        it.run == CaptionRunState.Paused || it.run == CaptionRunState.Stopped ->
+                        runningStatus.orEmpty()
                     needsAgreement -> context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_agree)
                     needsSpeechDownload && store.downloadState == CaptionDownloadState.Failed ->
                         store.lastError ?: context.getString(il.ac.tau.lecturesummarizer.R.string.captions_download_failed)
@@ -99,14 +113,9 @@ class CaptionSession(private val context: Context) {
                         context.getString(il.ac.tau.lecturesummarizer.R.string.captions_need_download)
                     cleanupDownloading ->
                         context.getString(il.ac.tau.lecturesummarizer.R.string.captions_speech_ready_cleanup_pct, pct)
-                    speechReady && !store.ggufReady() && store.downloadState == CaptionDownloadState.Failed ->
-                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_speech_ready_no_cleanup)
-                    else -> it.status.takeIf { s ->
-                        s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_on) ||
-                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_no_cleanup_ram) ||
-                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_paused) ||
-                            s == context.getString(il.ac.tau.lecturesummarizer.R.string.captions_stopped_session)
-                    }.orEmpty()
+                    canStart ->
+                        context.getString(il.ac.tau.lecturesummarizer.R.string.captions_ready_tap_start)
+                    else -> ""
                 },
             )
         }

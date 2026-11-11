@@ -839,4 +839,6 @@
     <string name="captions_download_done_body">Download finished. You can open Live captions.</string>
     <string name="captions_english_ready_title">English support ready</string>
     <string name="captions_english_ready_body">English speech model downloaded — English captions stay in Latin letters.</string>
+    <string name="captions_ready_tap_start">Ready — tap to start captions</string>
+    <string name="captions_waiting_download">Waiting for download…</string>
 </resources>

@@ -851,4 +851,6 @@
     <string name="captions_download_done_body">ההורדה הסתיימה. אפשר לפתוח כתוביות חיות.</string>
     <string name="captions_english_ready_title">תמיכה באנגלית מוכנה</string>
     <string name="captions_english_ready_body">מודל האנגלית ירד — כתוביות באנגלית יישארו באותיות לטיניות.</string>
+    <string name="captions_ready_tap_start">מוכן — לחצו להתחלת כתוביות</string>
+    <string name="captions_waiting_download">ממתין להורדה…</string>
 </resources>
