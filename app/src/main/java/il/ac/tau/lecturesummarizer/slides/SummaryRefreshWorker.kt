@@ -23,8 +23,10 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
         val l=app.repo.lecture(id) ?: return Result.success();val remote=l.remoteId ?: return Result.failure();val source=l.jobId ?: return Result.failure()
         val rev=inputData.getString("revision") ?: return Result.failure();val f=SummaryFreshness(app)
         val token=inputData.getString("variantToken");val variantState=SummaryVariantState(app)
-        val densities=inputData.getStringArray("densities")?.toList() ?: app.settings.summaryDensities.sorted()
+        val densities=(inputData.getStringArray("densities")?.toList() ?: app.settings.summaryDensities.sorted())
+            .filter { it in setOf("compact", "standard", "detailed") }
         fun mark(state:String,progress:Int=0){if(token!=null)densities.forEach{variantState.update(id,it,token,state,progress)}}
+        if(densities.isEmpty()){f.state(id,"ready");mark("ready",100);return Result.success()}
         if(rev!=f.revision(l)){f.state(id,"changed");mark("error");return Result.success()}
         f.prepare(id,rev)
         if(l.state !in setOf(LectureState.DONE,LectureState.FAILED)){f.state(id,"queued");return Result.retry()}

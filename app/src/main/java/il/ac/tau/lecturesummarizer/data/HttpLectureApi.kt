@@ -99,19 +99,34 @@ class HttpLectureApi(
     /**
      * Large-file path (Vercel: 4.5 MB function body limit). Ask the API how to upload: POST /v1/uploads.
      *  - {"mode":"multipart"} (local/box, no Blob store) → null, caller uses multipart.
-     *  - {"mode":"blob", put_url, headers} → PUT raw bytes straight to Vercel Blob, return the Blob URL,
-     *    which the caller sends as JSON {url} to the normal /v1 endpoint.
-     * Only attempted for files > BLOB_THRESHOLD; any failure of the probe falls back to multipart.
+     *  - {"mode":"r2", put_url, url, headers} → PUT raw bytes straight to Cloudflare R2.
+     *  - legacy {"mode":"blob", put_url, headers} → PUT to Vercel Blob.
+     * The returned object URL is sent as JSON {url} to the normal /v1 endpoint.
+     * Only attempted for files above the function-body threshold; failures fall back to multipart.
      */
     private suspend fun blobUploadOrNull(file: File, mime: String): String? {
         if (file.length() <= BLOB_THRESHOLD) return null
         val plan = runCatching {
             postJson("/v1/uploads", JSONObject().put("filename", file.name).put("content_type", mime).put("size", file.length()))
         }.getOrNull() ?: return null
-        if (plan.optString("mode") != "blob") return null
+        val mode = plan.optString("mode")
+        if (mode != "r2" && mode != "blob") return null
         val put = Request.Builder().url(plan.getString("put_url")).put(file.asRequestBody(mime.toMediaType()))
         plan.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> put.header(k, h.getString(k)) } }
-        return call(put.build()) { JSONObject(it.body!!.string()).getString("url") }
+        if (mode == "r2") {
+            val objectUrl = plan.optString("url")
+            if (objectUrl.isBlank()) return null
+            return runCatching { call(put.build()) {}; objectUrl }.getOrNull()
+        }
+        return runCatching {
+            call(put.build()) {
+                val body = it.body?.string().orEmpty()
+                if (body.isBlank()) plan.optString("url").ifBlank { null } ?: error("Blob PUT returned no URL")
+                else runCatching { JSONObject(body).optString("url") }.getOrDefault("").ifBlank {
+                    error("Blob PUT returned no URL")
+                }
+            }
+        }.getOrNull()
     }
 
     /** Spool an InputStream (slides/context from a content Uri) to a temp file so its size is known. */
@@ -176,8 +191,8 @@ class HttpLectureApi(
         postJson("/v1/lectures/$lectureRemoteId/process",
             JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live)
                 // Primary job = richest prose level first (detailed > standard > compact); slides is never primary alone when prose exists.
-                .put("density", listOf("detailed", "standard", "compact", "slides").firstOrNull { it in densities } ?: "detailed")
-                .put("densities", JSONArray(SummaryDensity.entries.map { it.api }.filter { it in densities })))
+                .put("density", listOf("detailed", "standard", "compact").firstOrNull { it in densities } ?: "detailed")
+                .put("densities", JSONArray(setOf("compact", "standard", "detailed").filter { it in densities })))
         ).getString("job_id")
 
     override suspend fun importTranscript(lectureRemoteId: String, import: TranscriptImport): String? {
@@ -216,7 +231,8 @@ class HttpLectureApi(
             try { postJson("/v1/jobs/$jobId/retry?force=1", JSONObject()) }
             catch (e2: HttpStatusException) { if (e2.code == 409) return jobStatus(jobId) else throw e2 }
         }
-        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"))
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density=o.optStringOrNull("density"), jobId=o.optStringOrNull("job_id"))
     }
 
     override suspend fun forceRestartJob(jobId: String): JobStatus {
@@ -264,11 +280,13 @@ class HttpLectureApi(
     }
 
     override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus {
+        require(density == null || density in setOf("compact", "standard", "detailed"))
         // 409 = server thinks the job is mid-flight (e.g. stuck in summary with a stale "Done"); retry once with force.
         val q = density?.let { "density=$it" }
         val o = try { postJson("/v1/jobs/$jobId/resummarize" + (q?.let { "?$it" } ?: ""), JSONObject()) }
         catch (e: HttpStatusException) { if (e.code == 409) postJson("/v1/jobs/$jobId/resummarize?force=1" + (q?.let { "&$it" } ?: ""), JSONObject()) else throw e }
-        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"), jobId = o.optStringOrNull("job_id"))
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density=density ?: o.optStringOrNull("density"), jobId=o.optStringOrNull("job_id"))
     }
 
     override suspend fun reprocessJob(jobId: String, fallback: Boolean): ReprocessResult = withContext(Dispatchers.IO) {
@@ -279,7 +297,8 @@ class HttpLectureApi(
             if (resp.code == 404) throw IOException("HTTP 404 — reprocess not supported or job not found")
             if (resp.code == 409) return@use ReprocessResult(null, null, o.optBoolean("audio_missing"), o.optStringOrNull("error"))
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} POST ${r.url.encodedPath}")
-            ReprocessResult(JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), null),
+            ReprocessResult(JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+                o.optJSONObject("progress_detail")?.optStringOrNull("label"), density=o.optStringOrNull("density"), jobId=o.optStringOrNull("job_id")),
                 o.optStringOrNull("mode"), o.optBoolean("audio_missing"))
         }
     }

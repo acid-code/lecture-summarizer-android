@@ -86,12 +86,25 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             }
 
             lecture = repo.lecture(id)!!
-            val pending = lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
+            val migratePrefs = applicationContext.getSharedPreferences("r2_lazy_migration", Context.MODE_PRIVATE)
+            val migrationComplete = migratePrefs.getBoolean("lecture:$id", false)
+            val pending = if (live) {
+                lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
+            } else if (!migrationComplete) {
+                lecture.segments.filter { File(it.path).exists() }.sortedBy { it.seq }
+            } else {
+                lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
+            }
             for ((n, seg) in pending.withIndex()) {
                 if (isStopped) return interrupted(id)
                 runCatching { setForeground(info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.upload_part, n+1,pending.size))) }
                 api.uploadSegment(remote, seg, File(seg.path))
                 repo.updateLecture(id) { l -> l.copy(segments = l.segments.map { if (it.seq == seg.seq) it.copy(uploaded = true) else it }) }
+            }
+            if (!live && pending.isNotEmpty() && pending.all { seg ->
+                    repo.lecture(id)?.segments?.firstOrNull { it.seq == seg.seq }?.uploaded == true
+                }) {
+                migratePrefs.edit().putBoolean("lecture:$id", true).apply()
             }
             if (lecture.markers.isNotEmpty()) api.uploadMarkers(remote, lecture.markers)
 

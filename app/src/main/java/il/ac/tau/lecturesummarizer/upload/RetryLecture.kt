@@ -80,7 +80,7 @@ private suspend fun unstickDensityJobs(
         il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.adopt(app, id, updating)
     }
     val ready = states.filter { it.value.state == "ready" }.keys
-    val want = app.settings.summaryDensities.toSet()
+    val want = app.settings.summaryDensities.intersect(setOf("compact", "standard", "detailed"))
     want.filter { it !in ready && it !in updating.keys }.forEach { density ->
         il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueueDensity(app, id, density, force = true)
     }
