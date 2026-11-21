@@ -75,6 +75,10 @@ class HttpLectureApi(
             val s = it.body?.string().orEmpty(); if (s.isBlank()) JSONObject() else JSONObject(s)
         }
 
+    override suspend fun nudgeJobs() {
+        postJson("/v1/admin/job-nudge", JSONObject())
+    }
+
     override suspend fun glossary(lectureRemoteId:String,density:String?):List<il.ac.tau.lecturesummarizer.study.Concept>{
         require(density==null||density in setOf("standard","detailed","compact"))
         return call(req("/v1/lectures/$lectureRemoteId/summary.json"+(density?.let{"?density=$it"}?:"")).get().build()){r->

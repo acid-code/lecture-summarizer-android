@@ -8,6 +8,8 @@ import java.io.InputStream
  * The phone never calls Gemini or any model directly — only this API.
  */
 interface LectureApi {
+    /** POST /v1/admin/job-nudge — server reset/advance pass for stuck jobs. */
+    suspend fun nudgeJobs() {}
     /** Saved summary glossary; no generation or tutor call. Older summary.json endpoints already support this. */
     suspend fun glossary(lectureRemoteId:String,density:String?=null):List<il.ac.tau.lecturesummarizer.study.Concept> = emptyList()
     suspend fun tutor(lectureRemoteId:String,question:String,language:String,previousQuestions:List<String> = emptyList()):il.ac.tau.lecturesummarizer.study.TutorReply = error("Tutor unavailable")
