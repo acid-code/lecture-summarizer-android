@@ -27,8 +27,15 @@ class JobAutoRecoveryWorker(ctx: Context, params: WorkerParameters) : CoroutineW
             when {
                 recovery.shouldAutoRetryFailed(l, now) -> {
                     runCatching {
-                        recovery.bump(l.id, "failed_idle")
-                        retryLecture(app, l.id, auto = true)
+                        if (JobAutoRecovery.needsSourceRecovery(l.error) && recovery.sourceAttempts(l.id) < JobAutoRecovery.MAX_SOURCE_ATTEMPTS) {
+                            recovery.bumpSource(l.id)
+                            UploadWorker.enqueue(app, l.id)
+                        } else if (JobAutoRecovery.needsSourceRecovery(l.error)) {
+                            // Source recovery exhausted: leave the failed job visible; never enter an infinite retry loop.
+                        } else {
+                            recovery.bump(l.id, "failed_idle")
+                            retryLecture(app, l.id, auto = true)
+                        }
                     }
                 }
                 recovery.shouldUnstick(l, now) -> {

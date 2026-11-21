@@ -84,6 +84,12 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     return Result.success()
                 }
                 if (st.state == "failed") {
+                    if (JobAutoRecovery.needsSourceRecovery(st.error) && recovery.sourceAttempts(id) < JobAutoRecovery.MAX_SOURCE_ATTEMPTS) {
+                        recovery.bumpSource(id)
+                        app.repo.updateLecture(id) { it.copy(state = LectureState.UPLOADING, error = null) }
+                        UploadWorker.enqueue(app, id)
+                        return Result.success()
+                    }
                     app.repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }
                     recovery.recordFail(id)
                     val canAuto = recovery.attempts(id) < JobAutoRecovery.MAX_ATTEMPTS && !JobAutoRecovery.isDenied(st.error)

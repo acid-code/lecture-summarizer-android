@@ -20,9 +20,18 @@ class JobAutoRecovery(ctx: Context) {
     fun clear(id: String) {
         p.edit()
             .remove("attempts:$id")
+            .remove("sourceAttempts:$id")
             .remove("failedAt:$id")
             .remove("fp:$id")
             .remove("fpAt:$id")
+            .apply()
+    }
+
+    fun sourceAttempts(id: String): Int = p.getInt("sourceAttempts:$id", 0)
+    fun bumpSource(id: String) {
+        p.edit()
+            .putInt("sourceAttempts:$id", sourceAttempts(id) + 1)
+            .putLong("failedAt:$id", 0L)
             .apply()
     }
 
@@ -75,6 +84,7 @@ class JobAutoRecovery(ctx: Context) {
         /** No stage/progress change → treat as stuck and force-restart. */
         const val STUCK_MS = 10 * 60_000L
         const val MAX_ATTEMPTS = 5
+        const val MAX_SOURCE_ATTEMPTS = 3
 
         fun fingerprint(stage: String?, progress: Int, detail: String?, error: String?): String =
             listOf(stage ?: "", progress.toString(), detail ?: "", error ?: "").joinToString("|")
@@ -84,6 +94,19 @@ class JobAutoRecovery(ctx: Context) {
             if (error == "cancelled_by_user") return true
             if (error.startsWith("superseded:")) return true
             return false
+        }
+
+        fun needsSourceRecovery(error: String?): Boolean {
+            if (error.isNullOrBlank()) return false
+            val e = error.lowercase()
+            return "source_missing" in e ||
+                "failed_by_api" in e ||
+                "no phone audio" in e ||
+                "no audio" in e ||
+                "r2_audio_missing" in e ||
+                "lecture has no audio" in e ||
+                "no slides" in e ||
+                "no material" in e
         }
     }
 }
