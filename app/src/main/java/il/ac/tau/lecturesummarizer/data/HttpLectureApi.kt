@@ -98,20 +98,31 @@ class HttpLectureApi(
 
     /**
      * Large-file path (Vercel: 4.5 MB function body limit). Ask the API how to upload: POST /v1/uploads.
-     *  - {"mode":"multipart"} (local/box, no Blob store) → null, caller uses multipart.
-     *  - {"mode":"blob", put_url, headers} → PUT raw bytes straight to Vercel Blob, return the Blob URL,
-     *    which the caller sends as JSON {url} to the normal /v1 endpoint.
-     * Only attempted for files > BLOB_THRESHOLD; any failure of the probe falls back to multipart.
+     *  - {"mode":"multipart"} (local/box, no object store) → null, caller uses multipart.
+     *  - {"mode":"r2", put_url, url, headers} → stream the file directly to R2, return the object URL.
+     *  - {"mode":"blob", put_url, headers} → legacy Vercel Blob; return the URL from its PUT response.
+     * Only attempted for files > STORAGE_THRESHOLD; any failure falls back to multipart.
      */
     private suspend fun blobUploadOrNull(file: File, mime: String): String? {
-        if (file.length() <= BLOB_THRESHOLD) return null
-        val plan = runCatching {
+        if (file.length() <= STORAGE_THRESHOLD) return null
+        val plan = try {
             postJson("/v1/uploads", JSONObject().put("filename", file.name).put("content_type", mime).put("size", file.length()))
-        }.getOrNull() ?: return null
-        if (plan.optString("mode") != "blob") return null
+        } catch (e: HttpStatusException) {
+            if (e.message.orEmpty().contains("storage limit", ignoreCase = true)) {
+                throw IOException("R2 storage limit reached (7 GB)", e)
+            }
+            return null
+        } catch (_: Exception) {
+            return null
+        }
+        val mode = plan.optString("mode")
+        if (mode != "r2" && mode != "blob") return null
         val put = Request.Builder().url(plan.getString("put_url")).put(file.asRequestBody(mime.toMediaType()))
         plan.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> put.header(k, h.getString(k)) } }
-        return call(put.build()) { JSONObject(it.body!!.string()).getString("url") }
+        return call(put.build()) {
+            if (mode == "r2") plan.optString("url").takeIf { it.isNotBlank() }
+            else runCatching { JSONObject(it.body?.string().orEmpty()).getString("url") }.getOrNull()
+        }
     }
 
     /** Spool an InputStream (slides/context from a content Uri) to a temp file so its size is known. */
@@ -311,8 +322,8 @@ class HttpLectureApi(
         }
 
     companion object {
-        /** Above this, use Blob direct upload when the server offers it (Vercel body limit is 4.5 MB). */
-        const val BLOB_THRESHOLD = 4L * 1024 * 1024
+        /** Above this, stream direct object-store upload when the server offers it (Vercel body limit is 4.5 MB). */
+        const val STORAGE_THRESHOLD = 4L * 1024 * 1024
         private val claimMutex = kotlinx.coroutines.sync.Mutex()
         private val claimedKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     }

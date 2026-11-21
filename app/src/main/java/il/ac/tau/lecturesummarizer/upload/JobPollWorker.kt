@@ -57,7 +57,15 @@ class JobPollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
                     return Result.success()
                 }
                 if (st.state == "failed") {
-                    app.repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }
+                    val canRetryLocally = l.segments.any { seg -> java.io.File(seg.path).exists() }
+                    if (canRetryLocally) {
+                        app.repo.updateLecture(id) {
+                            it.copy(state = LectureState.UPLOADING, error = null, stageDetail = "Re-uploading local files to R2, then retrying")
+                        }
+                        UploadWorker.enqueue(applicationContext, id, retry = true)
+                    } else {
+                        app.repo.updateLecture(id) { it.copy(state = LectureState.FAILED) }
+                    }
                     notify(id, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_failed_notification, il.ac.tau.lecturesummarizer.ui.bidi(named(app,l))), applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.summary_failure_body))
                     return Result.success()
                 }

@@ -76,7 +76,13 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             }
 
             lecture = repo.lecture(id)!!
-            val pending = lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
+            // Lazy migration: re-upload every local segment, even ones already marked uploaded.
+            // This replaces legacy Vercel Blob URLs with R2 URLs as phones come back online.
+            val pending = if (live) {
+                lecture.segments.filterNot { it.uploaded }.sortedBy { it.seq }
+            } else {
+                lecture.segments.sortedBy { it.seq }.filter { seg -> File(seg.path).exists() }
+            }
             for ((n, seg) in pending.withIndex()) {
                 if (isStopped) return interrupted(id)
                 runCatching { setForeground(info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.upload_part, n+1,pending.size))) }
@@ -105,7 +111,14 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 JobKick.kick(id)
                 api.importTranscript(remote, il.ac.tau.lecturesummarizer.data.TranscriptImport("panopto", cur.panoptoId!!, cur.panoptoTitle ?: cur.title,
                     il.ac.tau.lecturesummarizer.moodle.Panopto.languageOf(segs), segs)) ?: error("Server didn't start a captions job (transcript import returned no job id)")
-            } else if (cur.jobId == null || cur.liveJob || hadFinished) { JobKick.kick(id); api.startProcessing(remote, densities = (applicationContext as il.ac.tau.lecturesummarizer.LectureApp).settings.summaryDensities) } else cur.jobId
+            } else if (cur.jobId != null && hadFinished && !cur.liveJob) {
+                JobKick.kick(id)
+                api.forceRestartJob(cur.jobId!!)
+                cur.jobId!!
+            } else if (cur.jobId == null || cur.liveJob) {
+                JobKick.kick(id)
+                api.startProcessing(remote, densities = (applicationContext as il.ac.tau.lecturesummarizer.LectureApp).settings.summaryDensities)
+            } else cur.jobId
             if(cur.jobId==null || jobId!=cur.jobId || cur.liveJob)freshness.started(id,jobId,slideRevision)
             repo.updateLecture(id) { it.copy(jobId = jobId, liveJob = false, state = LectureState.PROCESSING) }
             JobPollWorker.enqueue(applicationContext, id)

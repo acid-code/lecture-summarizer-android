@@ -65,10 +65,11 @@ This repo is public: never commit real recordings (audio extensions are git-igno
 - Marker → slide page mapping assumes "page = marker index + 2"; backend alignment refines it.
 - Audio-focus / phone-call interruption handling; low-storage check; app icon.
 
-## Uploads: local vs Vercel
+## Uploads: local, R2, or legacy Vercel Blob
 `HttpLectureApi` uploads audio segments, slides and the course-context PDF the same way:
-- File ≤ 4 MB, or server says `{"mode":"multipart"}` from `POST /v1/uploads` (box/local API with no Blob store): multipart to the `/v1` endpoint, as before.
-- File > 4 MB and server says `{"mode":"blob"}` (Vercel with a Blob store): PUT bytes to the returned `put_url` with the returned `headers` (direct to Vercel Blob, bypassing the 4.5 MB function limit), then POST JSON `{url,...}` to the same `/v1` endpoint.
+- File ≤ 4 MB, or server says `{"mode":"multipart"}` from `POST /v1/uploads` (box/local API with no object store): multipart to the `/v1` endpoint, as before.
+- File > 4 MB and server says `{"mode":"r2"}`: stream the file bytes to the returned `put_url` with the returned `headers` (direct to R2, bypassing the 4.5 MB function limit), then POST JSON `{url,...}` to the same `/v1` endpoint.
+- Legacy servers may say `{"mode":"blob"}`; the app preserves support for direct Vercel Blob uploads and accepts the URL returned by the PUT.
 Slides/context streams are spooled to a temp file first so their size is known. If `/v1/uploads` fails or isn't there, it falls back to multipart.
 
 ## Recent additions (2026-10-28)
