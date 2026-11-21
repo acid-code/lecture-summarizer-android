@@ -32,6 +32,8 @@ fun matchedClasses(app:LectureApp):List<CalendarRuleMatch>{
  if(!app.settings.calendarRulesEnabled || !CalendarResolver.hasPermission(app) || s.sources().isEmpty())return emptyList()
  return CalendarRules.preview(s.rules(),CalendarRuleProvider.read(app,s.sources()).events)
 }
+/** Stable identity so silent refreshes do not remount next-class / watchlist rows. */
+fun calendarContentKey(rows:List<CalendarRuleMatch>)=rows.joinToString("\n"){"${it.event.key}|${it.event.start}|${it.event.end}|${it.rule.targetCourseId}|${it.rule.targetCourse}"}
 fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.any{l->
  (l.courseId==m.rule.targetCourseId || app.repo.course(l.courseId)?.name==m.rule.targetCourse) &&
  kotlin.math.abs(l.recordedAtMs-m.event.start)<60*60_000 && (l.segments.isNotEmpty() || l.remoteId!=null || l.fromPanopto)
@@ -43,31 +45,39 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
   }
  }
 }
-@Composable fun HomeScreen(app:LectureApp,onOpen:(String)->Unit,onSettings:()->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onLiveCaptions:()->Unit={}){
+@Composable fun HomeScreen(app:LectureApp,onOpen:(String)->Unit,onSettings:()->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onLiveCaptions:()->Unit={},onMoodleConnect:()->Unit={},onPanoptoConnect:()->Unit={}){
  CompactCalendarTypography {
 
  val all by app.repo.lectures.collectAsState();val courses by app.repo.courses.collectAsState();val unread by app.unread.ids.collectAsState()
  var calendar by remember{mutableStateOf<List<CalendarRuleMatch>>(emptyList())};var loading by remember{mutableStateOf(true)};var calendarReady by remember{mutableStateOf(false)}
  var watch by remember{mutableStateOf(false)};var available by remember{mutableStateOf(CalendarConnection.connected(app))};var selectedCalendars by remember{mutableStateOf(false)};var automatic by remember{mutableStateOf(false)};var lastScan by remember{mutableLongStateOf(0)};var scanError by remember{mutableStateOf(false)}
  var setup by remember{mutableStateOf(false)};var calendarError by remember{mutableStateOf(false)};var retry by remember{mutableIntStateOf(0)}
+ var moodleReauth by remember{mutableStateOf(il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.moodleNeedsReauth(app))}
+ var panoptoReauth by remember{mutableStateOf(il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.panoptoNeedsReauth(app))}
  val watchStore=remember{CalendarRuleStore(app)}
  val coursesKey=remember(courses){courses.map{it.id to it.name}}
- DisposableEffect(Unit){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,_->retry++};val settingsPrefs=app.getSharedPreferences("settings",android.content.Context.MODE_PRIVATE);watchStore.prefs.registerOnSharedPreferenceChangeListener(listener);settingsPrefs.registerOnSharedPreferenceChangeListener(listener);onDispose{watchStore.prefs.unregisterOnSharedPreferenceChangeListener(listener);settingsPrefs.unregisterOnSharedPreferenceChangeListener(listener)}}
+ DisposableEffect(Unit){val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,_->retry++};val settingsPrefs=app.getSharedPreferences("settings",android.content.Context.MODE_PRIVATE);val authPrefs=app.getSharedPreferences("connection_auth",android.content.Context.MODE_PRIVATE);watchStore.prefs.registerOnSharedPreferenceChangeListener(listener);settingsPrefs.registerOnSharedPreferenceChangeListener(listener);authPrefs.registerOnSharedPreferenceChangeListener(listener);onDispose{watchStore.prefs.unregisterOnSharedPreferenceChangeListener(listener);settingsPrefs.unregisterOnSharedPreferenceChangeListener(listener);authPrefs.unregisterOnSharedPreferenceChangeListener(listener)}}
  androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME){available=CalendarConnection.connected(app);retry++}
  // Clock tick updates next/missed filters only — do not reload calendar (that was flashing the whole home card every minute).
  val now by produceState(System.currentTimeMillis()){while(true){value=System.currentTimeMillis();delay(60_000)}}
- LaunchedEffect(coursesKey,retry,setup,watch){
-  // Skeleton only before the first successful load; later refreshes (resume, prefs, minute-adjacent) stay silent.
+ // Do not key on watch/setup dialogs — opening them was remounting next-class rows.
+ LaunchedEffect(coursesKey,retry){
+  moodleReauth=il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.moodleNeedsReauth(app)
+  panoptoReauth=il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.panoptoNeedsReauth(app)
+  // Skeleton only before the first successful load; later refreshes (resume, prefs) stay silent.
   if(!calendarReady)loading=true
   available=CalendarConnection.connected(app)
   selectedCalendars=watchStore.sources().isNotEmpty() || app.settings.calendarIds.isNotEmpty()
   automatic=app.settings.calendarRulesEnabled && (watchStore.automatic || il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app).let{it.retro||it.live})
-  lastScan=watchStore.prefs.getLong("lastScan",0)
+  val scan=watchStore.prefs.getLong("lastScan",0)
+  if(scan!=lastScan)lastScan=scan
   scanError=watchStore.prefs.getBoolean("scanError",false)
   try{
    val result=withContext(Dispatchers.IO){runCatching{matchedClasses(app)}}
    calendarError=result.isFailure
-   calendar=result.getOrDefault(emptyList())
+   val incoming=result.getOrDefault(emptyList())
+   // Same events → keep the previous list instance so UpcomingLectureRows do not jump.
+   if(calendarContentKey(incoming)!=calendarContentKey(calendar))calendar=incoming
   }finally{loading=false;calendarReady=true}
  }
  val next=calendar.filter{it.event.end>now}.minByOrNull{it.event.start}
@@ -77,18 +87,36 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
    if(watchStore.sources().isEmpty()||watchStore.rules().none{it.enabled&&it.valid})setup=true else {
     app.settings.calendarRulesEnabled=true;watchStore.automatic=true;CalendarRuleWorker.schedule(app,true);retry++
    }
-  })})else null,upcoming=upcomingClasses(calendar,now),onUpcomingAll={watch=true})
+  })})else null,upcoming=upcomingClasses(calendar,now),onUpcomingAll={watch=true},moodleReauth=moodleReauth,panoptoReauth=panoptoReauth,onMoodleConnect=onMoodleConnect,onPanoptoConnect=onPanoptoConnect)
  }
  if(setup)SemesterSetupSheet(app,{setup=false})
  if(watch)androidx.compose.ui.window.Dialog(onDismissRequest={watch=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){CalendarWatchListScreen(app,calendar,{watch=false})}
 
  }
 }
-@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null,onLiveCaptions:()->Unit={}){
+@Composable fun HomeContent(all:List<Lecture>,courses:List<Course>,unread:Set<String>,next:CalendarRuleMatch?,missed:List<CalendarRuleMatch>,loading:Boolean,modifier:Modifier=Modifier,onOpen:(String)->Unit,onCourses:()->Unit,onRecord:(String)->Unit,onPanopto:(String,Long?)->Unit,onSetup:()->Unit,calendarError:Boolean=false,onRetry:()->Unit={},calendarStatus:(@Composable ()->Unit)?=null,upcoming:List<CalendarRuleMatch> = listOfNotNull(next),onUpcomingAll:(()->Unit)?=null,onLiveCaptions:()->Unit={},moodleReauth:Boolean=false,panoptoReauth:Boolean=false,onMoodleConnect:()->Unit={},onPanoptoConnect:()->Unit={}){
  CompactCalendarTypography {
 
  LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
   item(key="Dashboard:static:1"){Text(stringResource(R.string.home_greeting),style=MaterialTheme.typography.displaySmall)}
+  if(moodleReauth)item(key="Dashboard:moodleReauth"){
+   Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.errorContainer),elevation=CardDefaults.cardElevation(0.dp),onClick=onMoodleConnect){
+    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+     Icon(Icons.Default.Login,null,tint=MaterialTheme.colorScheme.onErrorContainer)
+     Column(Modifier.weight(1f)){Text(stringResource(R.string.reconnect_moodle_title),style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onErrorContainer);Text(stringResource(R.string.reconnect_moodle_body),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onErrorContainer)}
+     Text(stringResource(R.string.reconnect),color=MaterialTheme.colorScheme.onErrorContainer)
+    }
+   }
+  }
+  if(panoptoReauth)item(key="Dashboard:panoptoReauth"){
+   Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.errorContainer),elevation=CardDefaults.cardElevation(0.dp),onClick=onPanoptoConnect){
+    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+     Icon(Icons.Default.Login,null,tint=MaterialTheme.colorScheme.onErrorContainer)
+     Column(Modifier.weight(1f)){Text(stringResource(R.string.reconnect_panopto_title),style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onErrorContainer);Text(stringResource(R.string.reconnect_panopto_body),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onErrorContainer)}
+     Text(stringResource(R.string.reconnect),color=MaterialTheme.colorScheme.onErrorContainer)
+    }
+   }
+  }
   item(key="Dashboard:liveCaptions"){
    OutlinedButton(onClick=onLiveCaptions,modifier=Modifier.fillMaxWidth()){
     Icon(Icons.Default.Hearing,null);Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start){
@@ -147,17 +175,17 @@ fun hasLectureFor(app:LectureApp,m:CalendarRuleMatch)=app.repo.lectures.value.an
 }
 @Composable fun SearchScreen(app:LectureApp,onOpen:(String)->Unit){
  val lectures by app.repo.lectures.collectAsState();val courses by app.repo.courses.collectAsState()
- var query by rememberSaveable{mutableStateOf("")};var hits by remember{mutableStateOf<List<StudyIndex.Hit>>(emptyList())};var busy by remember{mutableStateOf(false)};var indexed by remember{mutableIntStateOf(0)}
- var phase by remember{mutableStateOf(RefreshPhase.IDLE)};var lastUpdated by remember{mutableLongStateOf(StudyIndex(app).lastUpdated)};var done by remember{mutableIntStateOf(0)};var total by remember{mutableIntStateOf(0)};val snack=remember{SnackbarHostState()}
- val scope=rememberCoroutineScope();val index=remember{StudyIndex(app)}
- LaunchedEffect(query,lectures,courses,indexed){delay(250);hits=if(query.trim().length<2)emptyList()else withContext(Dispatchers.IO){index.search(lectures,courses,query.take(200))}}
+ var query by rememberSaveable{mutableStateOf("")};var hits by remember{mutableStateOf<List<StudyIndex.Hit>>(emptyList())}
+ val live by StudyIndex.live.collectAsState();val index=remember{StudyIndex(app)}
+ var lastUpdated by remember{mutableLongStateOf(index.lastUpdated)};val snack=remember{SnackbarHostState()}
+ val busy=live.phase==StudyIndex.LivePhase.RUNNING
+ val phase=when(live.phase){StudyIndex.LivePhase.IDLE->RefreshPhase.IDLE;StudyIndex.LivePhase.RUNNING->RefreshPhase.RUNNING;StudyIndex.LivePhase.SUCCESS->RefreshPhase.SUCCESS;StudyIndex.LivePhase.ERROR->RefreshPhase.ERROR}
+ LaunchedEffect(query,lectures,courses,live.generation){delay(250);hits=if(query.trim().length<2)emptyList()else withContext(Dispatchers.IO){index.search(lectures,courses,query.take(200))}}
+ LaunchedEffect(live.generation,live.phase){if(live.phase==StudyIndex.LivePhase.SUCCESS||live.phase==StudyIndex.LivePhase.ERROR)lastUpdated=index.lastUpdated}
+ LaunchedEffect(Unit){var prev=StudyIndex.live.value;StudyIndex.live.collect{cur->if(prev.phase==StudyIndex.LivePhase.RUNNING&&(cur.phase==StudyIndex.LivePhase.SUCCESS||cur.phase==StudyIndex.LivePhase.ERROR))snack.showSnackbar(app.getString(if(cur.phase==StudyIndex.LivePhase.SUCCESS)R.string.refresh_success else R.string.refresh_failed));prev=cur}}
  AppScaffold(stringResource(R.string.tab_search)){pad->
   Box(Modifier.padding(pad)){
-   SearchContent(query,{query=it.take(200)},hits,busy,Modifier,onOpen,onIndex={if(!busy)scope.launch{busy=true;phase=RefreshPhase.RUNNING;done=0;total=lectures.size
-    try{val result=index.reindexLocal(app){d,t->done=d;total=t};phase=if(result.failures==0)RefreshPhase.SUCCESS else RefreshPhase.ERROR;lastUpdated=index.lastUpdated;indexed++}
-    catch(e:CancellationException){throw e}catch(_:Exception){phase=RefreshPhase.ERROR}finally{busy=false}
-    snack.showSnackbar(app.getString(if(phase==RefreshPhase.SUCCESS)R.string.refresh_success else R.string.refresh_failed))
-   }},refreshPhase=phase,lastUpdated=lastUpdated,refreshDone=done,refreshTotal=total)
+   SearchContent(query,{query=it.take(200)},hits,busy,Modifier,onOpen,onIndex={StudyIndex.startRefresh(app)},refreshPhase=phase,lastUpdated=lastUpdated,refreshDone=live.done,refreshTotal=live.total)
    SnackbarHost(snack,Modifier.align(Alignment.BottomCenter))
   }
  }

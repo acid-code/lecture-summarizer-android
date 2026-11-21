@@ -118,7 +118,12 @@ private fun densityOf(l:Lecture)=SummaryDensity.entries.firstOrNull{l.pdfPath?.e
  var turns by remember(id){mutableStateOf(emptyList<TutorTurn>())};var concepts by remember(id){mutableStateOf(emptyList<Concept>())};var busy by remember{mutableStateOf(false)}
  var question by rememberSaveable(id){mutableStateOf("")};var error by remember{mutableIntStateOf(0)};var clear by remember{mutableStateOf(false)};var retryAt by remember{mutableLongStateOf(0L)};var now by remember{mutableLongStateOf(System.currentTimeMillis())}
  var sourceView by remember{mutableStateOf<Pair<List<TutorCitation>,Int>?>(null)}
- LaunchedEffect(id){val saved=withContext(Dispatchers.IO){store.turns(id) to store.cached(id,densityOf(l))?.entries.orEmpty()};turns=saved.first;concepts=saved.second}
+ LaunchedEffect(id){
+  val saved=withContext(Dispatchers.IO){store.turns(id) to store.cached(id,densityOf(l))?.entries.orEmpty()}
+  turns=saved.first
+  val seeded=ExamTutorSeeds.take(id)
+  concepts=if(seeded.isNotEmpty())seeded else saved.second
+ }
  LaunchedEffect(retryAt){while(System.currentTimeMillis()<retryAt){delay(1000);now=System.currentTimeMillis()};now=System.currentTimeMillis()}
  sourceView?.let{(cites,idx)->
   androidx.activity.compose.BackHandler{sourceView=null}

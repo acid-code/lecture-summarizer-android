@@ -15,7 +15,23 @@ object SummaryJobsSync {
   lock.withLock {
    val now=System.currentTimeMillis();if(now-(checked[l.id]?:0)<15000)return@withLock
    checked[l.id]=now
-   try{reconcile(SummaryVariantState(app),l.id,ApiProvider.get(app.settings).summaryJobStates(remote))}
+   val api=ApiProvider.get(app.settings)
+   try{
+    val remoteStates=api.summaryJobStates(remote)
+    reconcile(SummaryVariantState(app),l.id,remoteStates)
+    // Chips alone don't advance orphaned derive jobs — kick them if nothing local is polling.
+    val orphans=remoteStates.filter{(_,s)->s.state=="updating"&&s.jobId.isNotBlank()}
+     .filter{(d,_)->
+      val local=SummaryVariantState(app).entry(l.id,d)
+      // Adopt orphans even under legacy synthetic pending tokens that block regenerate.
+      local==null||local.token.startsWith("server:")||local.token=="legacy"||local.state=="error"||!local.pending
+     }
+     .mapValues{it.value.jobId}
+    if(orphans.isNotEmpty()){
+     runCatching{api.advanceAllJobs(remote)}
+     SummaryRefreshWorker.adopt(app,l.id,orphans)
+    }
+   }
    catch(e:CancellationException){throw e}catch(_:Exception){/* Network errors never masquerade as Done or overwrite an active worker. */}
   }
  }

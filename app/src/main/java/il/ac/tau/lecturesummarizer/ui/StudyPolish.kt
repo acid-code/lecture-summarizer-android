@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.data.*
@@ -98,24 +100,60 @@ fun shareStudyPdf(ctx:Context,app:il.ac.tau.lecturesummarizer.LectureApp,l:Lectu
  }}
 }
 
+private fun densityIcon(d:SummaryDensity)=when(d){
+ SummaryDensity.COMPACT->Icons.Default.ShortText
+ SummaryDensity.STANDARD->Icons.Default.Description
+ SummaryDensity.DETAILED->Icons.Default.AutoStories
+ SummaryDensity.SLIDES->Icons.Default.Slideshow
+}
+
 @Composable fun SummaryHero(file:File?,available:Set<String>,selected:String?,onSelect:(SummaryDensity)->Unit,onOpen:()->Unit,
+ onShare:()->Unit={},onSave:()->Unit={},hasSlides:Boolean=true,
  updating:Set<String> = emptySet(),loading:Set<String> = emptySet(),failed:Set<String> = emptySet(),canGenerate:Boolean=true,onGenerate:(SummaryDensity)->Unit={},levelNote:@Composable (SummaryDensity)->Unit={}){
  var generate by remember{mutableStateOf<SummaryDensity?>(null)}
+ val selectedDensity=SummaryDensity.of(selected)
+ val pdfReady=file?.exists()==true
  Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
   PdfHeroPreview(file)
-  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
    SummaryDensity.entries.forEach{d->
     val busy=d.api in updating;val fetching=d.api in loading
     FilterChip(selected=selected==d.api,enabled=!busy,onClick={if(d.api in available)onSelect(d)else generate=d},
      modifier=Modifier.weight(1f).testTag("summary-variant:${d.api}"),
-     leadingIcon={if(busy||fetching)CircularProgressIndicator(Modifier.size(14.dp),strokeWidth=2.dp)else if(d.api in failed)Icon(Icons.Default.Error,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.error)else if(selected==d.api)Icon(Icons.Default.Check,null,Modifier.size(16.dp))else if(d.api !in available)Icon(Icons.Default.Add,null,Modifier.size(16.dp))},
-     label={Text(densityLabel(d),maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)})
+     label={
+      when{
+       busy||fetching->CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp)
+       d.api in failed->Icon(Icons.Default.Error,densityLabel(d),Modifier.size(20.dp),tint=MaterialTheme.colorScheme.error)
+       selected==d.api->Icon(Icons.Default.Check,densityLabel(d),Modifier.size(20.dp))
+       d.api !in available->Icon(Icons.Default.Add,densityLabel(d),Modifier.size(20.dp))
+       else->Icon(densityIcon(d),densityLabel(d),Modifier.size(20.dp))
+      }
+     })
    }
   }
-  Button(enabled=file?.exists()==true,onClick=onOpen,modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.OpenInNew,null);Spacer(Modifier.width(8.dp));Text(stringResource(R.string.open_summary))}
+  selectedDensity?.let{Text(stringResource(R.string.summary_selected_level,densityLabel(it)),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+  val shareDesc=stringResource(R.string.share_pdf)
+  val saveDesc=stringResource(R.string.copy_save_pdf)
+  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+   Button(enabled=pdfReady,onClick=onOpen,modifier=Modifier.weight(1f).testTag("pdf-action-open")){Text(stringResource(R.string.pdf_action_open))}
+   OutlinedButton(enabled=pdfReady,onClick=onShare,modifier=Modifier.testTag("pdf-action-share").semantics{contentDescription=shareDesc},contentPadding=PaddingValues(horizontal=14.dp,vertical=10.dp)){
+    Text("📤", style=MaterialTheme.typography.titleMedium)
+   }
+   OutlinedButton(enabled=pdfReady,onClick=onSave,modifier=Modifier.testTag("pdf-action-save").semantics{contentDescription=saveDesc},contentPadding=PaddingValues(horizontal=14.dp,vertical=10.dp)){
+    Text("💾", style=MaterialTheme.typography.titleMedium)
+   }
+  }
  }
- generate?.let{d->AlertDialog(onDismissRequest={generate=null},title={Text(stringResource(R.string.summary_generate_variant))},
-  text={Text(stringResource(if(canGenerate)R.string.summary_generate_variant_body else R.string.summary_generate_unavailable,densityLabel(d)))},
-  confirmButton={TextButton(enabled=canGenerate,onClick={generate=null;onGenerate(d)}){Text(stringResource(R.string.summary_generate_confirm))}},
-  dismissButton={TextButton(onClick={generate=null}){Text(stringResource(R.string.copy_cancel))}})}
+ generate?.let{d->
+  val slidesBlocked=d==SummaryDensity.SLIDES && !hasSlides
+  val body=when{
+   slidesBlocked->stringResource(R.string.summary_generate_slides_need)
+   canGenerate->stringResource(R.string.summary_generate_variant_body,densityLabel(d))+"\n\n"+stringResource(d.blurbRes)
+   else->stringResource(R.string.summary_generate_unavailable,densityLabel(d))
+  }
+  AlertDialog(onDismissRequest={generate=null},title={Text(stringResource(R.string.summary_generate_variant)+" · "+densityLabel(d))},
+   text={Text(body)},
+   confirmButton={TextButton(enabled=canGenerate&&!slidesBlocked,onClick={generate=null;onGenerate(d)}){Text(stringResource(R.string.summary_generate_confirm))}},
+   dismissButton={TextButton(onClick={generate=null}){Text(stringResource(R.string.copy_cancel))}})
+ }
 }

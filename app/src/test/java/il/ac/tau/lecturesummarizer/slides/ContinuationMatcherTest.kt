@@ -19,4 +19,6 @@ class ContinuationMatcherTest{
  @Test fun badRangesRejected(){assertThrows(IllegalArgumentException::class.java){SlideRange(0,2)};assertThrows(IllegalArgumentException::class.java){SlideRange(4,2)}}
  @Test fun identicalFriendlyNamesKeepBothDeckUploads(){val l=Lecture("l","c","Lecture",1,slidesUri="content://a",extraSlides=listOf("content://b"));val a=slideUploadName(l,"content://a"){"slides.pdf"};val b=slideUploadName(l,"content://b"){"slides.pdf"};assertNotEquals(a,b);assertEquals(a,slideUploadName(l,"content://a"){"slides.pdf"});assertEquals("slides.pdf",slideUploadName(l.copy(extraSlides=emptyList()),"content://a"){"slides.pdf"})}
  @Test fun explicitCourseSequenceSupportsUnnumberedDecks(){val named=listOf(decks[0].copy(name="Amino acids.pdf"),decks[1].copy(name="Proteins.pdf"));val result=ContinuationMatcher.suggest(named,lines(a.takeLast(2)+b.take(2)),listOf(2),sequenceOverrides=mapOf(2L to 2,3L to 3));assertEquals(listOf(2L,3L),result.suggestions.map{it.match.deck.id})}
+ @Test fun continuedPreviousIsConfidentForAuto(){val result=ContinuationMatcher.suggest(decks,lines(a+a),listOf(2));assertTrue(result.suggestions.single().continued);assertTrue(ContinuationMatcher.confidentForAuto(result))}
+ @Test fun emptySuggestionsAreNotAuto(){assertFalse(ContinuationMatcher.confidentForAuto(ContinuationMatcher.Result(emptyList(),emptyList(),false)))}
 }

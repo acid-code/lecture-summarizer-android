@@ -20,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +62,60 @@ private fun BtnContent(icon: ImageVector?, text: String) {
     FilledTonalButton(hapticAction(onClick), modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
 @Composable fun OutlineAction(text: String, icon: ImageVector?, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) =
     OutlinedButton(hapticAction(onClick), modifier.heightIn(min = 48.dp), enabled = enabled) { BtnContent(icon, text) }
+
+/** Compact attach row: phone files + Moodle/Panopto emoji chips (no long labels). */
+@Composable fun AttachQuickBar(
+    onPhone: () -> Unit,
+    onMoodle: (() -> Unit)? = null,
+    onPanopto: (() -> Unit)? = null,
+    phoneEnabled: Boolean = true,
+    moodleEnabled: Boolean = true,
+    panoptoEnabled: Boolean = true,
+    phoneLabel: String? = null,
+) {
+    val label = phoneLabel ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.attach_phone_short)
+    val moodleDesc = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_attach_from_moodle)
+    val panoptoDesc = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_from_panopto)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(hapticAction(onPhone), enabled = phoneEnabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("attach-phone")) {
+            Text("📎"); Spacer(Modifier.width(6.dp)); Text(label)
+        }
+        if (onMoodle != null) OutlinedButton(
+            hapticAction(onMoodle), enabled = moodleEnabled,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("attach-moodle").semantics { contentDescription = moodleDesc },
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        ) { Text("🎓", style = MaterialTheme.typography.titleMedium) }
+        if (onPanopto != null) OutlinedButton(
+            hapticAction(onPanopto), enabled = panoptoEnabled,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("attach-panopto").semantics { contentDescription = panoptoDesc },
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        ) { Text("🎥", style = MaterialTheme.typography.titleMedium) }
+    }
+}
+
+/** Secondary emoji chips for mic / import audio. */
+@Composable fun AttachAudioBar(
+    onMic: (() -> Unit)? = null,
+    onAudio: (() -> Unit)? = null,
+    micEnabled: Boolean = true,
+    audioEnabled: Boolean = true,
+) {
+    if (onMic == null && onAudio == null) return
+    val micDesc = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_another_segment_for_this_lecture)
+    val audioDesc = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_audio)
+    val audioLabel = androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.attach_audio_short)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (onMic != null) OutlinedButton(
+            hapticAction(onMic), enabled = micEnabled,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("attach-mic").semantics { contentDescription = micDesc },
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        ) { Text("🎤", style = MaterialTheme.typography.titleMedium) }
+        if (onAudio != null) OutlinedButton(
+            hapticAction(onAudio), enabled = audioEnabled,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("attach-audio").semantics { contentDescription = audioDesc },
+        ) { Text("🎵"); Spacer(Modifier.width(6.dp)); Text(audioLabel) }
+    }
+}
 
 @Composable
 fun SectionCard(title: String, icon: ImageVector, trailing: (@Composable () -> Unit)? = null, onHeaderClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
@@ -139,33 +196,32 @@ object MaterialsUpdates {
     fun clear(id: String) { pending.value = pending.value - id }
 }
 
-/** "Materials updated — re-summarize?" Shown once per batch of manual attaches when a finished/failed summary job exists and nothing is processing. */
+/**
+ * Materials updated → fold slides into the summary automatically when a finished/failed job exists.
+ * (Was a confirm dialog that was easy to miss; SlideMatchWorker already auto-refreshes on confident Moodle matches.)
+ */
 @Composable
 internal fun ResummarizeOffer(app: LectureApp, l: Lecture) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
     val pend by MaterialsUpdates.pending.collectAsStateWithLifecycle()
     val uris = pend[l.id].orEmpty()
     val busy = l.state == LectureState.UPLOADING || l.state == LectureState.PROCESSING
     val hasJob = l.jobId != null && l.remoteId != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
     LaunchedEffect(uris, busy, hasJob) {
         if (uris.isEmpty()) return@LaunchedEffect
-        if (busy) { MaterialsUpdates.clear(l.id); Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.materials_busy), Toast.LENGTH_LONG).show() }
-        else if (!hasJob) MaterialsUpdates.clear(l.id)  // no summary yet → new files go in with the regular upload
-    }
-    if (uris.isEmpty() || busy || !hasJob) return
-    AlertDialog(onDismissRequest = { MaterialsUpdates.clear(l.id) },
-        icon = { Icon(Icons.Default.AutoAwesome, null) },
-        title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.slides_update_question)) },
-        text = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.slides_no_asr)) },
-        confirmButton = { Button(onClick = {
+        if (busy) {
             MaterialsUpdates.clear(l.id)
-            // Not rememberCoroutineScope: clearing pending removes this dialog from composition and cancels that scope
-            // mid-request ("StandaloneCoroutine was cancelled"). Run detached like the other lecture actions.
-            il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,l.id)
-
-        }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.slides_update)) } },
-        dismissButton = { TextButton(onClick = { MaterialsUpdates.clear(l.id) }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.skip)) } })
+            Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.materials_busy), Toast.LENGTH_LONG).show()
+            return@LaunchedEffect
+        }
+        if (!hasJob) {
+            MaterialsUpdates.clear(l.id) // no summary yet → new files go in with the regular upload
+            return@LaunchedEffect
+        }
+        MaterialsUpdates.clear(l.id)
+        il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app, l.id)
+        Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.slides_update), Toast.LENGTH_SHORT).show()
+    }
 }
 
 private fun removeSlide(app: LectureApp, lectureId: String, s: String) {
@@ -320,14 +376,15 @@ fun AttachUploadScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, o
             SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_files_for_this_lecture), Icons.Default.Folder) {
                 MaterialsList(materialsOf(ctx, l), onSave = { download(it.uri, it.name, it.mime) },
                     onRemove = { m -> removeSlide(app, lectureId, m.key) })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add_slides_or_pdfs), Icons.Default.NoteAdd, Modifier.weight(1f)) { slidesPicker.launch(SLIDE_MIMES) }
-                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_audio), Icons.Default.LibraryMusic, Modifier.weight(1f)) { audioPicker.launch(arrayOf("audio/*", "video/mp4")) }
-                }
-                if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING)
-                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_another_segment_for_this_lecture), Icons.Default.Mic, Modifier.fillMaxWidth()) { onRecordAnother() }
-                PrimaryAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_attach_from_moodle), Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
-                if (!l.fromPanopto) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_from_panopto), Icons.Default.OndemandVideo, Modifier.fillMaxWidth()) { onPanopto() }
+                AttachQuickBar(
+                    onPhone = { slidesPicker.launch(SLIDE_MIMES) },
+                    onMoodle = onMoodle,
+                    onPanopto = if (!l.fromPanopto) onPanopto else null,
+                )
+                AttachAudioBar(
+                    onMic = if (l.segments.isNotEmpty() || l.state == LectureState.RECORDED || l.state == LectureState.RECORDING) onRecordAnother else null,
+                    onAudio = { audioPicker.launch(arrayOf("audio/*", "video/mp4")) },
+                )
                 if (l.segments.any { File(it.path).exists() }) TextButton(onClick = onListen) { BtnContent(Icons.Default.Headphones, ctx.getString(il.ac.tau.lecturesummarizer.R.string.listen_recording)) }
             }
             LectureCaptionsSection(lectureId = lectureId, onOpen = onLocalCaptions)
@@ -421,15 +478,11 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
     var moveOpen by remember{mutableStateOf(false)}
     if(moveOpen)LectureMoveDialog(app,l){moveOpen=false}
     var overflow by remember{mutableStateOf(false)}
-    var sourcesOpen by remember{mutableStateOf(false)}
-    var repairOpen by remember{mutableStateOf(false)}
+    var sourcesOpen by remember(lectureId){mutableStateOf(l.allSlides.isEmpty())}
     AppScaffold(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_lecture),onBack=onBack,actions={
-        IconButton(enabled=l.pdfPath?.let{File(it).exists()}==true,onClick={shareStudyPdf(ctx,app,l)}){Icon(Icons.Default.Share,ctx.getString(il.ac.tau.lecturesummarizer.R.string.share_pdf))}
         Box{IconButton(onClick={overflow=true}){Icon(Icons.Default.MoreVert,ctx.getString(il.ac.tau.lecturesummarizer.R.string.more_actions))}
             DropdownMenu(expanded=overflow,onDismissRequest={overflow=false}){
                 DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.move_to_course))},onClick={overflow=false;moveOpen=true})
-                DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo))},onClick={overflow=false;repairOpen=!repairOpen;sourcesOpen=true})
-                DropdownMenuItem(enabled=l.pdfPath?.let{File(it).exists()}==true,text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_save_pdf))},onClick={overflow=false;l.pdfPath?.let{path->download(FileProvider.getUriForFile(ctx,ctx.packageName+".files",File(path)),summaryPdfName(app.repo.course(l.courseId)?.name,l.title),"application/pdf")}})
                 DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture),color=MaterialTheme.colorScheme.error)},onClick={overflow=false;confirmDelete=true})
             }
         }
@@ -484,8 +537,12 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 SummaryChangeNote(app,l)
                 if(pdf==null)Text(if(processing)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_preparing)else if(l.state==LectureState.FAILED)androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_created)else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_not_ready),style=MaterialTheme.typography.bodyMedium)
                 else {
-                    LectureSummaryVariants(app,l,onOpen={val uri=FileProvider.getUriForFile(ctx,ctx.packageName+".files",pdf);safeStart(ctx,Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))})
-
+                    LectureSummaryVariants(
+                        app, l,
+                        onOpen = { val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf); safeStart(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) },
+                        onShare = { shareStudyPdf(ctx, app, l) },
+                        onSave = { download(FileProvider.getUriForFile(ctx, ctx.packageName + ".files", pdf), summaryPdfName(app.repo.course(l.courseId)?.name, l.title), "application/pdf") },
+                    )
                 }
             }
 
@@ -524,14 +581,29 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
             if(l.remoteId!=null||pdf!=null)StudyToolsEntry(onMemory,onTutor)
 
             LectureCaptionsSection(lectureId = lectureId, onOpen = onLocalCaptions)
+            // Attach stays one tap away — not buried under Sources.
+            AttachQuickBar(
+                onPhone = { lateSlides.launch(SLIDE_MIMES) },
+                onMoodle = onMoodle,
+                onPanopto = onPanopto,
+                phoneEnabled = !uploading && l.state != LectureState.UPLOADING,
+                panoptoEnabled = l.state != LectureState.UPLOADING,
+            )
+            if (uploading) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.uploading_slides), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AttachAudioBar(
+                onMic = onRecordAnother,
+                onAudio = { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) },
+                micEnabled = l.state != LectureState.UPLOADING,
+                audioEnabled = l.state != LectureState.UPLOADING,
+            )
 
             OutlinedButton(onClick={sourcesOpen=!sourcesOpen},modifier=Modifier.fillMaxWidth()){Icon(Icons.Default.Folder,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.lecture_sources))}
             if(sourcesOpen){
-            SlidesCard(app,l,onMoodle)
+            SlidesCard(app,l,onMoodle, showAttachActions = false)
 
             // 2) Materials
             val matPrefs = remember { ctx.getSharedPreferences("ui_prefs", android.content.Context.MODE_PRIVATE) }
-            var matOpen by remember(lectureId) { mutableStateOf(matPrefs.getBoolean("materials_open_$lectureId", false)) }
+            var matOpen by remember(lectureId) { mutableStateOf(matPrefs.getBoolean("materials_open_$lectureId", materials.isNotEmpty())) }
             SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_materials), Icons.Default.Folder,
                 onHeaderClick = { matOpen = !matOpen; matPrefs.edit().putBoolean("materials_open_$lectureId", matOpen).apply() },
                 trailing = { Row(verticalAlignment = Alignment.CenterVertically) {
@@ -540,26 +612,18 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 } }) {
               if (matOpen) {
                 MaterialsList(materials, onSave = { download(it.uri, it.name, it.mime) })
-                if (l.remoteId != null) OutlineAction(if (uploading) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.uploading_slides) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_slides), Icons.Default.UploadFile, Modifier.fillMaxWidth(), enabled = !uploading) { lateSlides.launch(SLIDE_MIMES) }
                 if (materials.any { it.icon == Icons.Default.GraphicEq }) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_share_audio), Icons.Default.Share, Modifier.fillMaxWidth()) { shareRecording(ctx, l.segments) }
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_another_segment_for_this_lecture), Icons.Default.Mic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onRecordAnother() }
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_audio), Icons.Default.LibraryMusic, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { jobAudioPicker.launch(arrayOf("audio/*", "video/mp4")) }
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_attach_from_moodle), Icons.Default.School, Modifier.fillMaxWidth()) { onMoodle() }
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_import_from_panopto), Icons.Default.OndemandVideo, Modifier.fillMaxWidth(), enabled = l.state != LectureState.UPLOADING) { onPanopto() }
               }
             }
 
             }
-            // 5) Secondary actions
+            // 5) Fix or redo (stuck processing + failed/done retries) — not in the overflow menu
             val jid = l.jobId
             val canRetryJob = l.state == LectureState.FAILED && jid != null && l.segments.all { it.uploaded } && l.remoteId != null
             val canResummarize = jid != null && (l.state == LectureState.DONE || l.state == LectureState.FAILED)
+            val showFixOrRedo = (l.state == LectureState.PROCESSING && jid != null) || l.state == LectureState.FAILED || canResummarize
             var confirmForceRestart by remember { mutableStateOf(false) }
             var confirmStopJob by remember { mutableStateOf(false) }
-            if (l.state == LectureState.PROCESSING && jid != null) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_controls), Icons.Default.Build) {
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart), Icons.Default.Refresh, Modifier.fillMaxWidth()) { confirmForceRestart = true }
-                OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop), Icons.Default.Stop, Modifier.fillMaxWidth()) { confirmStopJob = true }
-            }
             if (confirmForceRestart) AlertDialog(
                 onDismissRequest = { confirmForceRestart = false },
                 title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart_confirm_title)) },
@@ -590,7 +654,11 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                 },
                 dismissButton = { TextButton(onClick = { confirmStopJob = false }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_cancel)) } },
             )
-            if (l.state == LectureState.FAILED || repairOpen && canResummarize) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
+            if (showFixOrRedo) SectionCard(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_fix_or_redo), Icons.Default.Build) {
+                if (l.state == LectureState.PROCESSING && jid != null) {
+                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_force_restart), Icons.Default.Refresh, Modifier.fillMaxWidth()) { confirmForceRestart = true }
+                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop), Icons.Default.Stop, Modifier.fillMaxWidth()) { confirmStopJob = true }
+                }
                 if (l.state == LectureState.FAILED) {
                     // Upload finished and a server job exists → server-side failure: resume via /retry (keeps finished stages).
                     if (canRetryJob) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_retry_processing), Icons.Default.Refresh, Modifier.fillMaxWidth()) {
@@ -602,6 +670,46 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     } else OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_retry_upload), Icons.Default.CloudUpload, Modifier.fillMaxWidth()) {
                         app.repo.updateLecture(lectureId) { it.copy(state = LectureState.UPLOADING, error = null) }
                         UploadWorker.enqueue(ctx, lectureId, retry = true) }
+                    if (canRetryJob) OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_rebuild_pdf), Icons.Default.PictureAsPdf, Modifier.fillMaxWidth()) {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching {
+                                il.ac.tau.lecturesummarizer.upload.JobKick.kick(lectureId)
+                                ApiProvider.get(app.settings).retryFromStage(jid!!, "pdf")
+                            }.onSuccess { st ->
+                                app.repo.updateLecture(lectureId) {
+                                    it.copy(state = LectureState.PROCESSING,
+                                        stage = st.stage.takeUnless { s -> st.state == "done" || st.state == "failed" || il.ac.tau.lecturesummarizer.upload.isTerminalStageText(s) },
+                                        stageDetail = null, progress = st.progress, error = null)
+                                }
+                                JobPollWorker.enqueue(ctx, lectureId, replace = true)
+                            }.onFailure {
+                                app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) }
+                            }
+                        }
+                    }
+                }
+                // Visible for processing/failed, and also when density chips are mid-update on a DONE lecture.
+                val variantsUpdating = rememberVariantState(l.id).values.any { it.pending }
+                if (l.remoteId != null && (l.state == LectureState.PROCESSING || l.state == LectureState.FAILED || variantsUpdating)) {
+                    OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_all), Icons.Default.Stop, Modifier.fillMaxWidth()) {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching {
+                                ApiProvider.get(app.settings).cancelAllJobs(l.remoteId!!)
+                                androidx.work.WorkManager.getInstance(app).cancelUniqueWork("summary-material-refresh-$lectureId")
+                                androidx.work.WorkManager.getInstance(app).cancelUniqueWork("poll-$lectureId")
+                                // Mark local density chips idle so the button/UI clear immediately.
+                                val vs = il.ac.tau.lecturesummarizer.slides.SummaryVariantState(app)
+                                vs.entries(lectureId).filter { it.value.pending }.keys.forEach { d ->
+                                    vs.update(lectureId, d, vs.entry(lectureId, d)?.token ?: "stop", "error", 0)
+                                }
+                                if (l.state == LectureState.PROCESSING || l.state == LectureState.FAILED) {
+                                    il.ac.tau.lecturesummarizer.upload.stopLectureJob(app, lectureId)
+                                }
+                            }.onFailure {
+                                app.repo.updateLecture(lectureId) { it.copy(error = ctx.getString(il.ac.tau.lecturesummarizer.R.string.job_retry_failed)) }
+                            }
+                        }
+                    }
                 }
                 if (canResummarize) {
                     TonalAction(if (reprocessing) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.reprocessing) else if (l.segments.isEmpty() && l.fromPanopto) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.reprocess_captions) else if (l.segments.isEmpty()) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.reprocess_slides) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.reprocess_audio), Icons.Default.Replay, Modifier.fillMaxWidth(), enabled = !reprocessing) {
@@ -651,13 +759,25 @@ fun JobScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onAttach: 
                     OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_re_summarize), Icons.Default.AutoAwesome, Modifier.fillMaxWidth()) { pickDensity = true }
                     if (pickDensity) AlertDialog(onDismissRequest = { pickDensity = false },
                         title = { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_summary_level)) },
-                        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
-                                    TextButton(onClick = {
+                        text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val canSlides = l.allSlides.isNotEmpty() || l.uploadedSlides.isNotEmpty()
+                            il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
+                                val slidesBlocked = d == il.ac.tau.lecturesummarizer.data.SummaryDensity.SLIDES && !canSlides
+                                TextButton(
+                                    enabled = !slidesBlocked,
+                                    onClick = {
                                         pickDensity = false
-                                        il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app,lectureId,d.api)
-                                    }) { Text(densityLabel(d)) }
+                                        il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueueDensity(app, lectureId, d.api, force = true)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        if (slidesBlocked) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_generate_slides_need)
+                                        else densityLabel(d) + " — " + androidx.compose.ui.res.stringResource(d.blurbRes),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
                                 }
                             }
                             Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_a_different_level_is_saved_as_an_additional_summary_the_existing), style = MaterialTheme.typography.bodySmall)

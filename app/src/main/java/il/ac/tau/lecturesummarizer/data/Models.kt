@@ -75,8 +75,11 @@ val Lecture.allSlides: List<String> get() = (listOfNotNull(slidesUri) + extraSli
 
 data class JobStatus(val state: String, val stage: String?, val progress: Int, val error: String?, val detail: String? = null, val jobId: String? = null, val density: String? = null)
 /** Summary density levels (server: compact | standard | detailed). */
-enum class SummaryDensity(val api: String, val labelRes: Int) {
-    COMPACT("compact", il.ac.tau.lecturesummarizer.R.string.level_compact), STANDARD("standard", il.ac.tau.lecturesummarizer.R.string.level_standard), DETAILED("detailed", il.ac.tau.lecturesummarizer.R.string.level_detailed);
+enum class SummaryDensity(val api: String, val labelRes: Int, val blurbRes: Int) {
+    COMPACT("compact", il.ac.tau.lecturesummarizer.R.string.level_compact, il.ac.tau.lecturesummarizer.R.string.level_blurb_compact),
+    STANDARD("standard", il.ac.tau.lecturesummarizer.R.string.level_standard, il.ac.tau.lecturesummarizer.R.string.level_blurb_standard),
+    DETAILED("detailed", il.ac.tau.lecturesummarizer.R.string.level_detailed, il.ac.tau.lecturesummarizer.R.string.level_blurb_detailed),
+    SLIDES("slides", il.ac.tau.lecturesummarizer.R.string.level_slides, il.ac.tau.lecturesummarizer.R.string.level_blurb_slides);
     companion object { fun of(s: String?) = entries.firstOrNull { it.api == s } }
 }
 /** Result of POST /v1/jobs/{id}/reprocess. status==null means refused (audioMissing → server no longer has the raw audio). */

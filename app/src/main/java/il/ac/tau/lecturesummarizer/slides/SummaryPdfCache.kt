@@ -10,11 +10,31 @@ import kotlinx.coroutines.sync.withLock
 /** On-disk PDFs survive process death. Shared locks coalesce preloads and taps into ONE download. */
 class SummaryPdfCache(private val dir:File,private val id:String) {
  fun file(density:String)=File(dir,"$id-$density.pdf")
+ /** Sidecar: which server job token the cached PDF was pulled from (`server:<jobId>`). */
+ fun tokenFile(density:String)=File(dir,"$id-$density.pdf.job")
+ fun token(density:String)=tokenFile(density).takeIf{it.isFile&&it.length()>0}?.readText()?.trim()
+ fun setToken(density:String,token:String?){
+  val f=tokenFile(density)
+  if(token.isNullOrBlank())f.delete()
+  else f.writeText(token)
+ }
  fun available()=SummaryDensity.entries.filter{file(it.api).let{f->f.isFile&&f.length()>0}}.map{it.api}.toSet()
  fun density(file:File?)=SummaryDensity.entries.firstOrNull{file?.name=="$id-${it.api}.pdf"}?.api
- suspend fun ensure(density:String,download:suspend(File)->Unit):File=withContext(Dispatchers.IO){
+ /**
+  * @param force re-download even when a local PDF exists (newer server job).
+  * @param jobToken optional `server:<jobId>` written after a successful download so we can skip stale pulls.
+  */
+ suspend fun ensure(density:String,force:Boolean=false,jobToken:String?=null,download:suspend(File)->Unit):File=withContext(Dispatchers.IO){
   val file=file(density);val lock=synchronized(locks){locks.getOrPut(file.absolutePath){Mutex()}}
-  lock.withLock { if(!file.isFile||file.length()==0L){download(file);check(file.isFile&&file.length()>0){"summary_download_empty"}};file }
+  lock.withLock {
+   val stale=jobToken!=null&&token(density)!=jobToken
+   if(force||stale||!file.isFile||file.length()==0L){
+    download(file)
+    check(file.isFile&&file.length()>0){"summary_download_empty"}
+    if(jobToken!=null)setToken(density,jobToken)
+   }
+   file
+  }
  }
  companion object { private val locks=mutableMapOf<String,Mutex>() }
 }

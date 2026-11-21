@@ -24,7 +24,7 @@ interface LectureApi {
     suspend fun uploadSegment(lectureRemoteId: String, seg: Segment, file: File)
     suspend fun uploadMarkers(lectureRemoteId: String, markers: List<Marker>)
     /** [live]: transcribe parts as they upload (server waits for more audio); a later call without it finalizes. */
-    suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false, densities: Set<String> = setOf("standard")): String
+    suspend fun startProcessing(lectureRemoteId: String, live: Boolean = false, densities: Set<String> = setOf("detailed")): String
     /**
      * POST /v1/lectures/{id}/transcript/import — external timed transcript (e.g. Panopto captions) instead of ASR.
      * Returns the job id if the server started one, else null (caller then calls [startProcessing]).
@@ -52,6 +52,24 @@ interface LectureApi {
     /** GET /v1/lectures/{id}/summaries — density levels that have a finished summary. Empty on older servers. */
     suspend fun summaryJobStates(lectureRemoteId:String):Map<String,SummaryJobState> = emptyMap()
     suspend fun availableDensities(lectureRemoteId: String): Set<String> = emptySet()
+    /** POST /v1/lectures/{id}/jobs/cancel-all — cancel every non-terminal server job. Returns cancelled count (0 on older servers). */
+    suspend fun cancelAllJobs(lectureRemoteId: String): Int = 0
+    /** POST /v1/lectures/{id}/jobs/advance-all — kick non-terminal jobs once. No-op on older servers. */
+    suspend fun advanceAllJobs(lectureRemoteId: String): Unit = Unit
+    /** POST /v1/jobs/{id}/retry?force=1&from_stage=… — rebuild from a stage; falls back to forceRestart on older servers. */
+    suspend fun retryFromStage(jobId: String, stage: String): JobStatus = forceRestartJob(jobId)
+
+    /** GET /v1/courses/{id}/exam — which lectures feed the exam pack. */
+    suspend fun examStatus(courseRemoteId: String): ExamStatus = ExamStatus(emptyList())
+    /** POST /v1/courses/{id}/exam — build/refresh the course exam PDF. */
+    suspend fun buildExam(courseRemoteId: String, excludeLectureIds: List<String> = emptyList(), force: Boolean = false): ExamBuildResult = error("Exam mode requires an updated server")
+    /** GET /v1/courses/{id}/exam.pdf */
+    suspend fun downloadExamPdf(courseRemoteId: String, dest: File) { error("Exam mode requires an updated server") }
+    /** GET /v1/courses/{id}/exam.json — memory pairs / pack metadata. */
+    suspend fun examPackJson(courseRemoteId: String): org.json.JSONObject? = null
 }
 
 data class SummaryJobState(val jobId:String,val state:String,val stage:String?=null)
+data class ExamSource(val lectureId: String, val title: String, val kind: String, val density: String, val jobId: String)
+data class ExamStatus(val sources: List<ExamSource>, val ready: Boolean = false, val stale: Boolean = false, val fingerprint: String? = null, val missingDetailed: Int = 0)
+data class ExamBuildResult(val fingerprint: String?, val reused: Boolean, val missingDetailed: Int)

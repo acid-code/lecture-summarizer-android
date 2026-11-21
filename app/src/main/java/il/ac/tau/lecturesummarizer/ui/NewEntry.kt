@@ -98,6 +98,7 @@ fun PanoptoLoginScreen(app: LectureApp, lectureId: String, onDone: () -> Unit) {
             MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl, startUrl = l.panoptoUrl ?: Panopto.HOST,
                 isDone = { u -> u.contains("panopto", true) && (u.contains("Viewer.aspx", true) || u.contains("Embed.aspx", true) || u.contains("/Sessions/List.aspx", true)) },
                 sessionReady = { Panopto.hasSessionCookie() }) {
+                ConnectionAuth.clearPanopto(ctx)
                 PanoptoFetch.status.remove(lectureId); PanoptoFetch.start(app, lectureId); onDone()
             }
         }

@@ -141,6 +141,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 return Result.retry()
             }
             val msg = if (e is PanoptoAuthRequired) AUTH_MSG else "Panopto audio failed: ${e.message}"
+            if (e is PanoptoAuthRequired) il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.markPanoptoNeeded(app)
             status[id] = "error:$msg"
             repo.updateLecture(id) { it.copy(error = msg) }
             if (e !is PanoptoAuthRequired && runAttemptCount < 3) Result.retry()
@@ -158,7 +159,7 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     override suspend fun getForegroundInfo(): ForegroundInfo = info(applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.audio_download_start), 0)
 
-    /** One shared queue notification: "<course> · <lecture>", this lecture's progress, and how many more are queued. */
+    /** Per-lecture download notification: "<course> · <lecture>", this lecture's progress, and how many more are queued. */
     private fun info(text: String, pct: Int): ForegroundInfo {
         val app = applicationContext as LectureApp
         val id = inputData.getString(KEY_LECTURE)
@@ -166,20 +167,23 @@ class PanoptoAudioWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val course = l?.let { app.repo.course(it.courseId)?.name }
         val title = listOfNotNull(course, l?.title).joinToString(" · ").ifEmpty { "Lecture Summarizer" }
         val more = app.repo.lectures.value.count { it.id != id && it.panoptoAudio && it.panoptoDurationMs == 0L && it.state == LectureState.UPLOADING }
-        val sub = if (more > 0) "Auto-sync queue · $more more waiting" else "Auto-sync queue"
+        val sub = if (more > 0) "Queue · $more more waiting" else "Downloading"
         val n = NotificationCompat.Builder(applicationContext, LectureApp.CHANNEL_UPLOAD)
             .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(title).setContentText(text).setSubText(sub)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))
+            .setGroup(NOTIF_GROUP)
             .addAction(0, applicationContext.getString(il.ac.tau.lecturesummarizer.R.string.queue_pause), il.ac.tau.lecturesummarizer.autosync.QueueControl.pi(app, il.ac.tau.lecturesummarizer.autosync.QueueControl.ACTION_PAUSE, 1))
             .setOngoing(true).setOnlyAlertOnce(true).setProgress(100, pct, pct == 0).build()
-        val nid = QUEUE_NID
+        val nid = notifId(id)
         return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(nid, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else ForegroundInfo(nid, n)
     }
 
     companion object {
         const val KEY_LECTURE = "lecture"
-        /** Single ongoing notification shared by all queued Panopto downloads. */
-        const val QUEUE_NID = 0x30000
+        /** Base for per-lecture Panopto download notifications (same pattern as UploadWorker). */
+        private const val NOTIF_BASE = 0x30000
+        private const val NOTIF_GROUP = "panopto-downloads"
+        fun notifId(lectureId: String?) = NOTIF_BASE + ((lectureId?.hashCode() ?: 0) and 0xFFFF)
         const val DONE = "done"
         const val AUTH_MSG = "Panopto sign-in required — open the lecture and tap Sign in to Panopto, then Retry"
         /** lectureId → "0".."99" progress, [DONE], or "error:…" (UI). */

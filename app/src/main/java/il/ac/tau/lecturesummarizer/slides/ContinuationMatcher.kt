@@ -5,10 +5,17 @@ import il.ac.tau.lecturesummarizer.data.TranscriptLine
 import java.time.LocalDate
 import kotlin.math.*
 
-/** Sequence is a candidate constraint, not proof. Always suggestions; never lecture-number = deck-number. */
+/** Sequence is a candidate constraint, not proof. Auto-apply only via [confidentForAuto]; never lecture-number = deck-number alone. */
 object ContinuationMatcher {
  data class Suggestion(val match:SlideMatcher.Match,val range:SlideRange?,val continued:Boolean,val evidenceWindows:Int)
  data class Result(val suggestions:List<Suggestion>,val candidates:List<SlideMatcher.Match>,val constrained:Boolean)
+ /** Previous-week reuse, ordered evidence, or enough shared transcript words to auto-attach (manual edits still win). */
+ fun confidentForAuto(result:Result):Boolean=result.suggestions.isNotEmpty() && (
+  result.suggestions.any{it.continued} ||
+   (result.constrained && result.suggestions.isNotEmpty()) ||
+   result.suggestions.any{it.match.terms.size>=4} ||
+   result.suggestions.any{it.match.terms.size>=6 && it.evidenceWindows>=2}
+ )
  fun deckNumber(name:String):Int?{
   val clean=name.replace(Regex("^\\d{4,}[_-]"),"")
   return Regex("""(?i)(?:slides?|deck|ppt|lecture|lec|מצגת)[\s_#.:-]*0*(\d{1,2})(?!\d)""").find(clean)?.groupValues?.get(1)?.toIntOrNull()

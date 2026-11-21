@@ -15,8 +15,11 @@ object DeckUpload {
     )
 
     /**
-     * Prefer PDF for `.pptx` so Vercel figures can full-page-render.
-     * On conversion failure, streams the original PPTX (previous behaviour).
+     * Prefer the original `.pptx` on the wire so the server can:
+     *  - extract real slide text for commentary ([pptxToText])
+     *  - composite positioned pictures for figures (LibreOffice is unavailable on Vercel)
+     * Raster PDF conversion is kept in [PptxToPdf] for offline/tests, but uploading that PDF
+     * previously wiped OCR text and baked broken text overlays into every page.
      */
     fun open(ctx: Context, uri: Uri, displayName: String): Open {
         val name = displayName.ifBlank { "slides.bin" }
@@ -32,13 +35,7 @@ object DeckUpload {
             val stream = ctx.contentResolver.openInputStream(uri) ?: error("cannot open deck")
             return Open(name, pptxMime, stream)
         }
-        val cache = File(ctx.cacheDir, "pptx-pdf").apply { mkdirs() }
-        val out = File(cache, "${fingerprint(pptx)}.pdf")
-        if ((!out.isFile || out.length() < 200) && !PptxToPdf.convert(pptx, out)) {
-            return Open(name, pptxMime, pptx.inputStream())
-        }
-        val pdfName = name.replace(Regex("\\.pptx$", RegexOption.IGNORE_CASE), ".pdf")
-        return Open(pdfName, "application/pdf", out.inputStream())
+        return Open(name, pptxMime, pptx.inputStream())
     }
 
     private const val pptxMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -58,11 +55,6 @@ object DeckUpload {
             dest.delete()
             null
         }
-    }
-
-    private fun fingerprint(f: File): String {
-        val raw = "${f.absolutePath}|${f.length()}|${f.lastModified()}"
-        return fingerprint(raw)
     }
 
     private fun fingerprint(s: String): String =

@@ -175,7 +175,8 @@ class HttpLectureApi(
     override suspend fun startProcessing(lectureRemoteId: String, live: Boolean, densities: Set<String>) =
         postJson("/v1/lectures/$lectureRemoteId/process",
             JSONObject().put("options", JSONObject().put("asr", "cloud").put("diagrams", true).put("images", false).put("live", live)
-                .put("density", SummaryDensity.entries.map { it.api }.firstOrNull { it in densities } ?: "standard")
+                // Primary job = richest prose level first (detailed > standard > compact); slides is never primary alone when prose exists.
+                .put("density", listOf("detailed", "standard", "compact", "slides").firstOrNull { it in densities } ?: "detailed")
                 .put("densities", JSONArray(SummaryDensity.entries.map { it.api }.filter { it in densities })))
         ).getString("job_id")
 
@@ -234,6 +235,32 @@ class HttpLectureApi(
         }
         return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
             o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"))
+    }
+
+    override suspend fun cancelAllJobs(lectureRemoteId: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val o = postJson("/v1/lectures/$lectureRemoteId/jobs/cancel-all", JSONObject())
+            o.optJSONArray("cancelled")?.length() ?: 0
+        } catch (e: HttpStatusException) {
+            if (e.code == 404 || e.code == 405) 0 else throw e
+        }
+    }
+
+    override suspend fun advanceAllJobs(lectureRemoteId: String) {
+        try { postJson("/v1/lectures/$lectureRemoteId/jobs/advance-all", JSONObject()) }
+        catch (e: HttpStatusException) { if (e.code != 404 && e.code != 405) throw e }
+    }
+
+    override suspend fun retryFromStage(jobId: String, stage: String): JobStatus {
+        val o = try { postJson("/v1/jobs/$jobId/retry?force=1&from_stage=$stage", JSONObject()) }
+        catch (e: HttpStatusException) {
+            if (e.code == 400 || e.code == 404 || e.code == 405) return forceRestartJob(jobId)
+            if (e.code == 409) return jobStatus(jobId)
+            throw e
+        }
+        return JobStatus(o.getString("state"), o.optStringOrNull("stage"), o.optInt("progress"), o.optStringOrNull("error"),
+            o.optJSONObject("progress_detail")?.optStringOrNull("label"), density = o.optStringOrNull("density"),
+            jobId = o.optStringOrNull("job_id"))
     }
 
     override suspend fun resummarizeJob(jobId: String, density: String?): JobStatus {
@@ -309,6 +336,42 @@ class HttpLectureApi(
             if(delivered!=null){val data=File(sidecar.path+".tmp");data.writeText(delivered);check(data.renameTo(sidecar))}else sidecar.delete()
             Unit
         }
+
+    override suspend fun examStatus(courseRemoteId: String): ExamStatus = call(req("/v1/courses/$courseRemoteId/exam").get().build()) { r ->
+        val o = JSONObject(r.body!!.string())
+        val arr = o.optJSONArray("sources") ?: JSONArray()
+        val sources = (0 until arr.length()).mapNotNull { i ->
+            val s = arr.optJSONObject(i) ?: return@mapNotNull null
+            ExamSource(s.optString("lecture_id"), s.optString("title"), s.optString("kind"), s.optString("density"), s.optString("job_id"))
+        }
+        ExamStatus(sources, o.optBoolean("ready"), o.optBoolean("stale"), o.optStringOrNull("fingerprint"), o.optInt("missing_detailed"))
+    }
+
+    override suspend fun buildExam(courseRemoteId: String, excludeLectureIds: List<String>, force: Boolean): ExamBuildResult =
+        call(req("/v1/courses/$courseRemoteId/exam").post(
+            JSONObject().put("force", force).put("exclude_lecture_ids", JSONArray(excludeLectureIds)).toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+        ).build()) { r ->
+            val o = JSONObject(r.body!!.string())
+            ExamBuildResult(o.optStringOrNull("fingerprint"), o.optBoolean("reused"), o.optInt("missing_detailed"))
+        }
+
+    override suspend fun downloadExamPdf(courseRemoteId: String, dest: File) =
+        call(req("/v1/courses/$courseRemoteId/exam.pdf").get().build()) { resp ->
+            val tmp = File(dest.parentFile, dest.name + ".part")
+            tmp.outputStream().use { out -> resp.body!!.byteStream().copyTo(out) }
+            check(tmp.renameTo(dest)) { "exam_cache_replace_failed" }
+            Unit
+        }
+
+    override suspend fun examPackJson(courseRemoteId: String): JSONObject? = withContext(Dispatchers.IO) {
+        runCatching {
+            client.newCall(req("/v1/courses/$courseRemoteId/exam.json").get().build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                JSONObject(resp.body!!.string())
+            }
+        }.getOrNull()
+    }
 
     companion object {
         /** Above this, use Blob direct upload when the server offers it (Vercel body limit is 4.5 MB). */

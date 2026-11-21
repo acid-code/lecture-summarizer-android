@@ -26,7 +26,7 @@ import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
+fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit, showAttachActions: Boolean = true) {
     val ctx = LocalContext.current
     val choices = remember { SlideChoices(app) }
     val work by remember(l.id){androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("slides-match-${l.id}")}.collectAsStateWithLifecycle(initialValue=emptyList())
@@ -58,7 +58,11 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
     fun changed(uris:List<String>,ranges:Map<String,SlideRange> = l.slideRanges){
         choices.manual(l.id)
         app.repo.updateLecture(l.id){it.copy(slidesUri=uris.firstOrNull(),extraSlides=uris.drop(1).distinct(),slideRanges=ranges.filterKeys{key->key in uris},uploadedSlides=emptyList())}
-        if(l.jobId!=null && l.remoteId!=null)offer=true
+        // Fold into summary automatically when a job already exists (same path as Moodle auto-attach).
+        if(l.jobId!=null && l.remoteId!=null && l.state in setOf(LectureState.DONE, LectureState.FAILED)) {
+            il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app, l.id)
+            scope.launch { snackbar.showSnackbar(ctx.getString(R.string.slides_update)) }
+        } else if(l.jobId!=null && l.remoteId!=null) offer=true
     }
     fun attach(items:List<org.json.JSONObject>){
         val pairs=items.map{item->val file=MoodleStore(app).let{it.cached(item.getLong("id"),it.lectureBase(l.id))}
@@ -84,7 +88,10 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
                         app.repo.updateLecture(l.id){it.copy(slidesUri=remaining.firstOrNull(),extraSlides=remaining.drop(1),slideRanges=it.slideRanges-uri,uploadedSlides=emptyList())}
                         scope.launch{val result=withTimeoutOrNull(8_000){snackbar.showSnackbar(removedText,undoText,duration=SnackbarDuration.Indefinite)};snackbar.currentSnackbarData?.dismiss()
                             if(result==SnackbarResult.ActionPerformed && freshness.checkpoint(l.id).generation==generation && app.repo.lecture(l.id)?.allSlides==remaining){app.repo.updateLecture(l.id){it.copy(slidesUri=old.slidesUri,extraSlides=old.extraSlides,slideRanges=old.slideRanges,uploadedSlides=old.uploadedSlides)};freshness.restore(l.id,before,generation)}
-                            else if(result!=SnackbarResult.ActionPerformed && l.jobId!=null && l.remoteId!=null)offer=true
+                            else if(result!=SnackbarResult.ActionPerformed && l.jobId!=null && l.remoteId!=null
+                                && app.repo.lecture(l.id)?.state in setOf(LectureState.DONE, LectureState.FAILED)) {
+                                il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.enqueue(app, l.id)
+                            } else if(result!=SnackbarResult.ActionPerformed && l.jobId!=null && l.remoteId!=null) offer=true
                         }
                     }){Text(stringResource(R.string.slides_remove))}}
             }}
@@ -127,7 +134,12 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
                 Row{TextButton(enabled=editable,onClick={attach(listOf(candidate))}){Text(stringResource(R.string.slides_attach))};TextButton(onClick={choices.reject(l.id,candidate.getLong("id"))}){Text(stringResource(R.string.slides_reject))}}
             }
         }
-        Row{TextButton(enabled=editable,onClick={picker=true}){Text(stringResource(if(l.allSlides.isEmpty())R.string.slides_upload else R.string.slides_add_deck))};TextButton(enabled=editable,onClick=onMoodle){Text(stringResource(R.string.slides_moodle))}}
+        if(showAttachActions) AttachQuickBar(
+            onPhone = { picker = true },
+            onMoodle = onMoodle,
+            phoneEnabled = editable,
+            moodleEnabled = editable,
+        )
         SnackbarHost(snackbar)
       }
     }
@@ -135,8 +147,10 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
       Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Text(stringResource(R.string.slides_add_deck),style=MaterialTheme.typography.titleLarge)
         candidates.take(5).forEach{candidate->TextButton(onClick={picker=false;attach(listOf(candidate))}){Text(bidi(candidate.getString("name")),maxLines=2)}}
-        OutlinedButton(onClick={picker=false;onMoodle()}){Text(stringResource(R.string.slides_moodle))}
-        OutlinedButton(onClick={picker=false;filePicker.launch(SLIDE_MIMES)}){Text(stringResource(R.string.slides_upload))}
+        AttachQuickBar(
+            onPhone = { picker = false; filePicker.launch(SLIDE_MIMES) },
+            onMoodle = { picker = false; onMoodle() },
+        )
       }
     }
     orderFor?.let{uri->val name=displayName(ctx,uri);DeckOrderDialog(choices.order(l.courseId,name),{orderFor=null}){value->choices.order(l.courseId,name,value);orderFor=null}}
@@ -147,6 +161,7 @@ fun SlidesCard(app: LectureApp, l: Lecture, onMoodle: () -> Unit) {
             choices.reasons(l.id).take(3).forEach { reason -> Text(when {
                 reason == "same_course" -> stringResource(R.string.slides_same_course)
                 reason == "lecture_number" -> stringResource(R.string.slides_number)
+                reason == "previous_lecture" -> stringResource(R.string.slides_continue_previous)
                 reason.startsWith("terms:") -> stringResource(R.string.slides_terms, reason.substringAfter(':').toIntOrNull() ?: 0)
                 else -> ""
             }) }

@@ -15,17 +15,23 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
     val shared = mutableStateOf<List<Uri>>(emptyList())
     /** Lecture id from a tapped 'summary ready' notification → deep-link to its lecture screen. */
     val openLecture = mutableStateOf<String?>(null)
+    /** Moodle/Panopto reconnect from notification → open the matching connect screen. */
+    val reconnect = mutableStateOf<String?>(null)
 
     companion object {
         const val ACTION_OPEN_LECTURE = "il.ac.tau.lecturesummarizer.OPEN_LECTURE"
         const val EXTRA_LECTURE_ID = "lectureId"
+        const val ACTION_RECONNECT = "il.ac.tau.lecturesummarizer.RECONNECT"
+        const val EXTRA_RECONNECT = "reconnect"
+        const val RECONNECT_MOODLE = "moodle"
+        const val RECONNECT_PANOPTO = "panopto"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handle(intent)
-        setContent { AppTheme { AppNav(application as LectureApp, shared, openLecture) } }
+        setContent { AppTheme { AppNav(application as LectureApp, shared, openLecture, reconnect) } }
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
@@ -34,6 +40,7 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
     private fun handle(i: Intent?) {
         i ?: return
         if (i.action == ACTION_OPEN_LECTURE) { i.getStringExtra(EXTRA_LECTURE_ID)?.let { openLecture.value = it }; return }
+        if (i.action == ACTION_RECONNECT) { i.getStringExtra(EXTRA_RECONNECT)?.let { reconnect.value = it }; return }
         val uris: List<Uri> = when (i.action) {
             Intent.ACTION_SEND -> listOfNotNull(
                 if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else i.getParcelableExtra(Intent.EXTRA_STREAM))

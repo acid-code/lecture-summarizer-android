@@ -7,6 +7,7 @@ import il.ac.tau.lecturesummarizer.autosync.AutoSyncStore
 import il.ac.tau.lecturesummarizer.autosync.RecordingMatcher
 import il.ac.tau.lecturesummarizer.data.LectureState
 import il.ac.tau.lecturesummarizer.data.allSlides
+import il.ac.tau.lecturesummarizer.moodle.ConnectionAuth
 import il.ac.tau.lecturesummarizer.moodle.MoodleAuthRequired
 import il.ac.tau.lecturesummarizer.moodle.MoodleClient
 import il.ac.tau.lecturesummarizer.moodle.MoodleCourse
@@ -65,6 +66,7 @@ class SlideDeckRepairWorker(ctx: Context, params: WorkerParameters) : CoroutineW
                 throw e
             } catch (_: MoodleAuthRequired) {
                 auth = true
+                ConnectionAuth.markMoodleNeeded(app)
                 skipped++
             } catch (_: Exception) {
                 skipped++

@@ -66,14 +66,24 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
     suspend fun openCourse(c: MoodleCourse) {
         state = MState.Loading
         state = withContext(Dispatchers.IO) {
-            runCatching { MState.Files(c, client.sections(c.id)) }.getOrElse { if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error") }
+            runCatching { MState.Files(c, client.sections(c.id)) }.getOrElse {
+                if (it is MoodleAuthRequired) {
+                    ConnectionAuth.markMoodleNeeded(ctx, notify = false); MState.Login
+                } else MState.Error(it.message ?: "Error")
+            }
         }
     }
 
     LaunchedEffect(reload) {
         state = MState.Loading
         val res = withContext(Dispatchers.IO) { runCatching { client.courses() } }
-        val courses = res.getOrElse { state = if (it is MoodleAuthRequired) MState.Login else MState.Error(it.message ?: "Error"); return@LaunchedEffect }
+        val courses = res.getOrElse {
+            state = if (it is MoodleAuthRequired) {
+                ConnectionAuth.markMoodleNeeded(ctx, notify = false); MState.Login
+            } else MState.Error(it.message ?: "Error")
+            return@LaunchedEffect
+        }
+        ConnectionAuth.clearMoodle(ctx)
         // Imported from Panopto: only that Moodle course (no picker) — unless the user tapped androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_change).
         if (!pickAny && lecture != null) store.lectureCourse(lectureId)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
         store.mappedCourse(mapKey)?.let { id -> courses.firstOrNull { it.id == id }?.let { openCourse(it); return@LaunchedEffect } }
@@ -89,7 +99,7 @@ fun MoodleAttachScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, c
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
                 MState.Loading -> SkeletonLoader(modifier=Modifier.padding(16.dp))
-                MState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
+                MState.Login -> MoodleLoginView(store.baseUrl) { ConnectionAuth.clearMoodle(ctx); reload++ }
                 is MState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.retry_action)) }
                 }
@@ -245,6 +255,7 @@ private fun FileBadge(text: String, bg: androidx.compose.ui.graphics.Color, fg: 
  *  - remembered university username (MoodleStore.username, prefs; never the password) is injected into the IdP form if empty;
  *  - the username typed on submit is captured and remembered;
  *  - WebView is marked important-for-autofill so Android Autofill / Google Password Manager can save + fill the password.
+ * Reconnect does not clear cookies — only Settings → Disconnect does that.
  */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
@@ -255,6 +266,7 @@ internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index
                              onLoggedIn: () -> Unit) {
     val ctx = LocalContext.current
     val store = remember { MoodleStore(ctx.applicationContext) }
+    val remembered = store.username
     var done by remember { mutableStateOf(false) }
     val finish = { if (!done) { CookieManager.getInstance().flush(); done = true; onLoggedIn() } }
     if (sessionReady != null) LaunchedEffect(Unit) {
@@ -263,12 +275,28 @@ internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index
     Column(Modifier.fillMaxSize()) {
         Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_signin_help),
             Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+        if (!remembered.isNullOrBlank()) {
+            Text(
+                androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_signin_as, remembered),
+                Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         if (sessionReady != null) TextButton(onClick = { finish() }, Modifier.padding(horizontal = 4.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.moodle_signed_in)) }
         AndroidView(modifier = Modifier.fillMaxWidth().weight(1f), factory = { c ->
             WebView(c).apply {
                 settings.javaScriptEnabled = true; settings.domStorageEnabled = true
                 settings.javaScriptCanOpenWindowsAutomatically = true
+                @Suppress("DEPRECATION")
+                runCatching { settings.saveFormData = true }
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    setAutofillHints(
+                        android.view.View.AUTOFILL_HINT_USERNAME,
+                        android.view.View.AUTOFILL_HINT_PASSWORD,
+                    )
+                }
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 addJavascriptInterface(object {
@@ -279,14 +307,29 @@ internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index
                     if (isDone(url) || (sessionReady?.let { runCatching { it() }.getOrDefault(false) } == true)) { post { finish() }; return true }
                     return false
                 }
+                fun assistLogin(v: WebView, url: String) {
+                    // Only touch IdP/Moodle login forms — never inject into Panopto pages (it filled the Viewer search box).
+                    if (url.contains("panopto", true)) return
+                    val u = org.json.JSONObject.quote(store.username.orEmpty())
+                    v.evaluateJavascript(LOGIN_JS.replace("__USER__", u)) {
+                        // After username is primed, ask Autofill / Password Manager for the password.
+                        if (android.os.Build.VERSION.SDK_INT >= 26) {
+                            v.post {
+                                runCatching {
+                                    val am = c.getSystemService(android.view.autofill.AutofillManager::class.java)
+                                    am?.requestAutofill(v)
+                                }
+                            }
+                        }
+                    }
+                }
                 webViewClient = object : WebViewClient() {
                     override fun doUpdateVisitedHistory(v: WebView, url: String?, isReload: Boolean) { check(url) }
                     override fun onPageFinished(v: WebView, url: String) {
                         if (check(url)) return
-                        // Only touch IdP/Moodle login forms — never inject into Panopto pages (it filled the Viewer search box).
-                        if (url.contains("panopto", true)) return
-                        val u = org.json.JSONObject.quote(store.username.orEmpty())
-                        v.evaluateJavascript(LOGIN_JS.replace("__USER__", u), null)
+                        assistLogin(v, url)
+                        // IdP pages often hydrate the form after first paint — retry once.
+                        v.postDelayed({ if (!done) assistLogin(v, url) }, 700)
                     }
                 }
                 loadUrl(startUrl)
@@ -295,12 +338,33 @@ internal fun MoodleLoginView(base: String, startUrl: String = "$base/login/index
     }
 }
 
-/** Fill the IdP username field if empty; remember what the user submits. Password is never touched. */
+/**
+ * Mark login fields for Autofill, remember submitted username, and fill remembered username only
+ * when the field is still empty (never touch the password — leave that to Password Manager).
+ */
 private const val LOGIN_JS = """(function(){var u=__USER__;
-var f=document.querySelector('input[name=username],input[name=user],input[name=j_username],input[id*=user i],input[autocomplete=username]')
- ||document.querySelector('input[type=text],input[type=email]');
-if(!f)return; f.setAttribute('autocomplete','username');
-var p=document.querySelector('input[type=password]'); if(p)p.setAttribute('autocomplete','current-password');
-if(u&&!f.value){f.value=u;f.dispatchEvent(new Event('input',{bubbles:true}));f.dispatchEvent(new Event('change',{bubbles:true}));}
+var f=document.querySelector('input[name=username],input[name=user],input[name=j_username],input[name=Email],input[id*=user i],input[id*=login i],input[autocomplete=username],input[autocomplete=email]')
+ ||document.querySelector('form input[type=text],form input[type=email],input[type=text],input[type=email]');
+var p=document.querySelector('input[type=password],input[name=password],input[name=j_password],input[autocomplete=current-password]');
+if(f){
+  f.setAttribute('autocomplete','username');
+  f.setAttribute('name',f.getAttribute('name')||'username');
+  f.setAttribute('autocapitalize','off');
+  f.setAttribute('autocorrect','off');
+  f.setAttribute('spellcheck','false');
+}
+if(p){
+  p.setAttribute('autocomplete','current-password');
+  p.setAttribute('name',p.getAttribute('name')||'password');
+}
+if(!f)return;
+if(u&&!f.value){
+  f.value=u;
+  f.dispatchEvent(new Event('input',{bubbles:true}));
+  f.dispatchEvent(new Event('change',{bubbles:true}));
+}
+if(p&&!p.value){try{p.focus();}catch(e){}}
 var form=f.form; if(form&&!form.__ls){form.__ls=1;form.addEventListener('submit',function(){try{LsAndroid.username(f.value)}catch(e){}});}
+var btn=document.querySelector('button[type=submit],input[type=submit]');
+if(btn&&!btn.__ls){btn.__ls=1;btn.addEventListener('click',function(){try{LsAndroid.username(f.value)}catch(e){}});}
 })();"""

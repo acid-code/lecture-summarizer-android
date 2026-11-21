@@ -30,6 +30,7 @@ import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.calendar.CalendarResolver
 import il.ac.tau.lecturesummarizer.data.Lecture
 import il.ac.tau.lecturesummarizer.data.LectureState
+import il.ac.tau.lecturesummarizer.moodle.ConnectionAuth
 import il.ac.tau.lecturesummarizer.moodle.MoodleStore
 import il.ac.tau.lecturesummarizer.moodle.Panopto
 
@@ -40,43 +41,88 @@ private val Green = Color(0xFF1B5E20)
 private val Amber = Color(0xFF7A4700)
 
 // ---------- Connection status (reuses the existing WebView-cookie sessions; no new auth) ----------
+enum class ConnectionState { Connected, NeedsReauth, Disconnected }
+
 object Connections {
     fun calendar(ctx: Context) = il.ac.tau.lecturesummarizer.calendar.CalendarConnection.connected(ctx)
-    fun moodle(ctx: Context): Boolean = runCatching {
+    fun moodleCookie(ctx: Context): Boolean = runCatching {
         val c = android.webkit.CookieManager.getInstance().getCookie(MoodleStore(ctx.applicationContext).baseUrl) ?: return false
         c.split(';').any { it.substringBefore('=').trim().startsWith("MoodleSession", true) }
     }.getOrDefault(false)
-    fun panopto(): Boolean = runCatching { Panopto.hasSessionCookie() }.getOrDefault(false)
+    /** Cookie present AND not flagged as expired by a live API failure. */
+    fun moodle(ctx: Context): Boolean = moodleState(ctx) == ConnectionState.Connected
+    fun moodleState(ctx: Context): ConnectionState = when {
+        ConnectionAuth.moodleNeedsReauth(ctx) -> ConnectionState.NeedsReauth
+        moodleCookie(ctx) -> ConnectionState.Connected
+        else -> ConnectionState.Disconnected
+    }
+    fun panopto(): Boolean = panoptoState() == ConnectionState.Connected
+    fun panoptoState(ctx: Context? = null): ConnectionState {
+        val needs = ctx?.let { ConnectionAuth.panoptoNeedsReauth(it) } == true
+        return when {
+            needs -> ConnectionState.NeedsReauth
+            runCatching { Panopto.hasSessionCookie() }.getOrDefault(false) -> ConnectionState.Connected
+            else -> ConnectionState.Disconnected
+        }
+    }
 }
 
-/** One semantic chip primitive for connection, queue, lecture and slide states. */
+/** One semantic chip primitive for connection, queue, lecture and slide states.
+ *  Keep a fixed-height Surface (never AssistChip): AssistChip + IntrinsicSize.Min
+ *  in NotebookCard inflated Failed rows to a huge empty card. */
 @Composable
 fun StatusChip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     progress: Int? = null, busy: Boolean = false, offline: Boolean = false, onClick: (() -> Unit)? = null, icon:androidx.compose.ui.graphics.vector.ImageVector=Icons.Default.Info) {
-    Column {
-        if(onClick==null) Surface(color=color.copy(alpha=0.12f),contentColor=color,shape=MaterialTheme.shapes.small) {
-            Row(Modifier.padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp,color=color)else Icon(if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
-                Text(text,style=MaterialTheme.typography.labelMedium)
-            }
-        } else AssistChip(onClick=onClick,label={Text(text)},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(16.dp))},
-            colors=AssistChipDefaults.assistChipColors(containerColor=color.copy(alpha=0.12f),labelColor=color,leadingIconContentColor=color))
+    val body = @Composable {
+        Row(Modifier.padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            if(busy)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp,color=color)
+            else Icon(if(onClick!=null)Icons.Default.Refresh else if(offline)Icons.Default.CloudOff else icon,null,Modifier.size(16.dp))
+            Text(text,style=MaterialTheme.typography.labelMedium)
+        }
+    }
+    if (onClick == null) {
+        Surface(color = color.copy(alpha = 0.12f), contentColor = color, shape = MaterialTheme.shapes.small, content = body)
+    } else {
+        Surface(
+            onClick = onClick,
+            color = color.copy(alpha = 0.12f),
+            contentColor = color,
+            shape = MaterialTheme.shapes.small,
+            content = body,
+        )
     }
 }
 
 @Composable
-fun ConnectionChip(connected: Boolean) = StatusChip(stringResource(if (connected) R.string.connected else R.string.not_connected),
-    if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+fun ConnectionChip(connected: Boolean) = ConnectionChip(if (connected) ConnectionState.Connected else ConnectionState.Disconnected)
+
+@Composable
+fun ConnectionChip(state: ConnectionState) {
+    val (label, color) = when (state) {
+        ConnectionState.Connected -> stringResource(R.string.connected) to MaterialTheme.colorScheme.primary
+        ConnectionState.NeedsReauth -> stringResource(R.string.reconnect_needed) to MaterialTheme.colorScheme.error
+        ConnectionState.Disconnected -> stringResource(R.string.not_connected) to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    StatusChip(label, color)
+}
 
 @Composable
 fun ConnectionRow(title: String, connected: Boolean, onDisconnect: (() -> Unit)? = null, onConnect: () -> Unit) {
+    ConnectionRow(title, if (connected) ConnectionState.Connected else ConnectionState.Disconnected, onDisconnect, onConnect)
+}
+
+@Composable
+fun ConnectionRow(title: String, state: ConnectionState, onDisconnect: (() -> Unit)? = null, onConnect: () -> Unit) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                ConnectionChip(connected)
-                if (!connected) TextButton(onClick = onConnect) { Text(stringResource(R.string.connect)) }
-                else if (onDisconnect != null) TextButton(onClick = onDisconnect) { Text(stringResource(R.string.disconnect)) }
+                ConnectionChip(state)
+                when (state) {
+                    ConnectionState.Connected -> if (onDisconnect != null) TextButton(onClick = onDisconnect) { Text(stringResource(R.string.disconnect)) }
+                    ConnectionState.NeedsReauth, ConnectionState.Disconnected ->
+                        TextButton(onClick = onConnect) { Text(stringResource(if (state == ConnectionState.NeedsReauth) R.string.reconnect else R.string.connect)) }
+                }
             }
         }
     }

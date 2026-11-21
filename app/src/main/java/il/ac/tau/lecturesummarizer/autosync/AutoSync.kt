@@ -188,7 +188,7 @@ object PanoptoImporter {
 /**
  * One auto-sync pass: scan past calendar classes, skip ones already in the notebook (kind + date), find the Panopto
  * recording (date + kind + lecturer from event notes), import captions (else on-phone audio), newest first.
- * Throttled: ≤[MAX_ACTIVE] lectures processing at once per user, ≤[MAX_PER_RUN] new imports per pass.
+ * Throttled: ≤[MAX_ACTIVE] lectures processing at once, ≤[MAX_PER_RUN] new imports per pass; drains keep chaining through the queue.
  */
 class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
@@ -218,7 +218,11 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         return runCatching { try { pass(app, st, allowCell) } finally { PASS_LOCK.unlock() } }.fold({ status.value = it; st.lastRun = it; Result.success() }, { e ->
             val msg = when (e) { is MoodleAuthRequired -> "Moodle sign-in needed"; is PanoptoAuthRequired -> "Panopto sign-in needed"; else -> e.message ?: "Error" }
             status.value = "Stopped: $msg"; st.lastRun = status.value
-            if (e is MoodleAuthRequired || e is PanoptoAuthRequired) Result.success() else Result.retry()
+            when (e) {
+                is MoodleAuthRequired -> { ConnectionAuth.markMoodleNeeded(app); Result.success() }
+                is PanoptoAuthRequired -> { ConnectionAuth.markPanoptoNeeded(app); Result.success() }
+                else -> Result.retry()
+            }
         })
     }
 
@@ -261,17 +265,16 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             st.setSessionStart(r.deliveryId, ms)
             if (ms != null) r.copy(startMs = ms) else r
         }
+        var lastActive = 0
         for (it in items) {
             if (st.paused || BatteryGate.tooLow(app)) break
-            val active = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
-            if (active >= MAX_ACTIVE || started >= MAX_PER_RUN) break
+            lastActive = repo.lectures.value.count { l -> l.state == LectureState.PROCESSING || PanoptoAudioWorker.extracting[l.id] == true }
+            if (lastActive >= MAX_ACTIVE || started >= MAX_PER_RUN) break
             val c = it.cls
             if(st.status(it.key)=="dismissed")continue
             val binding=mappingStore.forName(app,c.courseName)
             val explicit=binding?.any{!it.legacy}==true
-            if(customRules && !explicit && binding?.any{it.courseId!=null}!=true){
-                st.setStatus(it.key,"notfound:$now");st.addNotFound(NotFoundItem(it.key,c.courseName,c.kind.name,c.beginMs,now));missing++;continue
-            }
+            // Custom calendar rules without a per-course Moodle/Panopto mapping still fall through to MoodleMatch.
             var hit:Pair<MoodleCourse,PanoptoRecording>?=null
             if(explicit){
                 val eventMatch=matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}
@@ -336,10 +339,11 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             st.setStatus(it.key, "done:${l.id}"); started++
         }
         if (missing > 0 || nfSample.isNotEmpty()) st.notFoundSample = nfSample.joinToString(" · ").ifEmpty { null }
-        // Drain the retro backlog: a full batch → chain another pass soon instead of waiting for the 3 h periodic run.
-        // Stops when a pass makes no progress (started == 0) or after MAX_DRAIN_CHAIN passes; the worker re-checks pause/battery/Wi‑Fi each time.
+        // Keep draining the queue: either we started work, or slots are full and we retry as soon as one frees.
         val remaining = items.size - started - missing - waiting
-        if (started > 0 && remaining > 0 && !st.paused) enqueueDrain(app, allowCell, inputData.getInt(KEY_DRAIN, 0) + 1)
+        if (remaining > 0 && !st.paused && (started > 0 || lastActive >= MAX_ACTIVE)) {
+            enqueueDrain(app, allowCell, inputData.getInt(KEY_DRAIN, 0) + 1)
+        }
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
     }
 
@@ -347,18 +351,19 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
     companion object {
         private val PASS_LOCK = kotlinx.coroutines.sync.Mutex()
-        const val MAX_ACTIVE = 2
-        const val MAX_PER_RUN = 3
+        const val MAX_ACTIVE = 5
+        const val MAX_PER_RUN = 5
         const val MAX_DELIVERY_INFO_PER_RUN = 150
-        const val MAX_DRAIN_CHAIN = 30
-        const val DRAIN_DELAY_MIN = 3L
+        const val MAX_DRAIN_CHAIN = 120
+        /** Short pause only so WorkManager can observe freed processing slots; not a multi-minute throttle. */
+        const val DRAIN_DELAY_SEC = 5L
         const val KEY_DRAIN = "drain"
 
-        /** One-time follow-up pass; delayed so the ≤2 concurrent processing slots can free up. Wi‑Fi unless the user allowed cellular. */
+        /** Follow-up pass through the queue (up to 5 concurrent). Wi‑Fi unless the user allowed cellular. */
         fun enqueueDrain(ctx: Context, allowCell: Boolean, n: Int) {
             if (n > MAX_DRAIN_CHAIN) return
             WorkManager.getInstance(ctx).enqueueUniqueWork("autosync-drain", ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<AutoSyncWorker>().setInitialDelay(DRAIN_DELAY_MIN, TimeUnit.MINUTES)
+                OneTimeWorkRequestBuilder<AutoSyncWorker>().setInitialDelay(DRAIN_DELAY_SEC, TimeUnit.SECONDS)
                     .setInputData(workDataOf(KEY_ALLOW_CELL to allowCell, KEY_DRAIN to n))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(if (allowCell) NetworkType.CONNECTED else NetworkType.UNMETERED)
                         .setRequiresBatteryNotLow(true).build()).build())

@@ -16,4 +16,11 @@ class AutoSyncDedupTest {
         assertFalse(AutoSyncPlanner.mayCreate("skip", "d1", emptyList()))
     }
     @Test fun samDeliveryInNotebookBlocks() = assertFalse(AutoSyncPlanner.mayCreate(null, "d1", listOf("d1")))
+
+    /**
+     * Regression guard: calendar custom rules without a per-course Moodle/Panopto mapping must still
+     * be allowed into the MoodleMatch scan (AutoSync no longer short-circuits them to notfound).
+     */
+    @Test fun unmappedCalendarRulesAreStillEligibleToCreate() =
+        assertTrue(AutoSyncPlanner.mayCreate(null, "delivery-unmapped", emptyList()))
 }

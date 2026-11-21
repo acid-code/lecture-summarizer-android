@@ -8,17 +8,38 @@ import java.text.Normalizer
 import java.util.Locale
 import org.json.JSONObject
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Local-only index: never sends a query or bulk-downloads content to search. */
 class StudyIndex(ctx:Context){
  val refreshPrefs=ctx.getSharedPreferences("study_refresh",Context.MODE_PRIVATE)
  val lastUpdated get()=refreshPrefs.getLong("lastSuccess",0L)
  data class RefreshResult(val completed:Int,val total:Int,val failures:Int)
+ enum class LivePhase { IDLE,RUNNING,SUCCESS,ERROR }
+ data class LiveRefresh(val phase:LivePhase=LivePhase.IDLE,val done:Int=0,val total:Int=0,val generation:Int=0)
  private val dir=File(ctx.filesDir,"study-index").apply{mkdirs()}
  companion object{
   fun normalize(s:String)=Normalizer.normalize(s.lowercase(Locale.ROOT),Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").replace(Regex("\\s+")," ").trim()
   fun matches(text:String,query:String):Boolean{val hay=normalize(text);val tokens=normalize(query).split(' ').filter{it.isNotBlank()}.take(20);return tokens.isNotEmpty() && tokens.all{it in hay}}
   private val lock=Any()
+  /** Survives leaving Search: rememberCoroutineScope used to cancel reindex mid-flight. */
+  private val refreshScope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+  private val refreshLock=Any()
+  @Volatile private var refreshJob:Job?=null
+  val live=MutableStateFlow(LiveRefresh())
+  fun startRefresh(app:LectureApp)=startRefresh(app,app.repo)
+  fun startRefresh(ctx:Context,repo:Repository):Boolean=synchronized(refreshLock){
+   if(refreshJob?.isActive==true)return false
+   refreshJob=refreshScope.launch{
+    val index=StudyIndex(ctx)
+    live.value=LiveRefresh(LivePhase.RUNNING,0,repo.lectures.value.size,live.value.generation)
+    try{
+     val result=index.reindexLocal(ctx,repo){d,t->live.value=live.value.copy(done=d,total=t)}
+     live.value=live.value.copy(phase=if(result.failures==0)LivePhase.SUCCESS else LivePhase.ERROR,generation=live.value.generation+1)
+    }catch(e:CancellationException){throw e}catch(_:Exception){live.value=live.value.copy(phase=LivePhase.ERROR,generation=live.value.generation+1)}
+   }
+   true
+  }
  }
  private fun read(id:String)=runCatching{JSONObject(File(dir,"$id.json").readText())}.getOrDefault(JSONObject())
  fun put(id:String,key:String,text:String)=synchronized(lock){val o=read(id);if(key.startsWith("summary:") && key!="summary:unknown")o.remove("summary:unknown");o.put(key,text.take(300_000));val f=File(dir,"$id.json");val t=File(dir,"$id.tmp");t.writeText(o.toString());check(t.renameTo(f))}

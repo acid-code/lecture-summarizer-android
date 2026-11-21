@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.R
 import il.ac.tau.lecturesummarizer.data.SummaryDensity
+import il.ac.tau.lecturesummarizer.moodle.ConnectionAuth
 import il.ac.tau.lecturesummarizer.moodle.MoodleStore
 import il.ac.tau.lecturesummarizer.moodle.Panopto
 
@@ -76,14 +77,16 @@ private fun ColumnScope.ConnectStep(ctx: android.content.Context, onMoodle: () -
     // Re-read when we come back from a login route (this destination is recomposed on return).
     var tick by remember { mutableIntStateOf(0) }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { tick++ }
-    val moodle = remember(tick) { Connections.moodle(ctx) }
-    val panopto = remember(tick) { Connections.panopto() }
+    val moodle = remember(tick) { Connections.moodleState(ctx) }
+    val panopto = remember(tick) { Connections.panoptoState(ctx) }
     Title(stringResource(R.string.ob2_title), stringResource(R.string.ob2_body))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ConnectionRow(stringResource(R.string.ob2_moodle), moodle, onConnect = onMoodle)
         ConnectionRow(stringResource(R.string.ob2_panopto), panopto, onConnect = onPanopto)
     }
-    if (tick > 1 && (!moodle || !panopto)) Text(stringResource(R.string.connection_pending), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (tick > 1 && (moodle != ConnectionState.Connected || panopto != ConnectionState.Connected)) {
+        Text(stringResource(R.string.connection_pending), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.ob2_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(20.dp))
@@ -93,21 +96,43 @@ private fun ColumnScope.ConnectStep(ctx: android.content.Context, onMoodle: () -
 
 @Composable
 private fun ColumnScope.LevelsStep(app: LectureApp, onFinish: () -> Unit) {
-    // Both ON by default: מלא = detailed, רגיל = standard.
+    // Default: detailed + slides. Standard/compact are optional shorter views.
     var full by rememberSaveable { mutableStateOf(true) }
-    var regular by rememberSaveable { mutableStateOf(true) }
+    var regular by rememberSaveable { mutableStateOf(false) }
+    var compact by rememberSaveable { mutableStateOf(false) }
+    var slides by rememberSaveable { mutableStateOf(true) }
+    fun keepOne(changing: Boolean, othersOn: Boolean) = changing || othersOn
     Title(stringResource(R.string.ob3_title), null)
     Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(full, { if (it || regular) full = it }); Text(stringResource(R.string.ob3_full)) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(regular, { if (it || full) regular = it }); Text(stringResource(R.string.ob3_regular)) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(full, { if (keepOne(it, regular || compact || slides)) full = it })
+            Text(stringResource(R.string.ob3_full))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(regular, { if (keepOne(it, full || compact || slides)) regular = it })
+            Text(stringResource(R.string.ob3_regular))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(compact, { if (keepOne(it, full || regular || slides)) compact = it })
+            Text(stringResource(R.string.ob3_compact))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(slides, { if (keepOne(it, full || regular || compact)) slides = it })
+            Text(stringResource(R.string.ob3_slides))
+        }
     }
     Text(stringResource(R.string.onboarding_levels_hint),style=MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(20.dp))
     Button(onClick = {
-        app.settings.summaryDensities = buildSet { if (full) add(SummaryDensity.DETAILED.api); if (regular) add(SummaryDensity.STANDARD.api) }
+        app.settings.summaryDensities = buildSet {
+            if (full) add(SummaryDensity.DETAILED.api)
+            if (regular) add(SummaryDensity.STANDARD.api)
+            if (compact) add(SummaryDensity.COMPACT.api)
+            if (slides) add(SummaryDensity.SLIDES.api)
+        }
         onFinish()
     }, Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.ob3_cta)) }
-    TextButton(onClick = { app.settings.summaryDensities = setOf("standard", "detailed"); onFinish() }) { Text(stringResource(R.string.skip)) }
+    TextButton(onClick = { app.settings.summaryDensities = setOf("detailed", "slides"); onFinish() }) { Text(stringResource(R.string.skip)) }
 }
 
 /** Standalone Moodle sign-in (same WebView cookie login as Attach from Moodle). */
@@ -115,7 +140,11 @@ private fun ColumnScope.LevelsStep(app: LectureApp, onFinish: () -> Unit) {
 fun MoodleConnectScreen(onDone: () -> Unit) {
     val ctx = LocalContext.current
     AppScaffold(stringResource(R.string.moodle_sign_in), onBack = onDone) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) { MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl) { onDone() } }
+        Box(Modifier.padding(pad).fillMaxSize()) {
+            MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl) {
+                ConnectionAuth.clearMoodle(ctx); onDone()
+            }
+        }
     }
 }
 
@@ -127,7 +156,9 @@ fun PanoptoConnectScreen(onDone: () -> Unit) {
         Box(Modifier.padding(pad).fillMaxSize()) {
             MoodleLoginView(MoodleStore(ctx.applicationContext).baseUrl, startUrl = Panopto.HOST,
                 isDone = { u -> u.contains("panopto", true) && (u.contains("Viewer.aspx", true) || u.contains("/Sessions/List.aspx", true)) },
-                sessionReady = { Panopto.hasSessionCookie() }) { onDone() }
+                sessionReady = { Panopto.hasSessionCookie() }) {
+                ConnectionAuth.clearPanopto(ctx); onDone()
+            }
         }
     }
 }

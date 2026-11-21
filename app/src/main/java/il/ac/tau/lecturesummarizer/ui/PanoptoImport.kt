@@ -138,7 +138,12 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 "captions"
             }.fold(
                 onSuccess = { mode -> mode },
-                onFailure = { e -> if (e is PanoptoAuthRequired) PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec) else fail(e) },
+                onFailure = { e ->
+                    if (e is PanoptoAuthRequired) {
+                        ConnectionAuth.markPanoptoNeeded(ctx, notify = false)
+                        PState.PanoptoLogin(e.viewerUrl ?: Panopto.HOST, course, rec)
+                    } else fail(e)
+                },
             )
         }.let { result ->
             when (result) {
@@ -257,7 +262,9 @@ fun PanoptoImportScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, 
                 PState.Login -> MoodleLoginView(store.baseUrl) { reload++ }
                 // Panopto has its own SAML session; open the viewer once so tau.cloud.panopto.eu cookies land in CookieManager.
                 is PState.PanoptoLogin -> MoodleLoginView(store.baseUrl, startUrl = s.url,
-                    isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) { scope.launch { import(s.course, s.rec) } }
+                    isDone = { u -> u.contains("tau.cloud.panopto.eu", true) && u.contains("Viewer.aspx", true) }) {
+                    ConnectionAuth.clearPanopto(ctx); scope.launch { import(s.course, s.rec) }
+                }
                 is PState.Error -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ErrorText(s.msg); Button(onClick = { client.invalidate(); reload++ }) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.retry_action)) }
                     if (newEntry) OutlinedButton(onClick = onRecordInstead) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_record_on_the_phone_instead)) }

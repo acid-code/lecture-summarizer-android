@@ -162,6 +162,9 @@ object PptxToPdf {
             }
         }
 
+        // Never dump unpositioned <a:t> runs onto the bitmap — that produced tiny photos +
+        // vertical Hebrew garbage and wiped OCR on the server. Pictures only (positioned).
+        // Text for commentary comes from PPTX text extraction / transcript, not this raster.
         if (pics.isEmpty()) {
             val media = relTargets.values.mapNotNull { t ->
                 val p = resolveRel("ppt/slides", t)
@@ -181,37 +184,25 @@ object PptxToPdf {
                         img.recycle()
                     }
                 }
-            }
-        }
-
-        val texts = Regex("""<a:t(?:\s[^>]*)?>(.*?)</a:t>""", RegexOption.DOT_MATCHES_ALL)
-            .findAll(slideXml)
-            .map {
-                it.groupValues[1]
-                    .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-                    .replace(Regex("\\s+"), " ").trim()
-            }
-            .filter { it.isNotEmpty() }
-            .take(40)
-            .toList()
-        if (texts.isNotEmpty()) {
-            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(30, 41, 59)
-                textSize = 22f
-                typeface = Typeface.SANS_SERIF
-            }
-            var y = h * 0.72f
-            val maxY = h - 24f
-            val lineH = textPaint.fontSpacing
-            for (line in texts) {
-                if (y > maxY) break
-                val clipped = if (textPaint.measureText(line) <= w - 48f) line else {
-                    var end = line.length
-                    while (end > 8 && textPaint.measureText(line.take(end) + "…") > w - 48f) end--
-                    line.take(end) + "…"
+            } else {
+                // Text-only slide: simple centered title from the first runs (no overlapping dump).
+                val title = Regex("""<a:t(?:\s[^>]*)?>(.*?)</a:t>""", RegexOption.DOT_MATCHES_ALL)
+                    .findAll(slideXml)
+                    .map {
+                        it.groupValues[1]
+                            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                            .replace(Regex("\\s+"), " ").trim()
+                    }
+                    .firstOrNull { it.length in 3..80 }
+                if (title != null) {
+                    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.rgb(30, 41, 59)
+                        textSize = 36f
+                        typeface = Typeface.DEFAULT_BOLD
+                        textAlign = Paint.Align.CENTER
+                    }
+                    canvas.drawText(title.take(60), w / 2f, h / 2f, textPaint)
                 }
-                canvas.drawText(clipped, 24f, y, textPaint)
-                y += lineH
             }
         }
         return bmp

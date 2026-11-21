@@ -20,7 +20,7 @@ import java.io.File
   if(old in setOf("queued","updating","error"))(context.applicationContext as? LectureApp)?.settings?.summaryDensities.orEmpty().associateWith{SummaryVariantState.Entry("legacy",old!!,0)} else emptyMap()
  }}
 }
-@Composable fun LectureSummaryVariants(app:LectureApp,l:Lecture,onOpen:()->Unit){
+@Composable fun LectureSummaryVariants(app:LectureApp,l:Lecture,onOpen:()->Unit,onShare:()->Unit={},onSave:()->Unit={}){
  val scope=rememberCoroutineScope();val state=rememberVariantState(l.id)
  val cache=remember(l.id){SummaryPdfCache(app.repo.pdfDir(),l.id)}
  val current=l.pdfPath?.let(::File)?.takeIf{it.exists()}
@@ -34,6 +34,9 @@ import java.io.File
   local.forEach{density->PdfPreviewCache.preload(cache.file(density))}
   val remote=l.remoteId ?: return@LaunchedEffect
   val api=ApiProvider.get(app.settings)
+  // Refresh server density/job map so we notice newer done jobs and re-pull their PDFs.
+  runCatching{SummaryJobsSync.refresh(app,l)}
+  val remoteStates=runCatching{api.summaryJobStates(remote)}.getOrDefault(emptyMap())
   // Pre-density filenames have no trustworthy selected-chip identity. Resolve once, don't guess.
   if(current!=null&&cache.density(current)==null&&l.jobId!=null){
    try{SummaryDensity.of(api.jobStatus(l.jobId).density)?.let{density->
@@ -41,26 +44,56 @@ import java.io.File
     if(app.repo.lecture(l.id)?.pdfPath==current.absolutePath)app.repo.updateLecture(l.id){it.copy(pdfPath=dest.absolutePath)}
    }}catch(e:CancellationException){throw e}catch(_:Exception){/* Keep the old PDF available offline. */}
   }
-  val remoteLevels=api.availableDensities(remote).filter{SummaryDensity.of(it)!=null}.toSet()
+  val remoteLevels=(api.availableDensities(remote)+remoteStates.filterValues{it.state=="ready"}.keys)
+   .filter{SummaryDensity.of(it)!=null}.toSet()
   available=available+remoteLevels+cache.available()
   coroutineScope{remoteLevels.forEach{density->launch{
-   if(density !in cache.available())loading=loading+density
-   try{val file=cache.ensure(density){api.downloadSummaryPdf(remote,it,density)};il.ac.tau.lecturesummarizer.study.StudyStore(app).delivered(l.id,file,density,l.jobId.orEmpty());PdfPreviewCache.preload(file)}
-   catch(e:CancellationException){throw e}catch(_:Exception){/* A tap can retry, without generating over an existing version. */}
+   val jobToken=remoteStates[density]?.takeIf{it.state=="ready"}?.let{"server:${it.jobId}"} ?: ready[density]
+   val stale=jobToken!=null&&cache.token(density)!=jobToken
+   val missing=density !in cache.available()
+   if(!missing&&!stale)return@launch
+   loading=loading+density
+   try{
+    val file=cache.ensure(density,force=stale,jobToken=jobToken){api.downloadSummaryPdf(remote,it,density)}
+    il.ac.tau.lecturesummarizer.study.StudyStore(app).delivered(l.id,file,density,jobToken?.removePrefix("server:") ?: l.jobId.orEmpty())
+    PdfPreviewCache.preload(file)
+    // If this density is the one currently shown (or nothing is), switch the open PDF to the fresh file.
+    val shown=app.repo.lecture(l.id)?.pdfPath
+    if(shown==null||shown==cache.file(density).absolutePath||File(shown).name==cache.file(density).name)
+     app.repo.updateLecture(l.id){it.copy(pdfPath=file.absolutePath)}
+   }catch(e:CancellationException){throw e}catch(_:Exception){/* A tap can retry, without generating over an existing version. */}
    finally{loading=loading-density}
   }}}
  }
  SummaryHero(current,available,cache.density(current),onSelect={density->
   val request=++switchToken;val local=cache.file(density.api)
-  if(local.isFile&&local.length()>0){app.repo.updateLecture(l.id){it.copy(pdfPath=local.absolutePath)};error=false}
+  val token=ready[density.api]
+  val stale=token!=null&&cache.token(density.api)!=token
+  if(local.isFile&&local.length()>0&&!stale){app.repo.updateLecture(l.id){it.copy(pdfPath=local.absolutePath)};error=false}
   else scope.launch{
    loading=loading+density.api
-   try{val file=cache.ensure(density.api){ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!,it,density.api)};PdfPreviewCache.preload(file)
+   try{val file=cache.ensure(density.api,force=stale,jobToken=token){ApiProvider.get(app.settings).downloadSummaryPdf(l.remoteId!!,it,density.api)};PdfPreviewCache.preload(file)
     if(request==switchToken){app.repo.updateLecture(l.id){it.copy(pdfPath=file.absolutePath)};error=false}
    }catch(e:CancellationException){throw e}catch(_:Exception){error=true}finally{loading=loading-density.api}
   }
- },onOpen=onOpen,updating=state.filterValues{it.pending}.keys,loading=loading,canGenerate=l.remoteId!=null&&l.jobId!=null,
+ },onOpen=onOpen,onShare=onShare,onSave=onSave,
+ hasSlides=l.allSlides.isNotEmpty()||l.uploadedSlides.isNotEmpty()||"slides" in available,
+ updating=state.filterValues{it.pending}.keys,loading=loading,canGenerate=l.remoteId!=null&&l.jobId!=null,
  onGenerate={SummaryRefreshWorker.enqueueDensity(app,l.id,it.api)},failed=state.filterValues{it.state=="error"}.keys)
+ val pending=state.filterValues{it.pending}.keys
+ if(pending.isNotEmpty()&&l.remoteId!=null)androidx.compose.foundation.layout.Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically){
+  androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_all_hint),modifier=androidx.compose.ui.Modifier.weight(1f),style=androidx.compose.material3.MaterialTheme.typography.bodySmall)
+  androidx.compose.material3.TextButton(onClick={
+   scope.launch(Dispatchers.IO){
+    runCatching{
+     ApiProvider.get(app.settings).cancelAllJobs(l.remoteId!!)
+     androidx.work.WorkManager.getInstance(app).cancelUniqueWork("summary-material-refresh-${l.id}")
+     val vs=SummaryVariantState(app)
+     pending.forEach{d->vs.update(l.id,d,state[d]?.token?:"stop","error",0)}
+    }
+   }
+  }){androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.job_stop_all))}
+ }
  val failed=state.filterValues{it.state=="error"}.keys
  if(failed.isNotEmpty())androidx.compose.foundation.layout.Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically){
   androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.summary_update_failed),modifier=androidx.compose.ui.Modifier.weight(1f),style=androidx.compose.material3.MaterialTheme.typography.bodySmall,color=androidx.compose.material3.MaterialTheme.colorScheme.error)

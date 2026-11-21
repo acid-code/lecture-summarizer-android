@@ -24,10 +24,29 @@ class Settings(context: Context) {
             prefs.edit().putString("deviceId", it).commit()
         }
 
-    /** Density levels to create on first summarize (multi-select; one summary per level). Default: standard + detailed. */
+    /** Density levels to create on first summarize (multi-select; one summary per level). Default: detailed + slides. */
     var summaryDensities: Set<String>
-        get() = prefs.getStringSet("summaryDensities", null)?.takeIf { it.isNotEmpty() } ?: setOf("standard", "detailed")
-        set(v) = prefs.edit().putStringSet("summaryDensities", v.ifEmpty { setOf("standard") }).apply()
+        get() {
+            val stored = prefs.getStringSet("summaryDensities", null)
+            if (stored == null) return setOf("detailed", "slides")
+            var next = stored
+            // One-time opt-in for installs that predate the slides density (settings only had standard/detailed).
+            if (!prefs.getBoolean("summaryDensities_slides_offered", false)) {
+                next = (next + "slides").ifEmpty { setOf("detailed", "slides") }
+                prefs.edit().putBoolean("summaryDensities_slides_offered", true).putStringSet("summaryDensities", next).apply()
+            }
+            // One-time: ensure detailed is present when the user only had shorter levels (exam packs prefer detailed).
+            if (!prefs.getBoolean("summaryDensities_detailed_offered", false)) {
+                next = if ("detailed" in next || "standard" !in next && "compact" !in next) next
+                else next + "detailed"
+                prefs.edit().putBoolean("summaryDensities_detailed_offered", true).putStringSet("summaryDensities", next).apply()
+            }
+            return next.takeIf { it.isNotEmpty() } ?: setOf("detailed", "slides")
+        }
+        set(v) = prefs.edit()
+            .putBoolean("summaryDensities_slides_offered", true)
+            .putBoolean("summaryDensities_detailed_offered", true)
+            .putStringSet("summaryDensities", v.ifEmpty { setOf("detailed") }).apply()
 
     /** Mock mode: no network, fake job progress and a locally generated placeholder PDF. */
     /** Forced false in release builds (here, not only in the UI) so a stale pref can never enable it. */

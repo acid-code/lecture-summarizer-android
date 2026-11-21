@@ -33,7 +33,13 @@ import java.util.Date
                 Icon(Icons.Default.EventAvailable,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)){
                     Text(stringResource(if(selected)R.string.watch_connected else R.string.watch_available),style=MaterialTheme.typography.labelMedium)
-                    if(!loading)Text(stringResource(R.string.watch_course_count,ltr(courseCount)),modifier=Modifier.fillMaxWidth().testTag("calendar-watch-counts"),style=MaterialTheme.typography.labelSmall,softWrap=true)
+                    // Always reserve the count line so silent loads do not collapse/expand the card.
+                    Text(
+                        if(loading)"\u00A0" else stringResource(R.string.watch_course_count,ltr(courseCount)),
+                        modifier=Modifier.fillMaxWidth().testTag("calendar-watch-counts"),
+                        style=MaterialTheme.typography.labelSmall,
+                        softWrap=true,
+                    )
                 }
             }
             // Never squeeze this question beside a count. Give both their complete logical width.
@@ -99,21 +105,25 @@ fun upcomingClasses(matches:List<CalendarRuleMatch>,now:Long)=matches.filter{it.
  val largeText=LocalDensity.current.fontScale>1.3f
  val visible=matches.take(if(expanded)3 else 1)
  Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(2.dp)){
-  visible.forEachIndexed{index,m->Row(Modifier.fillMaxWidth().padding(vertical=2.dp).testTag("upcoming:${m.event.key}"),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.Top){
-   Icon(Icons.Default.Event,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.primary)
-   Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-    Text(bidi(m.rule.targetCourse),style=MaterialTheme.typography.titleSmall,softWrap=true)
-    if(expanded && m.event.title.trim()!=m.rule.targetCourse.trim())Text(bidi(m.event.title),style=MaterialTheme.typography.bodySmall,softWrap=true)
-    val date=ltr(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(m.event.start)))
-    if(index==0 && matches.size>1 && !largeText)Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-     Text(date,Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,softWrap=true)
-     TextButton(onClick={expanded=!expanded},contentPadding=PaddingValues(0.dp)){Text(stringResource(if(expanded)R.string.home_fewer_events else R.string.home_more_events),style=MaterialTheme.typography.labelMedium,softWrap=true)}
-    }else {
-     Text(date,Modifier.fillMaxWidth(),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,softWrap=true)
-     if(index==0 && matches.size>1 && largeText)TextButton(onClick={expanded=!expanded},contentPadding=PaddingValues(0.dp)){Text(stringResource(if(expanded)R.string.home_fewer_events else R.string.home_more_events),style=MaterialTheme.typography.labelMedium,softWrap=true)}
+  visible.forEachIndexed{index,m->
+   key(m.event.key){
+    Row(Modifier.fillMaxWidth().padding(vertical=2.dp).testTag("upcoming:${m.event.key}"),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.Top){
+     Icon(Icons.Default.Event,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.primary)
+     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+      Text(bidi(m.rule.targetCourse),style=MaterialTheme.typography.titleSmall,softWrap=true)
+      if(expanded && m.event.title.trim()!=m.rule.targetCourse.trim())Text(bidi(m.event.title),style=MaterialTheme.typography.bodySmall,softWrap=true)
+      val date=ltr(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(m.event.start)))
+      if(index==0 && matches.size>1 && !largeText)Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+       Text(date,Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,softWrap=true)
+       TextButton(onClick={expanded=!expanded},contentPadding=PaddingValues(0.dp)){Text(stringResource(if(expanded)R.string.home_fewer_events else R.string.home_more_events),style=MaterialTheme.typography.labelMedium,softWrap=true)}
+      }else {
+       Text(date,Modifier.fillMaxWidth(),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,softWrap=true)
+       if(index==0 && matches.size>1 && largeText)TextButton(onClick={expanded=!expanded},contentPadding=PaddingValues(0.dp)){Text(stringResource(if(expanded)R.string.home_fewer_events else R.string.home_more_events),style=MaterialTheme.typography.labelMedium,softWrap=true)}
+      }
+     }
     }
    }
-  }}
+  }
   if(expanded && matches.size>3 && onOpenAll!=null)TextButton(onClick=onOpenAll,contentPadding=PaddingValues(horizontal=0.dp,vertical=4.dp)){Text(stringResource(R.string.home_all_events,ltr(matches.size)),softWrap=true)}
  }
 

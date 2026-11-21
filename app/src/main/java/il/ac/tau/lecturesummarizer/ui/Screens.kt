@@ -53,8 +53,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,6 +90,10 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
     var editing by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
     var courseActions by remember{mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null)}
     var deleting by remember { mutableStateOf<il.ac.tau.lecturesummarizer.data.Course?>(null) }
+    // Ignore cover taps briefly after this screen appears — back-from-lecture click-through was
+    // re-opening a course (and then a lecture) the user did not mean to tap.
+    var coversReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { coversReady = false; kotlinx.coroutines.delay(350); coversReady = true }
     val ctx = LocalContext.current
     var picks by remember { mutableStateOf<List<TauClass>>(emptyList()) }
     var pendingNew by remember { mutableStateOf<Pair<il.ac.tau.lecturesummarizer.data.Course, TauClass>?>(null) }
@@ -147,7 +156,9 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
                 Column {
                     Box(Modifier.fillMaxWidth()) {
                     NotebookCover(c.name, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, n) + (if (c.allContext.isNotEmpty()) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.background_count, c.allContext.size) else ""),
-                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth(),footer={CourseUpdated(ctx,c.id)},onLongClick={courseActions=c}) { onOpen(c.id) }
+                        c.coverEmoji(), c.coverColorValue(), patternOf(c.pattern), Modifier.fillMaxWidth(),footer={CourseUpdated(ctx,c.id)},onLongClick={courseActions=c}) {
+                        if (coversReady) onOpen(c.id)
+                    }
                     if (newCount > 0) UnreadCountBadge(newCount, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
                     }
                 }
@@ -181,12 +192,21 @@ fun CoursesScreen(app: LectureApp, onOpen: (String) -> Unit, onSettings: () -> U
 fun LecturesScreen(
     app: LectureApp, courseId: String, onBack: () -> Unit,
     onRecord: (String) -> Unit, onAttach: (String) -> Unit, onJob: (String) -> Unit, onNew: (String) -> Unit = onRecord, onPanopto: (String) -> Unit = {}, onMoodleCourse: () -> Unit = {},
+    onExam: () -> Unit = {},
 ) {
     val retryScope = rememberCoroutineScope()
     val all by app.repo.lectures.collectAsStateWithLifecycle()
     val lectures = all.filter { it.courseId == courseId }.sortedByDescending { it.recordedAtMs }
     val unread by app.unread.ids.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
+    // Do not compose lecture rows until settled — previous course's cards were still clickable under
+    // the new course cover tap and opened e.g. a Genetics lecture from Language Models.
+    var listReady by remember(courseId) { mutableStateOf(false) }
+    LaunchedEffect(courseId) {
+        listReady = false
+        kotlinx.coroutines.delay(700)
+        listReady = true
+    }
     val ctx = LocalContext.current
     val courses by app.repo.courses.collectAsStateWithLifecycle()
     val course = courses.firstOrNull { it.id == courseId }
@@ -207,8 +227,23 @@ fun LecturesScreen(
         fab = { ExtendedFloatingActionButton(onClick={adding=true},icon={Icon(Icons.Default.Add,null)},text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.add_lecture))}) }
 
     ) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            course?.let { c -> item(key="Screens:static:1"){ CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true };CourseUpdated(ctx,c.id) };item(key="Screens:static:2"){ CourseSourcesButton(app,c) } }
+        LazyColumn(
+            Modifier
+                .padding(pad)
+                .then(
+                    if (!listReady) Modifier.pointerInput(courseId) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    } else Modifier
+                ),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            course?.let { c -> item(key="Screens:static:1"){ CourseHeader(c, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.course_lecture_count, lectures.size)) { editCover = true };CourseUpdated(ctx,c.id) };item(key="Screens:static:2"){ CourseSourcesButton(app,c) };item(key="Screens:static:exam"){ OutlinedButton(onClick=onExam,modifier=Modifier.fillMaxWidth()){ Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.exam_open)) } } }
             item(key="Screens:static:3"){
                 var backgroundOpen by remember{mutableStateOf(false)}
                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -229,22 +264,30 @@ fun LecturesScreen(
                         }, onSave = { download(it.uri, it.name, it.mime) }, onRemove = { m ->
                             app.repo.updateCourse(courseId) { c -> val rest = c.allContext - m.key; c.copy(contextPdfUri = rest.firstOrNull(), extraContext = rest.drop(1)) }
                         })
-                        OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_add_pdf), Icons.Default.NoteAdd, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) {
-                            subjectPicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
-                        }
-                        OutlineAction(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_attach_from_moodle), Icons.Default.School, Modifier.fillMaxWidth(), enabled = files.size < MAX_COURSE_CONTEXT) { onMoodleCourse() }
+                        AttachQuickBar(
+                            onPhone = {
+                                subjectPicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
+                            },
+                            onMoodle = onMoodleCourse,
+                            phoneEnabled = files.size < MAX_COURSE_CONTEXT,
+                            moodleEnabled = files.size < MAX_COURSE_CONTEXT,
+                        )
                         if (files.size >= MAX_COURSE_CONTEXT) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.context_max, MAX_COURSE_CONTEXT),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
-            if (lectures.isEmpty()) item(key="Screens:static:4"){
+            if (listReady && lectures.isEmpty()) item(key="Screens:static:4"){
                 EmptyState(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_title),
                     androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_body)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onPanopto(courseId) }) {
-                            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.es_lectures_panopto)) }
+                        OutlinedButton(
+                            onClick = { onPanopto(courseId) },
+                            modifier = Modifier.semantics {
+                                contentDescription = ctx.getString(il.ac.tau.lecturesummarizer.R.string.es_lectures_panopto)
+                            },
+                        ) { Text("🎥") }
                         Button(onClick = {
                             val date = java.text.SimpleDateFormat("d.M.yyyy", java.util.Locale.US).format(Date())
                             onRecord(app.repo.addLecture(courseId, ctx.getString(il.ac.tau.lecturesummarizer.R.string.generated_lecture, date)).id)
@@ -252,7 +295,9 @@ fun LecturesScreen(
                     }
                 }
             }
-            items(lectures, key = { it.id }) { l ->
+            if (listReady) items(lectures, key = { "${courseId}:${it.id}" }) { l ->
+                // Refuse rows that do not belong to this course (stale composition / wrong filter).
+                if (l.courseId != courseId) return@items
                 NotebookCard(l.title,
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(l.recordedAtMs))} · " +
                         "${formatElapsed(l.displayDurationMs)}" +
@@ -279,31 +324,44 @@ fun LecturesScreen(
 @Composable
 fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone: () -> Unit, autoResume: Boolean = false, onMoodle: () -> Unit = {}) {
     val ctx = LocalContext.current
-    val captionSession = remember { il.ac.tau.lecturesummarizer.captions.CaptionSession(ctx) }
+    // Survive orientation / Compose remount — do not create a fresh session that drops lines/engines.
+    val captionSession = remember(lectureId) { il.ac.tau.lecturesummarizer.captions.CaptionSessionHolder.obtain(ctx, lectureId) }
     val captionUi by captionSession.state.collectAsStateWithLifecycle()
     var showCaptionAgree by remember { mutableStateOf(false) }
-    var captionsOpen by remember { mutableStateOf(false) }
+    var captionsOpen by androidx.compose.runtime.saveable.rememberSaveable(lectureId) { mutableStateOf(false) }
     var openCaptionsAfterAgree by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) { onDispose { captionSession.release() } }
+    val rec by RecorderService.state.collectAsStateWithLifecycle()
+    DisposableEffect(lectureId) {
+        // Reload any lines already flushed to disk (rotation / process with retained holder).
+        if (captionSession.state.value.lines.isEmpty()) captionSession.loadLectureLines(lectureId)
+        onDispose {
+            val stillRecording = RecorderService.state.value.recording && RecorderService.state.value.lectureId == lectureId
+            il.ac.tau.lecturesummarizer.captions.CaptionSessionHolder.releaseIfIdle(lectureId, stillRecording)
+        }
+    }
     // Attach materials while recording (same as "Upload slides"/Moodle on Materials; sent with the final upload).
     val livePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         uris.forEach { persist(ctx, it) }; addSlides(app, lectureId, uris)
         Toast.makeText(ctx, ctx.getString(il.ac.tau.lecturesummarizer.R.string.files_attached, uris.size), Toast.LENGTH_SHORT).show()
     }
-    val rec by RecorderService.state.collectAsStateWithLifecycle()
     val lecture by app.repo.lectures.collectAsStateWithLifecycle()
     val l = lecture.firstOrNull { it.id == lectureId }
     val active = rec.recording && rec.lectureId == lectureId
     val paused = active && rec.paused
     val otherActive = rec.recording && rec.lectureId != lectureId
     val localeRtl = LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    var wasActive by remember { mutableStateOf(false) }
 
     // Captions stay opt-in. Only sync pause/resume while the captions overlay is open.
     LaunchedEffect(active, paused, captionsOpen) {
         if (!active) {
             captionsOpen = false
-            captionSession.onRecordingStopped()
+            // Only when recording actually ended — not a brief remount before service state reconnects.
+            if (wasActive) {
+                captionSession.onRecordingStopped()
+                il.ac.tau.lecturesummarizer.captions.CaptionSessionHolder.releaseIfIdle(lectureId, stillRecording = false)
+            }
             return@LaunchedEffect
         }
         if (!captionsOpen) return@LaunchedEffect
@@ -365,10 +423,12 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
         val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
         if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
     }
-    var wasActive by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
         if (active) wasActive = true
-        else if (wasActive) { wasActive = false; onDone() }
+        else if (wasActive) {
+            wasActive = false
+            onDone()
+        }
     }
 
     // Keep download / ready gates fresh while the captions overlay is open (no auto-start).
@@ -405,20 +465,32 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
         return
     }
 
+    val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     AppScaffold(l?.title ?: androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_title), onBack = onBack) { pad ->
         Column(
-            Modifier.padding(pad).fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier
+                .padding(pad)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = if (landscape) 20.dp else 24.dp, vertical = if (landscape) 12.dp else 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (landscape) 10.dp else 16.dp),
         ) {
             val prior = l?.segments?.sumOf { it.durationMs } ?: 0
-            Text(formatElapsed(if (active) rec.elapsedMs else prior), fontSize = 60.sp, fontWeight = FontWeight.Light,
+            Text(
+                formatElapsed(if (active) rec.elapsedMs else prior),
+                fontSize = if (landscape) 40.sp else 60.sp,
+                fontWeight = FontWeight.Light,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                color = if (active && !paused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                color = if (active && !paused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
             Text(if (paused) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_paused, l?.segments?.size ?: 0)
                  else if (active) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_active, rec.segmentSeq+1)
                  else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_stopped, l?.segments?.size ?: 0))
-            Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_recording_continues_with_the_screen_off_audio_is_saved_in_10_minu),
-                style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            if (!landscape) {
+                Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_recording_continues_with_the_screen_off_audio_is_saved_in_10_minu),
+                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            }
             if (active) {
                 val lineCount = captionUi.lines.size
                 OutlinedButton(onClick = { tryOpenCaptions() }, modifier = Modifier.fillMaxWidth()) {
@@ -435,31 +507,34 @@ fun RecordScreen(app: LectureApp, lectureId: String, onBack: () -> Unit, onDone:
             if(active && l!=null)FilledTonalButton(onClick={app.repo.updateLecture(l.id){it.copy(markers=it.markers+il.ac.tau.lecturesummarizer.data.Marker(rec.elapsedMs/1000,ctx.getString(il.ac.tau.lecturesummarizer.R.string.important_marker)))}},colors=ButtonDefaults.filledTonalButtonColors(containerColor=MaterialTheme.colorScheme.tertiaryContainer,contentColor=MaterialTheme.colorScheme.onTertiaryContainer)){Icon(Icons.Default.Star,null);Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.important_marker))}
             if (otherActive) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_another_lecture_is_recording_stop_it_first), color = MaterialTheme.colorScheme.error)
             if (denied) Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_microphone_permission_is_required), color = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(if (landscape) 4.dp else 8.dp))
+            val primaryH = if (landscape) 52.dp else 64.dp
+            val resumeH = if (landscape) 56.dp else 96.dp
+            val stopH = if (landscape) 48.dp else 56.dp
             if (!active) {
                 Button(enabled = !otherActive, onClick = {
                     val missing = perms.any { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
                     if (missing) launcher.launch(perms) else RecorderService.start(ctx, lectureId)
-                }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
+                }, modifier = Modifier.fillMaxWidth().height(primaryH)) {
                     Text(if ((l?.segments?.size ?: 0) > 0) androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_resume) else androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.record_start))
                 }
                 if ((l?.segments?.size ?: 0) > 0) OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
                     Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_next_add_materials_and_upload))
                 } else TextButton(onClick = onDone) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_no_recording_add_slides_or_import_audio)) }
             } else if (paused) {
-                Button(onClick = { RecorderService.resume(ctx) }, modifier = Modifier.fillMaxWidth().height(96.dp)) {
-                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_resume_recording), fontSize = 22.sp)
+                Button(onClick = { RecorderService.resume(ctx) }, modifier = Modifier.fillMaxWidth().height(resumeH)) {
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_resume_recording), fontSize = if (landscape) 18.sp else 22.sp)
                 }
-                OutlinedButton(onClick = { RecorderService.stop(ctx) }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                OutlinedButton(onClick = { RecorderService.stop(ctx) }, modifier = Modifier.fillMaxWidth().height(stopH)) {
                     Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_end_lecture_and_prepare_upload))
                 }
             } else {
-                Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
-                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_pause_for_a_break), fontSize = 20.sp)
+                Button(onClick = { RecorderService.pause(ctx) }, modifier = Modifier.fillMaxWidth().height(primaryH)) {
+                    Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_pause_for_a_break), fontSize = if (landscape) 18.sp else 20.sp)
                 }
                 Button(onClick = { RecorderService.stop(ctx) },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth().height(56.dp)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_stop)) }
+                    modifier = Modifier.fillMaxWidth().height(stopH)) { Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.copy_stop)) }
             }
         }
     }
@@ -533,14 +608,14 @@ fun NotebookCard(title: String, subtitle: String, color: Color, badge: String? =
                 }
                 if(onMove!=null){
                     var menu by remember{mutableStateOf(false)}
-                    Box(Modifier.align(Alignment.CenterVertically)){
+                    Box(Modifier.align(Alignment.Top).padding(top = 4.dp)){
                         IconButton(onClick={menu=true}){Icon(Icons.Default.MoreVert,androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.more_actions))}
                         DropdownMenu(menu,{menu=false}){
                             DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.move_to_course))},onClick={menu=false;onMove()})
                             onDelete?.let{remove->DropdownMenuItem(text={Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture))},onClick={menu=false;remove()})}
                         }
                     }
-                }else onDelete?.let { IconButton(onClick = it, modifier = Modifier.align(Alignment.CenterVertically)) {
+                }else onDelete?.let { IconButton(onClick = it, modifier = Modifier.align(Alignment.Top).padding(top = 4.dp)) {
                     Icon(Icons.Default.Delete, androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.delete_lecture), tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
         }
@@ -745,14 +820,19 @@ private fun ConnectionsSection(onMoodle: () -> Unit, onPanopto: () -> Unit) {
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { cal = it }
     var tick by remember { mutableIntStateOf(0) }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { cal = Connections.calendar(ctx); tick++ }
-    val moodle = remember(tick) { Connections.moodle(ctx) }
-    val panopto = remember(tick) { Connections.panopto() }
+    val moodle = remember(tick) { Connections.moodleState(ctx) }
+    val panopto = remember(tick) { Connections.panoptoState(ctx) }
+    // Explicit Disconnect only — reconnect/expired-session flows keep cookies so SSO can recover,
+    // and always keep MoodleStore.username (never wipe remembered login id here).
     fun disconnect(host: String) {
         val cm = android.webkit.CookieManager.getInstance()
         cm.getCookie(host)?.split(';')?.forEach { cookie ->
             cm.setCookie(host, cookie.substringBefore('=').trim() + "=; Max-Age=0; Path=/")
         }
-        cm.flush(); tick++
+        cm.flush()
+        if (host.contains("panopto", true)) il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.clearPanopto(ctx)
+        else il.ac.tau.lecturesummarizer.moodle.ConnectionAuth.clearMoodle(ctx)
+        tick++
     }
     HorizontalDivider()
     SectionTitle(il.ac.tau.lecturesummarizer.R.string.set_connections)
@@ -780,7 +860,7 @@ private fun SummaryDensitySection(app: LectureApp) {
     il.ac.tau.lecturesummarizer.data.SummaryDensity.entries.forEach { d ->
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(d.api in sel, { on -> val v = if (on) sel + d.api else sel - d.api; if (v.isNotEmpty()) { sel = v; app.settings.summaryDensities = v } })
-            Text(androidx.compose.ui.res.stringResource(when (d.api) { "compact" -> il.ac.tau.lecturesummarizer.R.string.level_compact; "detailed" -> il.ac.tau.lecturesummarizer.R.string.level_detailed; else -> il.ac.tau.lecturesummarizer.R.string.level_standard }))
+            Text(densityLabel(d))
         }
     }
     Text(androidx.compose.ui.res.stringResource(il.ac.tau.lecturesummarizer.R.string.set_levels_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
