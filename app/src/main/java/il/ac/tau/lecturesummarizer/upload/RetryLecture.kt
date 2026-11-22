@@ -91,6 +91,7 @@ suspend fun stopLectureJob(app: LectureApp, id: String) {
     val l = app.repo.lecture(id) ?: return
     val job = l.jobId
     WorkManager.getInstance(app).cancelUniqueWork("poll-$id")
+    il.ac.tau.lecturesummarizer.slides.SummaryRefreshWorker.cancelAll(app, id)
     JobAutoRecoveryWorker.cancelLecture(app, id)
     JobAutoRecovery(app).clear(id)
     if (job != null) runCatching { ApiProvider.get(app.settings).cancelJob(job) }

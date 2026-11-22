@@ -94,7 +94,16 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
                     }
                 }
                 if(active.isEmpty())break
-                if(System.currentTimeMillis()>until)return Result.retry()
+                if(System.currentTimeMillis()>until){
+                    if(runAttemptCount>=4){
+                        active.keys.forEach{d->
+                            f.pendingJob(id,d,rev,null);failed+=d
+                            if(token!=null)variantState.update(id,d,token,"error",0)
+                        }
+                        break
+                    }
+                    return Result.retry()
+                }
                 delay(3000)
             }
             densities.filter{it !in failed}.forEach{f.pendingJob(id,it,rev,null)}
@@ -137,16 +146,39 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
             if(SummaryDensity.of(density)==null)return
             // force=true (restart / chip retry) must not no-op on a stale pending/legacy claim.
             if(!force && SummaryVariantState(app).entry(id,density)?.pending==true)return
-            enqueueWork(app,id,listOf(density),force=force||SummaryVariantState(app).entry(id,density)?.state=="error")
+            enqueueSingleDensity(app,id,density,force=force||SummaryVariantState(app).entry(id,density)?.state=="error",serverJobId=null)
         }
-        /** Adopt server-spawned density jobs (from options.densities) so they get polled + downloaded. */
+        /** Adopt server-spawned density jobs (from options.densities) so each gets polled + downloaded independently. */
         fun adopt(app:LectureApp,id:String,jobs:Map<String,String>){
             if(jobs.isEmpty())return
             val l=app.repo.lecture(id) ?: return
             val f=SummaryFreshness(app);val rev=f.revision(l)
             f.prepare(id,rev) // must run BEFORE seeding; prepare() clears job:* keys on a new revision
-            jobs.forEach{(d,j)->f.pendingJob(id,d,rev,j)}
-            enqueueWork(app,id,jobs.keys.sorted(),force=false)
+            jobs.forEach{(d,j)->
+                if(SummaryDensity.of(d)!=null && j.isNotBlank()){
+                    f.pendingJob(id,d,rev,j)
+                    enqueueSingleDensity(app,id,d,force=false,serverJobId=j)
+                }
+            }
+        }
+        /** Cancel full material refresh AND every per-density worker for this lecture. */
+        fun cancelAll(app:LectureApp,id:String){
+            val wm=WorkManager.getInstance(app)
+            wm.cancelUniqueWork("summary-material-refresh-$id")
+            SummaryDensity.entries.forEach{d->wm.cancelUniqueWork("summary-density-$id-${d.api}")}
+        }
+        /** Independent per-density worker so one failing/slow density can never queue-block or cancel the others. */
+        private fun enqueueSingleDensity(app:LectureApp,id:String,density:String,force:Boolean,serverJobId:String?){
+            val l=app.repo.lecture(id) ?: return
+            if(l.remoteId==null||l.jobId==null)return
+            val f=SummaryFreshness(app);val rev=f.revision(l)
+            if(force)f.ensureDirty(id)
+            val token=if(!serverJobId.isNullOrBlank())"server:$serverJobId" else java.util.UUID.randomUUID().toString()
+            SummaryVariantState(app).claim(id,listOf(density),token)
+            WorkManager.getInstance(app).enqueueUniqueWork("summary-density-$id-$density",ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<SummaryRefreshWorker>().setInputData(workDataOf("lecture" to id,"revision" to rev,"densities" to arrayOf(density),"force" to force,"variantToken" to token))
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())
         }
         private fun enqueueWork(app:LectureApp,id:String,densities:List<String>,force:Boolean){
             val l=app.repo.lecture(id) ?: return
@@ -155,7 +187,7 @@ class SummaryRefreshWorker(ctx: Context,params: WorkerParameters):CoroutineWorke
             if(force)f.ensureDirty(id)
             f.state(id,"queued")
             val token=java.util.UUID.randomUUID().toString();SummaryVariantState(app).claim(id,densities,token)
-            WorkManager.getInstance(app).enqueueUniqueWork("summary-material-refresh-$id",ExistingWorkPolicy.APPEND_OR_REPLACE,
+            WorkManager.getInstance(app).enqueueUniqueWork("summary-material-refresh-$id",ExistingWorkPolicy.REPLACE,
                 OneTimeWorkRequestBuilder<SummaryRefreshWorker>().setInputData(workDataOf("lecture" to id,"revision" to rev,"densities" to densities.toTypedArray(),"force" to force,"variantToken" to token))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())

@@ -87,7 +87,7 @@ import java.io.File
    scope.launch(Dispatchers.IO){
     runCatching{
      ApiProvider.get(app.settings).cancelAllJobs(l.remoteId!!)
-     androidx.work.WorkManager.getInstance(app).cancelUniqueWork("summary-material-refresh-${l.id}")
+     SummaryRefreshWorker.cancelAll(app,l.id)
      val vs=SummaryVariantState(app)
      pending.forEach{d->vs.update(l.id,d,state[d]?.token?:"stop","error",0)}
     }
