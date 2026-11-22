@@ -1,5 +1,7 @@
 package il.ac.tau.lecturesummarizer.slides
 
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import il.ac.tau.lecturesummarizer.LectureApp
 import il.ac.tau.lecturesummarizer.data.*
 import kotlinx.coroutines.*
@@ -18,7 +20,9 @@ object SummaryJobsSync {
    val api=ApiProvider.get(app.settings)
    try{
     val remoteStates=api.summaryJobStates(remote)
-    reconcile(SummaryVariantState(app),l.id,remoteStates)
+    val store=SummaryVariantState(app)
+    clearDeadLocalPending(app,store,l.id,remoteStates)
+    reconcile(store,l.id,remoteStates)
     // Chips alone don't advance orphaned derive jobs — kick them if nothing local is polling.
     val orphans=remoteStates.filter{(_,s)->s.state=="updating"&&s.jobId.isNotBlank()}
      .filter{(d,_)->
@@ -33,6 +37,25 @@ object SummaryJobsSync {
     }
    }
    catch(e:CancellationException){throw e}catch(_:Exception){/* Network errors never masquerade as Done or overwrite an active worker. */}
+  }
+ }
+ /**
+  * Clear stale local queued/updating markers left behind by dead/finished workers when WorkManager
+  * has no active work for that density and the server is no longer updating it.
+  */
+ private fun clearDeadLocalPending(app:LectureApp,store:SummaryVariantState,id:String,remote:Map<String,SummaryJobState>){
+  val pending=store.entries(id).filterValues{it.pending}
+  if(pending.isEmpty())return
+  val wm=runCatching{WorkManager.getInstance(app)}.getOrNull() ?: return
+  fun hasLiveWork(name:String):Boolean=runCatching{
+   wm.getWorkInfosForUniqueWork(name).get().any{it.state==WorkInfo.State.RUNNING||it.state==WorkInfo.State.ENQUEUED}
+  }.getOrDefault(true)
+  val sharedLive=hasLiveWork("summary-material-refresh-$id")
+  pending.keys.forEach{density->
+   if(remote[density]?.state=="updating")return@forEach
+   if(!sharedLive && !hasLiveWork("summary-density-$id-$density")){
+    store.clear(id,density)
+   }
   }
  }
  fun reconcile(store:SummaryVariantState,id:String,remote:Map<String,SummaryJobState>){

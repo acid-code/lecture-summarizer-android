@@ -17,5 +17,9 @@ class SummaryVariantState(ctx:Context) {
   if(entry(id,density)?.token==token)preferences.edit().putString("$id:$density","$token|$state|${progress.coerceIn(0,100)}|${stage.orEmpty().replace("|","")}").commit()
   Unit
  }
+ /** Remove a stale/orphaned variant marker when no local worker and no remote updating job exist. */
+ fun clear(id:String,density:String)=synchronized(lock){
+  preferences.edit().remove("$id:$density").commit();Unit
+ }
  private companion object { val lock=Any() }
 }
