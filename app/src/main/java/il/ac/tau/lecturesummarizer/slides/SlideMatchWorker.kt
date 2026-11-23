@@ -29,15 +29,25 @@ class SlideMatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
         if(choices.isManual(id)){choices.phase(id,"manual");return Result.success()}
         val remote=l.remoteId ?: return finish(choices,id,"partial")
         val store=MoodleStore(app)
-        val course=store.lectureCourse(id) ?: return finish(choices,id,"no_course")
+        val site=store.lectureBase(id)
+        val client=MoodleClient.of(site)
+        // Resolve Moodle course either from per-lecture link (AutoSync) or from the local Course mapping/rank (recorded lectures).
+        val course=store.lectureCourse(id) ?: run {
+            val localCourse=app.repo.course(l.courseId) ?: return finish(choices,id,"no_course")
+            val mapped=il.ac.tau.lecturesummarizer.sources.SourceMappingStore(app).forName(app,localCourse.name)?.firstOrNull{it.providerId=="moodle"}?.courseId?.takeIf{it>0}
+            val resolved=mapped ?: runCatching{
+                val ranked=MoodleMatch.rank(client.courses(),localCourse.courseNumber,MoodleMatch.kindFromTitle(l.title),localCourse.name)
+                MoodleMatch.confident(ranked)?.id
+            }.getOrNull()
+            if(resolved!=null)store.setLectureSource(id,resolved,l.title)
+            resolved
+        } ?: return finish(choices,id,"no_course")
         try {
             choices.phase(id,"checking")
             val transcript=ApiProvider.get(app.settings).transcript(remote)
             if(transcript==null || !transcript.complete) {
                 choices.phase(id,"partial");return if(runAttemptCount<3)Result.retry()else Result.success()
             }
-            val site=store.lectureBase(id)
-            val client=MoodleClient.of(site)
             val allResources=client.sections(course).flatMap{it.files}.distinctBy{it.cmid}.filter{it.cmid.toString() !in choices.rejected(id)}
             var bytes=0L;var partial=allResources.size>60
             val resources=allResources.take(60).mapNotNull{f->
@@ -107,10 +117,11 @@ class SlideMatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                 }
                 if (applyMatches(result.suggestions.map { it.match }, rangeMap, reason)) return Result.success()
             }
-            // Ambiguous bundle → still auto the single strongest common-word hit when the lecture is empty.
-            if (canAuto && live.allSlides.isEmpty()) {
-                val top = ranked.firstOrNull { it.terms.size >= 4 }
-                val second = ranked.getOrNull(1)?.terms?.size ?: 0
+            // Ambiguous bundle (or unnumbered/skipped-week deck filtered out of sequence) → auto the single strongest transcript hit when empty or carryover.
+            if (canAuto && (live.allSlides.isEmpty() || choices.phase(id) == "carryover")) {
+                val pool = if (ranked.isNotEmpty()) ranked else SlideMatcher.rank(decks, transcript.lines.joinToString(" ") { it.text }, java.time.Instant.ofEpochMilli(l.recordedAtMs).atZone(java.time.ZoneId.of("Asia/Jerusalem")).toLocalDate()).filter { it.terms.isNotEmpty() }
+                val top = pool.firstOrNull { it.terms.size >= 4 }
+                val second = pool.getOrNull(1)?.terms?.size ?: 0
                 if (top != null && top.terms.size > second && applyMatches(listOf(top), emptyMap(), "terms:${top.terms.size}")) {
                     return Result.success()
                 }
@@ -124,6 +135,40 @@ class SlideMatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
     }
     private fun finish(c:SlideChoices,id:String,state:String):Result{c.phase(id,state);return Result.success()}
     companion object {
+        private const val RECENT_WINDOW_MS = 14L * 86_400_000L
+        private const val RECHECK_INTERVAL_MS = 12L * 3_600_000L
+
+        /**
+         * University-cadence sweep (weekly/biweekly classes): re-check recent DONE lectures (last 14d, at most once/12h)
+         * for late-uploaded Moodle slides, and auto-refresh summaries whose slides are genuinely outdated.
+         */
+        fun enqueuePending(app: LectureApp) {
+            if (!AutoSyncStore(app).autoAttach) return
+            val now = System.currentTimeMillis()
+            val choices = SlideChoices(app)
+            val freshness = SummaryFreshness(app)
+            val summaryLevels = app.settings.summaryDensities.filter { SummaryDensity.of(it) != null }
+            val prefs = app.getSharedPreferences("slide_match_recheck", Context.MODE_PRIVATE)
+            var matched = 0
+            for (l in app.repo.lectures.value.sortedByDescending { it.recordedAtMs }) {
+                if (l.state != LectureState.DONE || l.remoteId == null || l.jobId == null) continue
+                // 1) Auto-refresh summaries whose slides changed (equivalent to tapping "Update summary levels").
+                if (summaryLevels.any { freshness.outdated(l, it) } && freshness.state(l.id) !in setOf("queued", "updating", "error")) {
+                    SummaryRefreshWorker.enqueue(app, l.id)
+                }
+                // 2) Re-check recent lectures with missing slides or carryover/no_match (throttled to 12h per lecture).
+                if (now - l.recordedAtMs > RECENT_WINDOW_MS) continue
+                if (choices.isManual(l.id)) continue
+                val ph = choices.phase(l.id)
+                val needsCheck = (l.allSlides.isEmpty() && ph in setOf(null, "", "no_match", "no_course", "partial", "error")) || ph == "carryover"
+                if (!needsCheck) continue
+                if (now - prefs.getLong("at:${l.id}", 0L) < RECHECK_INTERVAL_MS) continue
+                prefs.edit().putLong("at:${l.id}", now).apply()
+                enqueue(app, l.id, again = true)
+                if (++matched >= 3) break // bound Moodle downloads per sweep
+            }
+        }
+
         fun enqueue(ctx:Context,id:String,again:Boolean=false) {
             val c=SlideChoices(ctx)
             if(!AutoSyncStore(ctx).autoAttach){c.phase(id,"disabled");return}

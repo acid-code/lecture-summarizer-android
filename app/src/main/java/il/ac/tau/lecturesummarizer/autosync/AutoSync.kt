@@ -232,7 +232,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val ruleStore=CalendarRuleStore(app)
         val customRules=app.settings.calendarRulesEnabled && ruleStore.prefs.getBoolean("configured",false)
         val matchedEvents=if(customRules)CalendarRules.preview(ruleStore.rules(),CalendarRuleProvider.read(app,ruleStore.sources(),now).events).filter{it.event.start>=from && it.event.end<=now && (il.ac.tau.lecturesummarizer.calendar.CalendarSeriesSelection.pickerRule(it.rule) || (ruleStore.autoApprove && !ruleStore.undone(it)) || CalendarRuleApplier(app).current(it))}else emptyList()
-        val classes=if(customRules)matchedEvents.map{m->TauClass(m.rule.targetCourse,MoodleMatch.kindFromTitle(m.event.title),app.repo.courses.value.firstOrNull{it.name==m.rule.targetCourse}?.courseNumber,null,null,m.event.start,m.event.end,false)}
+        val classes=if(customRules)matchedEvents.map{m->TauClass(m.rule.targetCourse,MoodleMatch.kindFromTitle(m.event.title),app.repo.courses.value.firstOrNull{it.name==m.rule.targetCourse || TauNorm(it.name)==TauNorm(m.rule.targetCourse)}?.courseNumber,null,null,m.event.start,m.event.end,false)}
             else CalendarResolver.pastClasses(app,app.settings.calendarIds,from,now).filter(st::allowed)
         classes.forEach{c->st.track(c,matchedEvents.firstOrNull{it.rule.targetCourse==c.courseName && it.event.start==c.beginMs}?.event?.title ?: c.courseName)}
         val mappingStore=SourceMappingStore(app)
@@ -248,7 +248,10 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val items = AutoSyncPlanner.plan(classes, now, st.retro, st.live, st::status, ::have)
         // mark calendar classes already present so they never re-scan
         classes.filter { st.status(AutoSyncStore.key(it)) == null && have(it) }.forEach { st.setStatus(AutoSyncStore.key(it), "skip") }
-        if (items.isEmpty()) return "Up to date · ${classes.size} classes checked"
+        if (items.isEmpty()) {
+            il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueuePending(app)
+            return "Up to date · ${classes.size} classes checked"
+        }
         val store = MoodleStore(app)
         val client = MoodleClient.of(store.baseUrl)
         val courses by lazy { client.courses() }
@@ -290,8 +293,9 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     if(repo.lectures.value.any{it.panoptoId==picked.id})st.setStatus(it.key,"skip")
                     else hit=MoodleCourse(binding.firstOrNull{it.providerId=="moodle"}?.courseId ?: panConfig?.courseId ?: 0,c.courseName,"","") to PanoptoRecording(picked.id,picked.title,picked.url,picked.start)
                 }
-            }else{
-                // Migrated legacy defaults preserve existing TAU detection. Explicit per-course mappings never fall back here.
+            }
+            if(hit==null && st.status(it.key)!="skip"){
+                // Fallback to TAU MoodleMatch + RecordingMatcher when no explicit mapping matched (or listing was partial).
                 val ranked=MoodleMatch.rank(courses,c.courseNumber,c.kind,c.courseName)
                 val mapped=binding?.firstOrNull{it.providerId=="moodle"}?.courseId?.let{id->courses.firstOrNull{it.id==id}}
                 val pool=(listOfNotNull(mapped,MoodleMatch.confident(ranked))+MoodleMatch.siblings(courses,c.courseNumber)+ranked.take(2).map{r->r.course}).distinctBy{m->m.id}
@@ -344,6 +348,7 @@ class AutoSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         if (remaining > 0 && !st.paused && (started > 0 || lastActive >= MAX_ACTIVE)) {
             enqueueDrain(app, allowCell, inputData.getInt(KEY_DRAIN, 0) + 1)
         }
+        il.ac.tau.lecturesummarizer.slides.SlideMatchWorker.enqueuePending(app)
         return "Started $started · waiting $waiting · not found $missing · queue ${items.size}"
     }
 

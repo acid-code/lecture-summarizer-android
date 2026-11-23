@@ -57,13 +57,20 @@ class CalendarRuleWorker(ctx:Context,params:WorkerParameters):CoroutineWorker(ct
         if(!app.settings.calendarRulesEnabled || !store.automatic || !CalendarResolver.hasPermission(app))return Result.success()
         return try {
             val scan=CalendarRuleAutomation.scan(app)
+            var approvedPast=false
+            val now=System.currentTimeMillis()
             if(store.autoApprove && !scan.truncated)scan.matches.forEach{m->
                 if(!store.automatic || !store.autoApprove || store.undone(m) || store.sources().none{it.id==m.event.calendarId})return@forEach
                 val current=CalendarRules.firstMatch(store.rules(),m.event) ?: return@forEach
                 if(CalendarRuleMatch(m.event,current).fingerprint!=m.fingerprint)return@forEach
-                runCatching{CalendarRuleApplier(app).apply(m)} // Conflicts remain pending for explicit review.
+                val applied=runCatching{CalendarRuleApplier(app).apply(m)}.getOrNull() // Conflicts remain pending for explicit review.
+                if(applied!=null && m.event.end<=now)approvedPast=true
             }
             if(store.autoApprove)store.pending(scan.matches.filterNot{CalendarRuleApplier(app).current(it)})
+            if(approvedPast){
+                val st=il.ac.tau.lecturesummarizer.autosync.AutoSyncStore(app)
+                if((st.retro || st.live) && !st.paused)il.ac.tau.lecturesummarizer.autosync.AutoSyncWorker.runNow(app)
+            }
             Result.success()
         }catch(e:kotlinx.coroutines.CancellationException){throw e}catch(_:Exception){store.prefs.edit().putBoolean("scanError",true).apply();if(runAttemptCount<3)Result.retry()else Result.failure()}
     }

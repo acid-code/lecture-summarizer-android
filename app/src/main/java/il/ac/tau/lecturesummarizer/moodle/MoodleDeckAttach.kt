@@ -86,7 +86,9 @@ object MoodleDeckAttach {
 
         if (attached) {
             choices.auto(lectureId, names.firstOrNull().orEmpty(), (listOf("same_course") + reasons).distinct())
-            choices.phase(lectureId, "done")
+            // Keep carryover open for post-DONE transcript verification in SlideMatchWorker.
+            val onlyCarryover = reasons.size == 1 && reasons.first() == "previous_lecture"
+            choices.phase(lectureId, if (onlyCarryover) "carryover" else "done")
         }
         return attached
     }
